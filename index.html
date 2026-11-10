@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SILVERBOT2 // UNIX — Cyber & Geopolitics Intel</title>
+  <meta name="description" content="Terminal de inteligencia, ciberseguridad y geopolítica con auto-sync de fuentes en castellano y transformador visual.">
+  <link rel="icon" type="image/png" href="assets/silverbot-unix-logo.png">
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&family=Syne:wght@500;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="theme-accent-cyan layout-normal">
+
+  <!-- Lienzo de Polígonos 3D y Malla Geométrica Interactiva -->
+  <canvas id="polygonCanvas" class="polygon-background"></canvas>
+
+  <!-- Superposición de Cuadrícula Minimalista y Crosshairs -->
+  <div class="tech-grid-overlay"></div>
+  <div class="crosshair-marker crosshair-tl">+</div>
+  <div class="crosshair-marker crosshair-tr">+</div>
+  <div class="crosshair-marker crosshair-bl">+</div>
+  <div class="crosshair-marker crosshair-br">+</div>
+
+  <!-- Cinta Superior de Telemetría y Alertas -->
+  <aside class="telemetry-bar" id="breakingBanner">
+    <div class="telemetry-inner">
+      <div class="telemetry-badge">
+        <span class="poly-pulse"></span>
+        <span class="mono-label">INTEL_ALERT // ÚLTIMA HORA</span>
+      </div>
+      <div class="ticker-wrapper">
+        <div class="ticker-content" id="tickerTrack">
+          <span>Iniciando canal seguro de Silverbot2 // Unix...</span>
+        </div>
+      </div>
+      <div class="telemetry-right-metrics">
+        <span class="feed-sync-status-badge" id="autoSyncBadge" title="Estado de fuentes automáticas en castellano">📡 AUTO-SYNC: ON</span>
+        <span class="security-chip" title="Protegido con Scrypt + TimingSafe + RBAC">🔒 SECURE_CORE</span>
+        <div class="system-time-display" id="systemClock">00:00:00 UTC</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Barra de Navegación Principal (HUD Minimalista) -->
+  <header class="hud-navbar">
+    <div class="hud-container">
+
+      <!-- Identidad: Logo del usuario Silverbot2 // Unix -->
+      <div class="identity-module" id="brandResetBtn">
+        <div class="logo-polygon-frame">
+          <img src="assets/silverbot-unix-logo.png" alt="Silverbot2 Unix Logo" class="user-logo-img">
+          <div class="hex-border"></div>
+        </div>
+        <div class="identity-text">
+          <div class="identity-title">
+            <span class="callsign" id="uiPortalTitle">SILVERBOT2</span>
+            <span class="slash-separator">//</span>
+            <span class="subcallsign" id="uiPortalSubcallsign">UNIX</span>
+          </div>
+          <div class="identity-role" id="uiPortalSubtitle">CYBER_DEFENSE & GEOPOLITICS INTEL</div>
+        </div>
+      </div>
+
+      <!-- Buscador de Telemetría -->
+      <div class="search-module">
+        <div class="search-input-shell">
+          <span class="search-prompt">&gt;</span>
+          <input type="text" id="searchInput" placeholder="Filtrar por INCIBE, LinkedIn, CVE, #ransomware, elecciones..." autocomplete="off">
+          <button id="clearSearchBtn" class="poly-clear-btn" title="Limpiar">&times;</button>
+          <span class="search-key-hint">/</span>
+        </div>
+      </div>
+
+      <!-- Módulo de Usuario y Controles -->
+      <div class="control-actions">
+        
+        <!-- Botón Rápido Ingestión LinkedIn -->
+        <button id="openLinkedInModalBtn" class="hud-btn hud-btn-linkedin" title="Importar o sincronizar noticias de LinkedIn">
+          <span class="linkedin-glyph">in</span>
+          <span class="btn-text">INGESTIÓN LINKEDIN</span>
+        </button>
+
+        <!-- Botón Nueva Noticia -->
+        <button id="openNewArticleModalBtn" class="hud-btn hud-btn-action">
+          <span class="btn-cross">+</span>
+          <span class="btn-text">PUBLICAR NOTICIA</span>
+        </button>
+
+        <!-- Botón Panel de Control Admin (Solo visible para Silverbot2 / Admin) -->
+        <button id="openAdminControlBtn" class="hud-btn hud-btn-admin" style="display: none;" title="Abrir Panel de Control & Transformador de la Web">
+          <span class="admin-gear-icon">⚙️</span>
+          <span class="btn-text">PANEL ADMIN</span>
+        </button>
+
+        <!-- Menú de Autenticación / Perfil de Usuario -->
+        <div class="user-session-widget" id="userSessionWidget"></div>
+
+        <!-- Botones de Utilidad -->
+        <button id="themeToggleBtn" class="hud-btn hud-btn-icon" title="Invertir tema Claro/Oscuro">
+          <span class="icon-glyph">◐</span>
+        </button>
+
+        <button id="backupModalBtn" class="hud-btn hud-btn-icon" title="Copia de Seguridad JSON">
+          <span class="icon-glyph">⬡</span>
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- Navegación de Categorías -->
+  <nav class="hud-subnav">
+    <div class="hud-container subnav-row">
+      <div class="poly-tabs" id="categoryTabs">
+        <button class="poly-tab active" data-category="all">
+          <span class="tab-index">//00</span>
+          <span class="tab-name">TODAS LAS NOTICIAS</span>
+          <span class="tab-count" id="countAll">0</span>
+        </button>
+        <button class="poly-tab" data-category="hacking">
+          <span class="tab-index">//01</span>
+          <span class="tab-name">HACKING & CIBERSEGURIDAD</span>
+          <span class="tab-count" id="countHacking">0</span>
+        </button>
+        <button class="poly-tab" data-category="politica">
+          <span class="tab-index">//02</span>
+          <span class="tab-name">POLÍTICA & GEOPOLÍTICA</span>
+          <span class="tab-count" id="countPolitica">0</span>
+        </button>
+        <button class="poly-tab" data-category="tecnopolitica">
+          <span class="tab-index">//03</span>
+          <span class="tab-name">TECNOPOLÍTICA & LEYES</span>
+          <span class="tab-count" id="countTecno">0</span>
+        </button>
+        <button class="poly-tab" data-category="bookmarks">
+          <span class="tab-index">//04</span>
+          <span class="tab-name">GUARDADAS ⭐</span>
+          <span class="tab-count" id="countBookmarks">0</span>
+        </button>
+      </div>
+
+      <!-- Filtro y Clasificación -->
+      <div class="hud-sort-controls">
+        <span class="sort-prefix">ORDEN //</span>
+        <select id="sortSelect" class="hud-select">
+          <option value="recent">MÁS RECIENTES</option>
+          <option value="popular">MÁS LEÍDAS</option>
+          <option value="breaking">URGENTES PRIMERO</option>
+        </select>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Filtro Rápido de Etiquetas / Hashtags -->
+  <section class="tags-matrix">
+    <div class="hud-container tags-row" id="popularTagsBar">
+      <span class="matrix-label">INTEL_TAGS:</span>
+      <button class="poly-chip active" data-tag="all">[ ALL ]</button>
+      <button class="poly-chip" data-tag="incibe">#incibe</button>
+      <button class="poly-chip" data-tag="hispasec">#unaaldia</button>
+      <button class="poly-chip" data-tag="ccn-cert">#ccn-cert</button>
+      <button class="poly-chip" data-tag="linkedin">#linkedin</button>
+      <button class="poly-chip" data-tag="ransomware">#ransomware</button>
+      <button class="poly-chip" data-tag="0-day">#0-day</button>
+      <button class="poly-chip" data-tag="nis2">#nis2</button>
+      <button class="poly-chip" data-tag="elecciones">#elecciones</button>
+    </div>
+  </section>
+
+  <!-- Contenido Central -->
+  <main class="hud-main">
+    <div class="hud-container">
+
+      <!-- Despacho Destacado -->
+      <section class="hero-dispatch-section" id="featuredSection"></section>
+
+      <!-- Encabezado de la Sección de Noticias -->
+      <header class="feed-header-module">
+        <div class="feed-header-left">
+          <span class="feed-prefix">// FEED_ACTIVE</span>
+          <h2 class="feed-title" id="feedTitle">DESPACHOS DE INTELIGENCIA</h2>
+        </div>
+        <div class="feed-header-right">
+          <span class="feed-meta" id="feedMeta">Mostrando flujo de noticias</span>
+        </div>
+      </header>
+
+      <!-- Malla / Grid de Despachos de Noticias -->
+      <div class="dispatches-grid" id="articlesGrid"></div>
+
+      <!-- Estado Vacío -->
+      <div class="empty-intel-box" id="emptyState" style="display: none;">
+        <div class="empty-hud-icon">⬡</div>
+        <h3 class="empty-hud-title">SIN DESPACHOS COINCIDENTES</h3>
+        <p class="empty-hud-msg" id="emptyMessage">No se localizaron registros bajo los parámetros actuales.</p>
+        <div class="empty-hud-actions">
+          <button id="resetFiltersBtn" class="hud-btn hud-btn-outline">REINICIAR FILTROS</button>
+          <button id="emptyCreateBtn" class="hud-btn hud-btn-action">+ REGISTRAR NOTICIA</button>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Pie de Página Terminal -->
+  <footer class="hud-footer">
+    <div class="hud-container footer-content">
+      <div class="footer-left-intel">
+        <div class="footer-brand-title">SILVERBOT2 // UNIX — SECURE INTEL NETWORK</div>
+        <p class="footer-subtitle">Curación automatizada de fuentes en castellano (INCIBE, Hispasec, CCN-CERT) + Ingestión LinkedIn.</p>
+        <div class="footer-status-pill" id="serverStatusBadge">
+          <span class="status-dot"></span>
+          <span id="syncStatusText">Conectando...</span>
+        </div>
+      </div>
+      <div class="footer-right-intel">
+        <div class="keybinds-bar">
+          <span class="key-pill"><kbd>/</kbd> Búsqueda</span>
+          <span class="key-pill"><kbd>N</kbd> Nueva Noticia</span>
+          <span class="key-pill"><kbd>Esc</kbd> Cerrar</span>
+        </div>
+        <div class="footer-coords">NODE_ID: SVB-UNIX-01 // FEEDS: ES_ACTIVE // 2026</div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ==================== MODALES ==================== -->
+
+  <!-- Modal 1: PANEL DE CONTROL ADMIN & TRANSFORMADOR DE LA WEB -->
+  <div class="hud-modal-overlay" id="adminControlModal" style="display: none;">
+    <div class="hud-modal-window modal-wide">
+      <div class="hud-modal-head admin-head">
+        <div class="modal-head-title">
+          <span class="modal-glyph">⚙️</span>
+          <h3>PANEL DE CONTROL ADMIN & TRANSFORMADOR DE LA WEB</h3>
+        </div>
+        <button class="modal-x-btn" id="closeAdminControlBtn">&times;</button>
+      </div>
+
+      <!-- Pestañas del Panel Admin -->
+      <div class="auth-tabs-bar admin-tabs-bar">
+        <button class="auth-tab-btn active" id="adminTabFeedsBtn">📡 FUENTES EN CASTELLANO (AUTO-SYNC)</button>
+        <button class="auth-tab-btn" id="adminTabTransformBtn">🎨 TRANSFORMAR WEB & APARIENCIA</button>
+      </div>
+
+      <!-- Sección 1: Fuentes en Castellano y Sincronización Automática -->
+      <div id="adminFeedsSection" class="hud-modal-body">
+        
+        <div class="admin-sync-hero-box">
+          <div class="sync-info-col">
+            <h4 class="sync-hero-title">Sincronización Automática de Ciberseguridad en Español</h4>
+            <p class="sync-hero-desc">Importa periódicamente avisos oficiales y despachos de seguridad de las principales fuentes españolas (INCIBE, Una al Día, CCN-CERT, HackPlayers).</p>
+            <div class="sync-telemetry-row">
+              <span id="adminLastSyncText">Última sincronización: Comprobando...</span>
+            </div>
+          </div>
+          <div class="sync-actions-col">
+            <button id="adminForceSyncBtn" class="hud-btn hud-btn-action" style="font-weight: 700;">
+              <span>⚡ SINCRONIZAR AHORA</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="admin-config-strip">
+          <div class="admin-config-field">
+            <label class="hud-checkbox-label">
+              <input type="checkbox" id="adminAutoSyncToggle">
+              <span class="poly-check-box"></span>
+              <span><strong>Activar Sincronización Automática de Fondo</strong></span>
+            </label>
+          </div>
+
+          <div class="admin-config-field">
+            <label for="adminSyncIntervalSelect" class="hud-label">INTERVALO DE ACTUALIZACIÓN</label>
+            <select id="adminSyncIntervalSelect" class="hud-select-full">
+              <option value="15">Cada 15 minutos</option>
+              <option value="30">Cada 30 minutos (Recomendado)</option>
+              <option value="60">Cada 1 hora</option>
+              <option value="360">Cada 6 horas</option>
+            </select>
+          </div>
+        </div>
+
+        <h4 class="admin-section-subtitle">FUENTES DE INTELIGENCIA EN CASTELLANO ACTIVAS</h4>
+        <div class="feeds-management-list" id="adminFeedsList">
+          <!-- Renderizado dinámico de fuentes con toggles ON/OFF -->
+        </div>
+
+        <div class="hud-modal-foot">
+          <button type="button" class="hud-btn hud-btn-outline" id="closeAdminModalFooterBtn">CERRAR</button>
+          <button type="button" class="hud-btn hud-btn-action" id="saveAdminFeedsBtn">GUARDAR PREFERENCIAS DE FUENTES</button>
+        </div>
+      </div>
+
+      <!-- Sección 2: Transformador Visual de la Web (Theme & UI Customizer) -->
+      <div id="adminTransformSection" class="hud-modal-body" style="display: none;">
+        
+        <!-- 1. Color de Acento Neón -->
+        <div class="transform-block">
+          <label class="hud-label">COLOR DE ACENTO NEÓN / CIBER-TEMA</label>
+          <p class="transform-hint">Transforma la paleta cromática de toda la web en tiempo real:</p>
+          <div class="accent-color-picker-grid" id="accentColorPicker">
+            <button type="button" class="accent-color-btn active" data-accent="cyan" style="--c: #38bdf8;">
+              <span class="color-dot"></span>
+              <span class="color-name">Cian Láser</span>
+            </button>
+            <button type="button" class="accent-color-btn" data-accent="emerald" style="--c: #10b981;">
+              <span class="color-dot"></span>
+              <span class="color-name">Matrix Verde</span>
+            </button>
+            <button type="button" class="accent-color-btn" data-accent="amber" style="--c: #fbbf24;">
+              <span class="color-dot"></span>
+              <span class="color-name">Ámbar 2077</span>
+            </button>
+            <button type="button" class="accent-color-btn" data-accent="crimson" style="--c: #f43f5e;">
+              <span class="color-dot"></span>
+              <span class="color-name">Carmesí Táctico</span>
+            </button>
+            <button type="button" class="accent-color-btn" data-accent="silver" style="--c: #e2e8f0;">
+              <span class="color-dot"></span>
+              <span class="color-name">Plata Titanio</span>
+            </button>
+            <button type="button" class="accent-color-btn" data-accent="indigo" style="--c: #818cf8;">
+              <span class="color-dot"></span>
+              <span class="color-name">Índigo Real</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. Motor de Polígonos 3D de Fondo -->
+        <div class="transform-block">
+          <label class="hud-label">DENSIDAD Y MOVIMIENTO DE LA MALLA DE POLÍGONOS</label>
+          <p class="transform-hint">Configura la complejidad de los polígonos 3D que flotan en el fondo:</p>
+          <div class="polygon-mode-selector" id="polygonModeSelector">
+            <button type="button" class="poly-mode-chip active" data-poly="normal">Equilibrado (Normal)</button>
+            <button type="button" class="poly-mode-chip" data-poly="dense">Alta Densidad (Malla Compleja)</button>
+            <button type="button" class="poly-mode-chip" data-poly="minimal">Minimalista (Líneas Sutiles)</button>
+            <button type="button" class="poly-mode-chip" data-poly="paused">Pausar Movimiento</button>
+          </div>
+        </div>
+
+        <!-- 3. Título y Callsign del Portal -->
+        <div class="transform-block">
+          <label class="hud-label">IDENTIDAD DEL TERMINAL (CALLSIGN & SUBTÍTULO)</label>
+          <div class="form-grid-2" style="margin-top: 8px;">
+            <div class="form-field">
+              <label for="adminPortalTitleInput" class="hud-label">CALLSIGN PRINCIPAL</label>
+              <input type="text" id="adminPortalTitleInput" class="hud-input" value="SILVERBOT2">
+            </div>
+            <div class="form-field">
+              <label for="adminPortalSubcallsignInput" class="hud-label">SUB-CALLSIGN</label>
+              <input type="text" id="adminPortalSubcallsignInput" class="hud-input" value="UNIX">
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="adminPortalSubtitleInput" class="hud-label">SUBTÍTULO / DESCRIPCIÓN DEL ROL</label>
+            <input type="text" id="adminPortalSubtitleInput" class="hud-input" value="CYBER_DEFENSE & GEOPOLITICS INTEL">
+          </div>
+        </div>
+
+        <!-- 4. Disposición de Tarjetas (Layout Mode) -->
+        <div class="transform-block">
+          <label class="hud-label">DISPOSICIÓN DE LA CUADRÍCULA DE NOTICIAS</label>
+          <div class="layout-mode-selector" id="layoutModeSelector">
+            <button type="button" class="layout-mode-btn active" data-layout="normal">
+              <span>Malla 3 Columnas (Biselado)</span>
+            </button>
+            <button type="button" class="layout-mode-btn" data-layout="compact">
+              <span>Modo Consola Compacto</span>
+            </button>
+            <button type="button" class="layout-mode-btn" data-layout="editorial">
+              <span>Editorial Panorámico (2 Columnas)</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="hud-modal-foot">
+          <button type="button" class="hud-btn hud-btn-outline" id="cancelTransformBtn">DESCARTAR</button>
+          <button type="button" class="hud-btn hud-btn-action" id="applyTransformBtn">
+            <span>APLICAR TRANSFORMACIÓN A LA WEB</span>
+            <span class="btn-arrow">⚡</span>
+          </button>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Modal 2: Autenticación Segura (Login & Registro) -->
+  <div class="hud-modal-overlay" id="authModal" style="display: none;">
+    <div class="hud-modal-window">
+      <div class="hud-modal-head">
+        <div class="modal-head-title">
+          <span class="modal-glyph">🔒</span>
+          <h3 id="authModalTitle">CONTROL DE ACCESO SEGURO</h3>
+        </div>
+        <button class="modal-x-btn" id="closeAuthModalBtn">&times;</button>
+      </div>
+
+      <div class="auth-tabs-bar">
+        <button class="auth-tab-btn active" id="tabLoginBtn">INICIAR SESIÓN</button>
+        <button class="auth-tab-btn" id="tabRegisterBtn">REGISTRAR ANALISTA</button>
+      </div>
+
+      <form id="loginForm" class="hud-modal-body">
+        <div class="security-banner">
+          <span class="sec-icon">🛡️</span>
+          <span>Protección activa con derivación de clave Scrypt, hashes de 512 bits y prevención de timing attacks.</span>
+        </div>
+
+        <div class="form-field">
+          <label for="loginUsername" class="hud-label required">NOMBRE DE USUARIO</label>
+          <input type="text" id="loginUsername" class="hud-input" placeholder="ej: silverbot2" required autocomplete="username">
+        </div>
+
+        <div class="form-field">
+          <label for="loginPassword" class="hud-label required">CONTRASEÑA CRIPTOGRÁFICA</label>
+          <input type="password" id="loginPassword" class="hud-input" placeholder="••••••••••••" required autocomplete="current-password">
+        </div>
+
+        <div class="admin-seed-hint">
+          <span>Credencial Administrador inicial: <code>silverbot2</code> / <code>Silverbot2@2026!</code></span>
+        </div>
+
+        <div class="hud-modal-foot">
+          <button type="button" class="hud-btn hud-btn-outline" id="cancelAuthBtn">CANCELAR</button>
+          <button type="submit" class="hud-btn hud-btn-action" id="submitLoginBtn">
+            <span>AUTENTICARSE</span>
+            <span class="btn-arrow">→</span>
+          </button>
+        </div>
+      </form>
+
+      <form id="registerForm" class="hud-modal-body" style="display: none;">
+        <div class="form-grid-2">
+          <div class="form-field">
+            <label for="regUsername" class="hud-label required">USUARIO (NICK)</label>
+            <input type="text" id="regUsername" class="hud-input" placeholder="ej: analista_01" required>
+          </div>
+          <div class="form-field">
+            <label for="regDisplayName" class="hud-label required">NOMBRE PÚBLICO O ALIAS</label>
+            <input type="text" id="regDisplayName" class="hud-input" placeholder="ej: John Doe // SecOps" required>
+          </div>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="form-field">
+            <label for="regPassword" class="hud-label required">CONTRASEÑA (MÍNIMO 8 CARACTERES)</label>
+            <input type="password" id="regPassword" class="hud-input" placeholder="Mínimo 8 caracteres seguros" required>
+          </div>
+          <div class="form-field">
+            <label for="regLinkedIn" class="hud-label">PERFIL DE LINKEDIN</label>
+            <input type="url" id="regLinkedIn" class="hud-input" placeholder="https://www.linkedin.com/in/usuario">
+          </div>
+        </div>
+
+        <div class="hud-modal-foot">
+          <button type="button" class="hud-btn hud-btn-outline" id="cancelRegisterBtn">CANCELAR</button>
+          <button type="submit" class="hud-btn hud-btn-action" id="submitRegisterBtn">
+            <span>CREAR CUENTA SEGURA</span>
+            <span class="btn-arrow">→</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 3: Ingestión Automática de LinkedIn -->
+  <div class="hud-modal-overlay" id="linkedInModal" style="display: none;">
+    <div class="hud-modal-window modal-wide">
+      <div class="hud-modal-head">
+        <div class="modal-head-title">
+          <span class="linkedin-blue-glyph">in</span>
+          <h3>INGESTIÓN AUTOMÁTICA DE NOTICIAS DE LINKEDIN</h3>
+        </div>
+        <button class="modal-x-btn" id="closeLinkedInModalBtn">&times;</button>
+      </div>
+
+      <div class="hud-modal-body">
+        <div class="linkedin-intro-box">
+          <p>Pega el enlace o texto de cualquier publicación de LinkedIn. El motor clasifica automáticamente la categoría, extrae hashtags y la publica atribuida a tu cuenta con verificación.</p>
+        </div>
+
+        <form id="linkedInIngestionForm">
+          <div class="form-field">
+            <label for="lnPostUrl" class="hud-label">ENLACE DEL POST DE LINKEDIN (URL)</label>
+            <input type="url" id="lnPostUrl" class="hud-input" placeholder="https://www.linkedin.com/posts/...">
+          </div>
+
+          <div class="form-field">
+            <label for="lnPostText" class="hud-label required">TEXTO O EXTRACTO DE LA PUBLICACIÓN DE LINKEDIN</label>
+            <textarea id="lnPostText" class="hud-textarea" rows="6" placeholder="Pega el texto del post..." required></textarea>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-field">
+              <label for="lnCustomTitle" class="hud-label">TÍTULO PERSONALIZADO (OPCIONAL)</label>
+              <input type="text" id="lnCustomTitle" class="hud-input" placeholder="Auto-generar desde el texto si se deja vacío">
+            </div>
+            <div class="form-field">
+              <label for="lnCategoryHint" class="hud-label">CATEGORÍA SUGERIDA</label>
+              <select id="lnCategoryHint" class="hud-select-full">
+                <option value="hacking">🛡️ Hacking & Ciberseguridad</option>
+                <option value="politica">🏛️ Política & Geopolítica</option>
+                <option value="tecnopolitica">⚡ Tecnopolítica & Leyes</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="hud-checkbox-label" style="margin-bottom: 16px;">
+            <input type="checkbox" id="lnIsBreaking">
+            <span>🔥 Marcar como <strong>ÚLTIMA HORA</strong></span>
+          </div>
+
+          <div class="hud-modal-foot">
+            <button type="button" class="hud-btn hud-btn-outline" id="closeLnBtn">CANCELAR</button>
+            <button type="submit" class="hud-btn hud-btn-action" id="submitLnIngestBtn">
+              <span>PROCESAR E INGRESAR AL TERMINAL</span>
+              <span class="btn-arrow">→</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 4: Directorio de Usuarios -->
+  <div class="hud-modal-overlay" id="usersDirectoryModal" style="display: none;">
+    <div class="hud-modal-window modal-wide">
+      <div class="hud-modal-head">
+        <div class="modal-head-title">
+          <span class="modal-glyph">👥</span>
+          <h3>DIRECTORIO DE ANALISTAS Y CUENTAS VINCULADAS</h3>
+        </div>
+        <button class="modal-x-btn" id="closeUsersModalBtn">&times;</button>
+      </div>
+
+      <div class="hud-modal-body">
+        <div id="usersDirectoryList" class="users-grid-container"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 5: Publicar / Editar Noticia Manualmente -->
+  <div class="hud-modal-overlay" id="articleFormModal" style="display: none;">
+    <div class="hud-modal-window modal-wide">
+      <div class="hud-modal-head">
+        <div class="modal-head-title">
+          <span class="modal-glyph">⬢</span>
+          <h3 id="formModalTitle">REGISTRAR NUEVA NOTICIA DE INTELIGENCIA</h3>
+        </div>
+        <button class="modal-x-btn" id="closeFormModalBtn">&times;</button>
+      </div>
+
+      <form id="articleForm" class="hud-modal-body">
+        <input type="hidden" id="editArticleId">
+
+        <div class="form-grid-2">
+          <div class="form-field">
+            <label for="formTitle" class="hud-label required">TÍTULO DEL DESPACHO</label>
+            <input type="text" id="formTitle" class="hud-input" placeholder="Ej: Nueva campaña de phishing en LinkedIn" required>
+          </div>
+          <div class="form-field">
+            <label for="formCategory" class="hud-label required">CATEGORÍA</label>
+            <select id="formCategory" class="hud-select-full" required>
+              <option value="hacking">🛡️ Hacking & Ciberseguridad</option>
+              <option value="politica">🏛️ Política & Geopolítica</option>
+              <option value="tecnopolitica">⚡ Tecnopolítica & Leyes</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="form-field">
+            <label for="formSourceName" class="hud-label required">FUENTE ORIGINAL</label>
+            <input type="text" id="formSourceName" class="hud-input" placeholder="Ej: INCIBE / LinkedIn / The Hacker News" required>
+            <div class="source-shortcuts">
+              <span class="sc-label">Rápidos:</span>
+              <button type="button" class="sc-chip" data-source="INCIBE">INCIBE</button>
+              <button type="button" class="sc-chip" data-source="Una al Día (Hispasec)">Una al Día</button>
+              <button type="button" class="sc-chip" data-source="CCN-CERT">CCN-CERT</button>
+              <button type="button" class="sc-chip" data-source="LinkedIn">LinkedIn</button>
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="formSourceUrl" class="hud-label">ENLACE URL DIRECTO</label>
+            <input type="url" id="formSourceUrl" class="hud-input" placeholder="https://...">
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label class="hud-label">IMAGEN TÉCNICA DE CABECERA</label>
+          <div class="image-field-wrap">
+            <input type="url" id="formImageUrl" class="hud-input" placeholder="URL de la imagen o selecciona un preset temático">
+            <button type="button" class="hud-btn hud-btn-outline" id="previewImgBtn">VER</button>
+          </div>
+          <div class="image-presets-strip">
+            <span class="sc-label">Presets:</span>
+            <button type="button" class="sc-chip preset-img-btn" data-img="https://images.unsplash.com/photo-1563986768609-322da13575f3?auto=format&fit=crop&w=1200&q=80">💻 Phishing / LinkedIn</button>
+            <button type="button" class="sc-chip preset-img-btn" data-img="https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=1200&q=80">🛡️ Terminal Hacker</button>
+            <button type="button" class="sc-chip preset-img-btn" data-img="https://images.unsplash.com/photo-1541872703-74c5e44368f9?auto=format&fit=crop&w=1200&q=80">🏛️ Parlamento / Leyes</button>
+            <button type="button" class="sc-chip preset-img-btn" data-img="https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=1200&q=80">🌐 Cloud / Servidores</button>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label for="formSummary" class="hud-label required">RESUMEN / SÍNTESIS EJECUTIVA</label>
+          <textarea id="formSummary" class="hud-textarea" rows="2" placeholder="Extracto conciso..." required></textarea>
+        </div>
+
+        <div class="form-field">
+          <label for="formContent" class="hud-label required">CONTENIDO DEL DESPACHO</label>
+          <textarea id="formContent" class="hud-textarea" rows="6" placeholder="Pega el contenido..." required></textarea>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="form-field">
+            <label for="formTags" class="hud-label">ETIQUETAS</label>
+            <input type="text" id="formTags" class="hud-input" placeholder="incibe, ciberseguridad, ransomware">
+          </div>
+          <div class="form-field">
+            <label for="formReadTime" class="hud-label">TIEMPO ESTIMADO</label>
+            <input type="text" id="formReadTime" class="hud-input" placeholder="ej: 3 min">
+          </div>
+        </div>
+
+        <div class="form-checks-row">
+          <label class="hud-checkbox-label">
+            <input type="checkbox" id="formIsBreaking">
+            <span class="poly-check-box"></span>
+            <span>🔥 Marcar como <strong>ÚLTIMA HORA</strong></span>
+          </label>
+          <label class="hud-checkbox-label">
+            <input type="checkbox" id="formIsFeatured">
+            <span class="poly-check-box"></span>
+            <span>⭐ Marcar como <strong>DESPACHO DESTACADO</strong> (Solo Admin)</span>
+          </label>
+        </div>
+
+        <div class="hud-modal-foot">
+          <button type="button" class="hud-btn hud-btn-outline" id="cancelFormBtn">CANCELAR</button>
+          <button type="submit" class="hud-btn hud-btn-action" id="saveArticleBtn">
+            <span>PUBLICAR DESPACHO</span>
+            <span class="btn-arrow">→</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 6: Visor de Despacho Completo -->
+  <div class="hud-modal-overlay" id="readerModal" style="display: none;">
+    <div class="hud-modal-window modal-reader">
+      <div class="hud-modal-head reader-head">
+        <div class="reader-badges" id="readerBadges"></div>
+        <div class="reader-ctrls">
+          <button class="hud-btn hud-btn-icon" id="readerBookmarkBtn" title="Guardar">
+            <span>⭐</span>
+          </button>
+          <button class="hud-btn hud-btn-icon" id="readerShareBtn" title="Compartir">
+            <span>⎘</span>
+          </button>
+          <button class="modal-x-btn" id="closeReaderModalBtn">&times;</button>
+        </div>
+      </div>
+
+      <div class="reader-scrollable-body" id="readerContentArea"></div>
+    </div>
+  </div>
+
+  <!-- Modal 7: Copias de Seguridad JSON -->
+  <div class="hud-modal-overlay" id="backupModal" style="display: none;">
+    <div class="hud-modal-window">
+      <div class="hud-modal-head">
+        <div class="modal-head-title">
+          <span class="modal-glyph">💾</span>
+          <h3>RESPALDO Y GESTIÓN DE DATOS</h3>
+        </div>
+        <button class="modal-x-btn" id="closeBackupModalBtn">&times;</button>
+      </div>
+
+      <div class="hud-modal-body">
+        <div class="backup-item-box">
+          <div>
+            <div class="backup-item-title">EXPORTAR DESPACHOS (BACKUP)</div>
+            <div class="backup-item-desc">Descarga una copia de todas tus noticias.</div>
+          </div>
+          <button id="exportJsonBtn" class="hud-btn hud-btn-outline">DESCARGAR JSON</button>
+        </div>
+
+        <div class="backup-item-box">
+          <div>
+            <div class="backup-item-title">IMPORTAR DESPACHOS</div>
+            <div class="backup-item-desc">Restaura noticias previas (Solo Admin).</div>
+          </div>
+          <label class="hud-btn hud-btn-action file-label-btn">
+            SELECCIONAR ARCHIVO
+            <input type="file" id="importJsonFileInput" accept=".json" style="display: none;">
+          </label>
+        </div>
+
+        <div class="backup-item-box danger-box">
+          <div>
+            <div class="backup-item-title">RESTAURAR DEMO INICIAL</div>
+            <div class="backup-item-desc">Carga el paquete inicial de noticias.</div>
+          </div>
+          <button id="resetDemoBtn" class="hud-btn hud-btn-danger">RESTABLECER DEMO</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Contenedor Toast -->
+  <div class="hud-toast-container" id="toastContainer"></div>
+
+  <!-- Scripts -->
+  <script src="js/polygons.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,45 @@
+{
+  "autoSyncEnabled": true,
+  "syncIntervalMinutes": 30,
+  "lastSync": "2026-11-10T10:45:00.000Z",
+  "themeAccent": "cyan",
+  "polygonDensity": "normal",
+  "portalTitle": "SILVERBOT2",
+  "portalSubcallsign": "UNIX",
+  "portalSubtitle": "CYBER_DEFENSE & GEOPOLITICS INTEL",
+  "layoutMode": "normal",
+  "feeds": [
+    {
+      "id": "feed-incibe",
+      "name": "INCIBE — Avisos y Vulnerabilidades",
+      "url": "https://www.incibe.es/feed/avisos/all",
+      "category": "hacking",
+      "language": "es",
+      "enabled": true
+    },
+    {
+      "id": "feed-unaaldia",
+      "name": "Una al Día — Hispasec Ciberseguridad",
+      "url": "https://unaaldia.hispasec.com/feed",
+      "category": "hacking",
+      "language": "es",
+      "enabled": true
+    },
+    {
+      "id": "feed-ccn",
+      "name": "CCN-CERT — Centro Criptológico Nacional",
+      "url": "https://www.ccn-cert.cni.es/es/avisos-ccn-cert.html?format=feed&type=rss",
+      "category": "tecnopolitica",
+      "language": "es",
+      "enabled": true
+    },
+    {
+      "id": "feed-hackplayers",
+      "name": "HackPlayers — Ciberseguridad e Investigación",
+      "url": "https://www.hackplayers.com/feeds/posts/default?alt=rss",
+      "category": "hacking",
+      "language": "es",
+      "enabled": true
+    }
+  ]
+}

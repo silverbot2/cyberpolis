@@ -1,0 +1,26 @@
+[
+  {
+    "id": "usr-admin-01",
+    "username": "silverbot2",
+    "displayName": "Silverbot2 // Unix",
+    "email": "silverbot2@cyberpolis.local",
+    "role": "admin",
+    "linkedInProfile": "https://www.linkedin.com/in/silverbot2",
+    "avatar": "assets/silverbot-unix-logo.png",
+    "salt": "d707b578dcf45dc48bde62e7fbaef936",
+    "hash": "c71b7ad4b352dc11e914e72075459d90cd18b99fb3a325f5c4035245c3f1d42a83086a08bd8c145023f94be196345981484abc62e76a4bf190653e4b2853e9d6",
+    "createdAt": "2026-11-10T10:00:00.000Z"
+  },
+  {
+    "id": "usr-1794304521562",
+    "username": "unix",
+    "displayName": "Antinoo",
+    "email": "unix@cyberpolis.local",
+    "role": "analyst",
+    "linkedInProfile": "https://www.linkedin.com/in/un1xbuntu/",
+    "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80",
+    "salt": "7c38a0f7f4c58347489fabc93d73a5ae",
+    "hash": "bde713eba2f31fae7f28202aa5157a7da477c1be07bc7f6775c540c1397615f67bcd11db8d20aa9fdcad81e362133f860468a38371452705643e6aecf873db12",
+    "createdAt": "2026-11-10T09:55:21.562Z"
+  }
+]
