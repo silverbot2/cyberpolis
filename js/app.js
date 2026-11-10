@@ -747,7 +747,7 @@
     }
 
     // Modo local offline
-    if (username.toLowerCase() === 'silverbot2' && password === 'Silverbot2@2026!') {
+    if (username.toLowerCase() === 'silverbot2' && password === 'Scaceres2$') {
       const mockUser = {
         id: "usr-admin-01",
         username: "silverbot2",

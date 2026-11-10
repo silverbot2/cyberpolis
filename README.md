@@ -67,7 +67,6 @@ Puedes cambiar la estética de todo el portal en vivo y guardarlo para todos los
 
 ---
 
-## 👤 Credenciales del Usuario Administrador
-- **Usuario**: `silverbot2`
-- **Contraseña**: `Silverbot2@2026!`
-- **Criptografía**: Hashing Scrypt con salt de 16 bytes y comparación en tiempo constante (protegido contra timing attacks y fuerza bruta).
+## 👤 Seguridad y Control de Acceso
+- **Autenticación**: Hashing criptográfico Scrypt con salt aleatorio de 16 bytes y comparación en tiempo constante `crypto.timingSafeEqual`.
+- **Protección**: Rate limiting activo contra ataques de fuerza bruta y sesiones firmadas de 256 bits.

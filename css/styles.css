@@ -1816,19 +1816,7 @@ kbd {
   margin-bottom: 16px;
 }
 
-.admin-seed-hint {
-  padding: 8px 12px;
-  background: var(--bg-void);
-  border: 1px solid var(--border-hairline);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  margin-top: 10px;
-}
 
-.admin-seed-hint code {
-  color: var(--accent-cyan);
-}
 
 /* --------------------------------------------------------------------------
    17. Modal de Ingestión de LinkedIn
