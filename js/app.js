@@ -1086,6 +1086,12 @@
           const data = await res.json();
           if (Array.isArray(data) && data.length > 0) {
             state.articles = data;
+            state.articles.forEach(a => {
+              if (!a.imageUrl || a.imageUrl.includes('unsplash.com')) {
+                a.imageUrl = createIntelSVG(a.sourceName, a.category, a.title);
+              }
+            });
+            saveLocalArticles();
             return;
           }
         }
@@ -1101,6 +1107,17 @@
       }
     } else {
       state.articles = DEFAULT_SEED_ARTICLES;
+    }
+
+    // Auto-sanitización de caché local: sustituir cualquier imagen obsoleta de Unsplash por insignias de inteligencia
+    let changed = false;
+    state.articles.forEach(a => {
+      if (!a.imageUrl || a.imageUrl.includes('unsplash.com')) {
+        a.imageUrl = createIntelSVG(a.sourceName, a.category, a.title);
+        changed = true;
+      }
+    });
+    if (changed || !stored) {
       saveLocalArticles();
     }
   }
