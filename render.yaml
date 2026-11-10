@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: cyberpolis
+    env: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm install --production=false
+    startCommand: node server.js
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
