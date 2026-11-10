@@ -207,10 +207,11 @@ body {
 .ticker-content {
   display: inline-block;
   white-space: nowrap;
-  animation: ticker-scroll 32s linear infinite;
+  animation: ticker-scroll 95s linear infinite;
   font-family: var(--font-mono);
   font-size: 0.78rem;
   color: var(--text-silver);
+  will-change: transform;
 }
 
 .ticker-content:hover {

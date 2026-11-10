@@ -40,6 +40,61 @@
     activeReaderArticle: null
   };
 
+  // Generador de insignias de inteligencia vectoriales (sustituye fotos genéricas por gráficos de inteligencia técnica)
+  function createIntelSVG(sourceName, category, title = '') {
+    const isPol = category === 'politica' || category === 'tecnopolitica';
+    const accent = isPol ? '#f59e0b' : '#38bdf8';
+    const badge = String(sourceName || 'CYBERPOLIS INTEL').toUpperCase().replace(/[<>"'&]/g, '');
+    const subCategory = isPol ? 'GEOPOLÍTICA & POLÍTICA DIGITAL' : 'CIBERSEGURIDAD & THREAT INTEL';
+    const safeTitle = String(title || 'DESPACHO DE INTELIGENCIA TÉCNICA').slice(0, 48).toUpperCase().replace(/[<>"'&]/g, '');
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450">
+      <defs>
+        <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#04070d"/>
+          <stop offset="50%" stop-color="#070e1a"/>
+          <stop offset="100%" stop-color="#0a1526"/>
+        </linearGradient>
+        <pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse">
+          <path d="M 36 0 L 0 0 0 36" fill="none" stroke="${accent}" stroke-opacity="0.08" stroke-width="1"/>
+        </pattern>
+      </defs>
+      <rect width="800" height="450" fill="url(#bg)"/>
+      <rect width="800" height="450" fill="url(#grid)"/>
+      <rect x="0" y="0" width="800" height="4" fill="${accent}"/>
+      
+      <!-- Esquinas HUD -->
+      <path d="M 28 42 L 28 28 L 42 28" fill="none" stroke="${accent}" stroke-width="2"/>
+      <path d="M 772 42 L 772 28 L 758 28" fill="none" stroke="${accent}" stroke-width="2"/>
+      <path d="M 28 408 L 28 422 L 42 422" fill="none" stroke="${accent}" stroke-width="2"/>
+      <path d="M 772 408 L 772 422 L 758 422" fill="none" stroke="${accent}" stroke-width="2"/>
+      
+      <!-- Header -->
+      <text x="50" y="58" font-family="'Space Grotesk', 'Courier New', monospace" font-size="14" font-weight="700" fill="${accent}" letter-spacing="2">// ${badge}</text>
+      <circle cx="730" cy="54" r="4" fill="${accent}"/>
+      <text x="742" y="58" font-family="'Space Grotesk', 'Courier New', monospace" font-size="11" fill="#94a3b8" letter-spacing="1">OFICIAL</text>
+      
+      <!-- Centro Visual Gráfico -->
+      <circle cx="400" cy="210" r="110" fill="none" stroke="${accent}" stroke-opacity="0.12" stroke-width="1" stroke-dasharray="6 6"/>
+      <circle cx="400" cy="210" r="75" fill="none" stroke="${accent}" stroke-opacity="0.25" stroke-width="1.5"/>
+      <path d="M 400 155 L 440 180 L 440 230 L 400 265 L 360 230 L 360 180 Z" fill="none" stroke="${accent}" stroke-width="2.5"/>
+      <line x1="400" y1="180" x2="400" y2="240" stroke="${accent}" stroke-width="2"/>
+      <line x1="375" y1="210" x2="425" y2="210" stroke="${accent}" stroke-width="2"/>
+      <circle cx="400" cy="210" r="5" fill="${accent}"/>
+      
+      <!-- Subtítulo e Indicador -->
+      <text x="400" y="315" text-anchor="middle" font-family="'Space Grotesk', 'Courier New', monospace" font-size="13" font-weight="700" fill="#f8fafc" letter-spacing="3">${safeTitle}</text>
+      <text x="400" y="340" text-anchor="middle" font-family="'Space Grotesk', 'Courier New', monospace" font-size="11" fill="${accent}" letter-spacing="2">${subCategory}</text>
+      
+      <!-- Telemetría Inferior -->
+      <line x1="50" y1="390" x2="750" y2="390" stroke="${accent}" stroke-opacity="0.2" stroke-width="1"/>
+      <text x="50" y="415" font-family="'Space Grotesk', 'Courier New', monospace" font-size="10" fill="#64748b" letter-spacing="1">CYBERPOLIS INTEL NETWORK // ES</text>
+      <text x="750" y="415" text-anchor="end" font-family="'Space Grotesk', 'Courier New', monospace" font-size="10" fill="#94a3b8" letter-spacing="1">SIGINT // AVISO TÉCNICO</text>
+    </svg>`;
+
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  }
+
   const DEFAULT_SEED_ARTICLES = [
     {
       id: "svb-001",
@@ -54,7 +109,7 @@
       authorId: "usr-admin-01",
       verifiedLinkedIn: true,
       date: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
-      imageUrl: "https://images.unsplash.com/photo-1563986768609-322da13575f3?auto=format&fit=crop&w=1200&q=80",
+      imageUrl: createIntelSVG('LinkedIn // Threat Intel', 'hacking', 'ALERTA PHISHING & INFOSTEALERS'),
       tags: ["linkedin", "phishing", "infostealer", "ingeniería-social", "malware"],
       isBreaking: true,
       isFeatured: true,
@@ -74,7 +129,7 @@
       verifiedLinkedIn: false,
       isAutoFeed: true,
       date: new Date(Date.now() - 1000 * 60 * 50).toISOString(),
-      imageUrl: "https://images.unsplash.com/photo-1563986768609-322da13575f3?auto=format&fit=crop&w=1200&q=80",
+      imageUrl: createIntelSVG('INCIBE — Avisos de Seguridad', 'hacking', 'ALERTA SMISHING AGENCIA TRIBUTARIA'),
       tags: ["incibe", "ciberseguridad", "smishing", "phishing", "malware"],
       isBreaking: true,
       isFeatured: false,
@@ -94,7 +149,7 @@
       authorId: "usr-admin-01",
       verifiedLinkedIn: true,
       date: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
-      imageUrl: "https://images.unsplash.com/photo-1541872703-74c5e44368f9?auto=format&fit=crop&w=1200&q=80",
+      imageUrl: createIntelSVG('Comisión Europea // NIS2', 'politica', 'DIRECTIVA NIS2 — SUPERVISIÓN Y MULTAS'),
       tags: ["nis2", "union-europea", "legislacion", "politica", "normativa"],
       isBreaking: false,
       isFeatured: true,
@@ -114,7 +169,7 @@
       verifiedLinkedIn: false,
       isAutoFeed: true,
       date: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-      imageUrl: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=1200&q=80",
+      imageUrl: createIntelSVG('Una al Día (Hispasec)', 'hacking', 'VULNERABILIDAD KERNEL LINUX ROOT'),
       tags: ["unaaldia", "hispasec", "linux", "0-day", "kernel"],
       isBreaking: false,
       isFeatured: false,
@@ -134,7 +189,7 @@
       verifiedLinkedIn: false,
       isAutoFeed: true,
       date: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
-      imageUrl: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=1200&q=80",
+      imageUrl: createIntelSVG('CCN-CERT // CNI', 'tecnopolitica', 'GUÍA DE MEDIDAS URGENTES NIS2'),
       tags: ["ccn-cert", "cni", "nis2", "tecnopolitica", "ciberdefensa"],
       isBreaking: false,
       isFeatured: false,
@@ -935,7 +990,7 @@
       category: categoryHint,
       sourceName: `LinkedIn // ${state.currentUser.displayName}`,
       sourceUrl: rawUrl || state.currentUser.linkedInProfile || 'https://www.linkedin.com',
-      imageUrl: 'https://images.unsplash.com/photo-1563986768609-322da13575f3?auto=format&fit=crop&w=1200&q=80',
+      imageUrl: createIntelSVG(`LinkedIn // ${state.currentUser.displayName}`, categoryHint, title),
       summary,
       content: postText,
       tags: extractedTags.slice(0, 5),
@@ -1212,7 +1267,7 @@
     return `
       <article class="hero-dispatch-card" data-id="${a.id}">
         <div class="hero-image-chamber">
-          <img src="${escapeHtml(a.imageUrl || getDefaultImage(a.category))}" alt="${escapeHtml(a.title)}" class="hero-image" loading="lazy">
+          <img src="${escapeHtml(a.imageUrl || getDefaultImage(a.category, a.sourceName, a.title))}" alt="${escapeHtml(a.title)}" class="hero-image" loading="lazy" onerror="this.onerror=null; this.src='${escapeHtml(getDefaultImage(a.category, a.sourceName, a.title))}';">
           <div class="hero-image-overlay"></div>
         </div>
         <div class="hero-content-chamber">
@@ -1273,7 +1328,7 @@
     return `
       <article class="dispatch-card" data-id="${a.id}">
         <div class="dispatch-image-box">
-          <img src="${escapeHtml(a.imageUrl || getDefaultImage(a.category))}" alt="${escapeHtml(a.title)}" class="dispatch-img" loading="lazy">
+          <img src="${escapeHtml(a.imageUrl || getDefaultImage(a.category, a.sourceName, a.title))}" alt="${escapeHtml(a.title)}" class="dispatch-img" loading="lazy" onerror="this.onerror=null; this.src='${escapeHtml(getDefaultImage(a.category, a.sourceName, a.title))}';">
           <div class="dispatch-card-badges">
             <span class="intel-badge ${catClass}">${catName}</span>
             <button class="bookmark-toggle-btn ${isBookmarked ? 'bookmarked' : ''}" data-action="bookmark" title="Guardar">
@@ -1375,7 +1430,7 @@
     const formattedBody = formatArticleBody(article.content);
 
     DOM.readerContentArea.innerHTML = `
-      ${article.imageUrl ? `<img src="${escapeHtml(article.imageUrl)}" alt="${escapeHtml(article.title)}" class="reader-cover-img">` : ''}
+      ${article.imageUrl ? `<img src="${escapeHtml(article.imageUrl)}" alt="${escapeHtml(article.title)}" class="reader-cover-img" onerror="this.onerror=null; this.src='${escapeHtml(getDefaultImage(article.category, article.sourceName, article.title))}';">` : ''}
 
       <h1 class="reader-headline">${escapeHtml(article.title)}</h1>
 
@@ -1894,8 +1949,16 @@
 
     document.querySelectorAll('.preset-img-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        DOM.formImageUrl.value = btn.dataset.img;
-        showToast('Preset de imagen aplicado.');
+        const preset = btn.dataset.preset;
+        if (preset) {
+          const sourceName = DOM.formSourceName.value.trim() || 'Despacho de Inteligencia';
+          const title = DOM.formTitle.value.trim() || 'Aviso de Ciberseguridad';
+          DOM.formImageUrl.value = createIntelSVG(sourceName, preset === 'cert' ? 'hacking' : preset, title);
+          showToast('Insignia de inteligencia asignada.');
+        } else if (btn.dataset.img) {
+          DOM.formImageUrl.value = btn.dataset.img;
+          showToast('Preset de imagen aplicado.');
+        }
       });
     });
 
@@ -1975,16 +2038,8 @@
     }
   }
 
-  function getDefaultImage(category) {
-    switch (category) {
-      case 'politica':
-        return 'https://images.unsplash.com/photo-1541872703-74c5e44368f9?auto=format&fit=crop&w=1200&q=80';
-      case 'tecnopolitica':
-        return 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=1200&q=80';
-      case 'hacking':
-      default:
-        return 'https://images.unsplash.com/photo-1563986768609-322da13575f3?auto=format&fit=crop&w=1200&q=80';
-    }
+  function getDefaultImage(category, sourceName = '', title = '') {
+    return createIntelSVG(sourceName, category, title);
   }
 
   function getRelativeTime(dateString) {

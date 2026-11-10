@@ -122,10 +122,65 @@ function getSessionUser(req) {
 }
 
 // ==========================================
-// 3. Motor de Ingestión Automática en Castellano (RSS / Feeds)
+// 3. Motor de Ingestión Automática en Castellano (RSS / Feeds) & Gráficos de Inteligencia
 // ==========================================
 
-// Parseador nativo de XML para RSS y Atom sin dependencias
+// Generador de insignias de inteligencia vectoriales (evita fotos genéricas de stock cuando una fuente técnica no incluye imagen)
+function createIntelSVG(sourceName, category, title = '') {
+  const isPol = category === 'politica' || category === 'tecnopolitica';
+  const accent = isPol ? '#f59e0b' : '#38bdf8';
+  const badge = String(sourceName || 'CYBERPOLIS INTEL').toUpperCase().replace(/[<>"'&]/g, '');
+  const subCategory = isPol ? 'GEOPOLÍTICA & POLÍTICA DIGITAL' : 'CIBERSEGURIDAD & THREAT INTEL';
+  const safeTitle = String(title || 'DESPACHO DE INTELIGENCIA TÉCNICA').slice(0, 48).toUpperCase().replace(/[<>"'&]/g, '');
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450">
+    <defs>
+      <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#04070d"/>
+        <stop offset="50%" stop-color="#070e1a"/>
+        <stop offset="100%" stop-color="#0a1526"/>
+      </linearGradient>
+      <pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse">
+        <path d="M 36 0 L 0 0 0 36" fill="none" stroke="${accent}" stroke-opacity="0.08" stroke-width="1"/>
+      </pattern>
+    </defs>
+    <rect width="800" height="450" fill="url(#bg)"/>
+    <rect width="800" height="450" fill="url(#grid)"/>
+    <rect x="0" y="0" width="800" height="4" fill="${accent}"/>
+    
+    <!-- Esquinas HUD -->
+    <path d="M 28 42 L 28 28 L 42 28" fill="none" stroke="${accent}" stroke-width="2"/>
+    <path d="M 772 42 L 772 28 L 758 28" fill="none" stroke="${accent}" stroke-width="2"/>
+    <path d="M 28 408 L 28 422 L 42 422" fill="none" stroke="${accent}" stroke-width="2"/>
+    <path d="M 772 408 L 772 422 L 758 422" fill="none" stroke="${accent}" stroke-width="2"/>
+    
+    <!-- Header -->
+    <text x="50" y="58" font-family="'Space Grotesk', 'Courier New', monospace" font-size="14" font-weight="700" fill="${accent}" letter-spacing="2">// ${badge}</text>
+    <circle cx="730" cy="54" r="4" fill="${accent}"/>
+    <text x="742" y="58" font-family="'Space Grotesk', 'Courier New', monospace" font-size="11" fill="#94a3b8" letter-spacing="1">OFICIAL</text>
+    
+    <!-- Centro Visual Gráfico -->
+    <circle cx="400" cy="210" r="110" fill="none" stroke="${accent}" stroke-opacity="0.12" stroke-width="1" stroke-dasharray="6 6"/>
+    <circle cx="400" cy="210" r="75" fill="none" stroke="${accent}" stroke-opacity="0.25" stroke-width="1.5"/>
+    <path d="M 400 155 L 440 180 L 440 230 L 400 265 L 360 230 L 360 180 Z" fill="none" stroke="${accent}" stroke-width="2.5"/>
+    <line x1="400" y1="180" x2="400" y2="240" stroke="${accent}" stroke-width="2"/>
+    <line x1="375" y1="210" x2="425" y2="210" stroke="${accent}" stroke-width="2"/>
+    <circle cx="400" cy="210" r="5" fill="${accent}"/>
+    
+    <!-- Subtítulo e Indicador -->
+    <text x="400" y="315" text-anchor="middle" font-family="'Space Grotesk', 'Courier New', monospace" font-size="13" font-weight="700" fill="#f8fafc" letter-spacing="3">${safeTitle}</text>
+    <text x="400" y="340" text-anchor="middle" font-family="'Space Grotesk', 'Courier New', monospace" font-size="11" fill="${accent}" letter-spacing="2">${subCategory}</text>
+    
+    <!-- Telemetría Inferior -->
+    <line x1="50" y1="390" x2="750" y2="390" stroke="${accent}" stroke-opacity="0.2" stroke-width="1"/>
+    <text x="50" y="415" font-family="'Space Grotesk', 'Courier New', monospace" font-size="10" fill="#64748b" letter-spacing="1">CYBERPOLIS INTEL NETWORK // ES</text>
+    <text x="750" y="415" text-anchor="end" font-family="'Space Grotesk', 'Courier New', monospace" font-size="10" fill="#94a3b8" letter-spacing="1">SIGINT // AVISO TÉCNICO</text>
+  </svg>`;
+
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
+
+// Parseador nativo de XML para RSS y Atom con extracción de imágenes reales
 function parseXMLFeed(xmlText) {
   const items = [];
   const cleanXml = xmlText.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
@@ -136,8 +191,22 @@ function parseXMLFeed(xmlText) {
   for (const block of itemMatches) {
     const titleMatch = block.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
     const linkMatch = block.match(/<link[^>]*href=["']([^"']+)["']/i) || block.match(/<link[^>]*>([\s\S]*?)<\/link>/i);
-    const descMatch = block.match(/<(?:description|summary|content)[^>]*>([\s\S]*?)<\/(?:description|summary|content)>/i);
+    const descMatch = block.match(/<(?:description|summary|content|content:encoded)[^>]*>([\s\S]*?)<\/(?:description|summary|content|content:encoded)>/i);
     const dateMatch = block.match(/<(?:pubDate|published|updated|dc:date)[^>]*>([\s\S]*?)<\/(?:pubDate|published|updated|dc:date)>/i);
+
+    // Extracción de imagen real de la noticia si existe en la fuente
+    const mediaMatch = block.match(/<media:(?:content|thumbnail)[^>]+url=["']([^"']+)["']/i);
+    const encMatch = block.match(/<enclosure[^>]+url=["']([^"']+)["']/i);
+    const imgMatch = (descMatch ? descMatch[1] : block).match(/<img[^>]+src=["']([^"']+)["']/i);
+
+    let imageUrl = '';
+    if (mediaMatch && mediaMatch[1]) {
+      imageUrl = mediaMatch[1].replace(/&amp;/g, '&');
+    } else if (encMatch && encMatch[1]) {
+      imageUrl = encMatch[1].replace(/&amp;/g, '&');
+    } else if (imgMatch && imgMatch[1]) {
+      imageUrl = imgMatch[1].replace(/&amp;/g, '&');
+    }
 
     const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
     const link = linkMatch ? linkMatch[1].replace(/<[^>]+>/g, '').trim() : '';
@@ -147,7 +216,7 @@ function parseXMLFeed(xmlText) {
     const pubDate = dateMatch ? new Date(dateMatch[1].trim()).toISOString() : new Date().toISOString();
 
     if (title && (link || description)) {
-      items.push({ title, link, description, pubDate });
+      items.push({ title, link, description, pubDate, imageUrl });
     }
   }
 
@@ -162,7 +231,8 @@ const FALLBACK_SPANISH_INTEL = [
     description: "El Instituto Nacional de Ciberseguridad ha detectado una oleada masiva de mensajes SMS fraudulentos que instan a los contribuyentes a descargar una supuesta actualización de la app oficial para cobrar una devolución, instalando un troyano de acceso remoto.",
     pubDate: new Date(Date.now() - 1000 * 60 * 25).toISOString(),
     feedSource: "INCIBE — Avisos y Vulnerabilidades",
-    category: "hacking"
+    category: "hacking",
+    imageUrl: createIntelSVG('INCIBE — Avisos y Vulnerabilidades', 'hacking', 'ALERTA SMISHING AGENCIA TRIBUTARIA')
   },
   {
     title: "Una al Día: Análisis de vulnerabilidad crítica en núcleos Linux que compromete privilegios root en servidores",
@@ -170,7 +240,8 @@ const FALLBACK_SPANISH_INTEL = [
     description: "Investigadores de Hispasec desglosan el fallo de desbordamiento en el subsistema de gestión de memoria virtual del kernel. Se recomienda actualizar inmediatamente las distribuciones corporativas afectadas.",
     pubDate: new Date(Date.now() - 1000 * 60 * 85).toISOString(),
     feedSource: "Una al Día (Hispasec)",
-    category: "hacking"
+    category: "hacking",
+    imageUrl: createIntelSVG('Una al Día (Hispasec)', 'hacking', 'VULNERABILIDAD KERNEL ROOT')
   },
   {
     title: "CCN-CERT publica la guía de implementación de medidas urgentes para el cumplimiento de la Directiva NIS2",
@@ -178,7 +249,8 @@ const FALLBACK_SPANISH_INTEL = [
     description: "El Centro Criptológico Nacional emite el marco de referencia técnico para que las entidades críticas y esenciales implanten los controles criptográficos y el protocolo de notificación en menos de 24 horas.",
     pubDate: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
     feedSource: "CCN-CERT (Centro Criptológico Nacional)",
-    category: "tecnopolitica"
+    category: "tecnopolitica",
+    imageUrl: createIntelSVG('CCN-CERT (Centro Criptológico)', 'tecnopolitica', 'DIRECTIVA NIS2 — MEDIDAS URGENTES')
   },
   {
     title: "HackPlayers: Descubierto vector de bypass en autenticaciones biométricas mediante deepfakes en tiempo real",
@@ -186,7 +258,8 @@ const FALLBACK_SPANISH_INTEL = [
     description: "Un estudio técnico demuestra cómo modelos generativos optimizados logran vulnerar pasarelas de verificación KYC en entidades financieras inyectando vídeo sintético a través de controladores virtuales.",
     pubDate: new Date(Date.now() - 1000 * 60 * 240).toISOString(),
     feedSource: "HackPlayers",
-    category: "hacking"
+    category: "hacking",
+    imageUrl: createIntelSVG('HackPlayers // Red Team', 'hacking', 'BYPASS BIOMETRÍA DEEPFAKES')
   }
 ];
 
@@ -248,17 +321,18 @@ async function syncSpanishFeeds() {
         if (lower.includes('nis2')) tags.push('nis2');
         if (lower.includes('linux')) tags.push('linux');
 
+        // Imagen real de la fuente o insignia oficial de inteligencia
+        const articleImg = (item.imageUrl && item.imageUrl.trim())
+          ? item.imageUrl.trim()
+          : createIntelSVG(feed.name, category, item.title);
+
         const newArticle = {
           id: 'auto-es-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
           title: sanitizeInput(item.title),
           category,
           sourceName: sanitizeInput(feed.name),
           sourceUrl: sanitizeInput(item.link || feed.url),
-          imageUrl: category === 'politica'
-            ? 'https://images.unsplash.com/photo-1541872703-74c5e44368f9?auto=format&fit=crop&w=1200&q=80'
-            : category === 'tecnopolitica'
-            ? 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=1200&q=80'
-            : 'https://images.unsplash.com/photo-1563986768609-322da13575f3?auto=format&fit=crop&w=1200&q=80',
+          imageUrl: sanitizeInput(articleImg),
           summary: sanitizeInput(item.description.slice(0, 240) + '...'),
           content: sanitizeInput(item.description + `\n\nFuente de inteligencia oficial en castellano: ${feed.name}.\nConsulta el informe completo y avisos de mitigación a través del enlace de procedencia verificado.`),
           tags,
@@ -536,7 +610,7 @@ const server = http.createServer(async (req, res) => {
         email: sanitizeInput(email || `${cleanUser}@cyberpolis.local`),
         role: isFirst ? 'admin' : 'analyst',
         linkedInProfile: sanitizeInput(linkedInProfile || ''),
-        avatar: isFirst ? 'assets/silverbot-unix-logo.png' : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
+        avatar: isFirst ? 'assets/silverbot-unix-logo.png' : 'assets/silverbot-unix-logo.png',
         salt,
         hash,
         createdAt: new Date().toISOString()
@@ -642,7 +716,7 @@ const server = http.createServer(async (req, res) => {
         category,
         sourceName: `LinkedIn // ${currentUser.displayName}`,
         sourceUrl: cleanUrl,
-        imageUrl: body.imageUrl || 'https://images.unsplash.com/photo-1563986768609-322da13575f3?auto=format&fit=crop&w=1200&q=80',
+        imageUrl: body.imageUrl || createIntelSVG(`LinkedIn // ${currentUser.displayName}`, category, title),
         summary,
         content,
         tags: extractedTags.slice(0, 6),
@@ -703,7 +777,7 @@ const server = http.createServer(async (req, res) => {
         category: sanitizeInput(body.category),
         sourceName: sanitizeInput(body.sourceName || `LinkedIn // ${currentUser.displayName}`),
         sourceUrl: sanitizeInput(body.sourceUrl || currentUser.linkedInProfile || ''),
-        imageUrl: sanitizeInput(body.imageUrl || 'https://images.unsplash.com/photo-1563986768609-322da13575f3?auto=format&fit=crop&w=1200&q=80'),
+        imageUrl: sanitizeInput(body.imageUrl || createIntelSVG(body.sourceName || `LinkedIn // ${currentUser.displayName}`, body.category, body.title)),
         summary: sanitizeInput(body.summary || ''),
         content: sanitizeInput(body.content || ''),
         tags: Array.isArray(body.tags) ? body.tags.map(sanitizeInput) : [],
