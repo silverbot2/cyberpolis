@@ -981,7 +981,7 @@ const server = http.createServer(async (req, res) => {
 
     // Proxy de imágenes de fuentes externas para eludir bloqueos de hotlinking, tracking y CORS
     if (pathname === '/api/proxy/image' && method === 'GET') {
-      const targetUrl = parsedUrl.searchParams.get('url');
+      const targetUrl = (parsedUrl.query && parsedUrl.query.url) || (new URL(req.url, 'http://localhost')).searchParams.get('url');
       if (!targetUrl || !targetUrl.startsWith('http')) {
         sendJSON(res, 400, { error: 'URL requerida' });
         return;
