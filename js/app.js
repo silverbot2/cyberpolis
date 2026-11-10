@@ -294,6 +294,12 @@
     applySiteTransformation(state.config);
     renderUserWidget();
     renderAll();
+
+    // Auto-recarga silenciosa de noticias cada 3 minutos para mostrar despachos frescos sin recargar
+    setInterval(async () => {
+      await loadArticles();
+      renderAll();
+    }, 3 * 60 * 1000);
   }
 
   function startLiveClock() {

@@ -296,6 +296,14 @@ function initBackgroundSync() {
   if (syncIntervalTimer) clearInterval(syncIntervalTimer);
   const config = readJSON(CONFIG_FILE, {});
   if (config.autoSyncEnabled) {
+    // Sincronización inmediata al arrancar el servidor (2 segundos tras inicio)
+    setTimeout(() => {
+      console.log('📡 Ejecutando sincronización inicial de fuentes en castellano...');
+      syncSpanishFeeds().then(res => {
+        console.log(`✅ Sincronización inicial completada: ${res.newArticlesAdded} nuevos despachos.`);
+      }).catch(err => console.error('Error en sync inicial:', err));
+    }, 2000);
+
     const minutes = Math.max(5, config.syncIntervalMinutes || 30);
     syncIntervalTimer = setInterval(() => {
       syncSpanishFeeds().catch(err => console.error('Error en sync automático:', err));
@@ -661,6 +669,15 @@ const server = http.createServer(async (req, res) => {
     // ----------------------------------------------------
 
     if (pathname === '/api/articles' && method === 'GET') {
+      const config = readJSON(CONFIG_FILE, {});
+      if (config.autoSyncEnabled) {
+        const lastSyncTime = config.lastSync ? new Date(config.lastSync).getTime() : 0;
+        const intervalMs = Math.max(5, config.syncIntervalMinutes || 30) * 60 * 1000;
+        if (Date.now() - lastSyncTime > intervalMs) {
+          // Ejecución en segundo plano sin retrasar la respuesta al usuario
+          syncSpanishFeeds().catch(e => console.error('Error en sync bajo demanda:', e));
+        }
+      }
       const articles = readJSON(ARTICLES_FILE, []);
       sendJSON(res, 200, articles);
       return;
