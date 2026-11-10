@@ -90,8 +90,8 @@
     const isPol = category === 'politica' || category === 'tecnopolitica';
     const accent = isPol ? '#f59e0b' : '#38bdf8';
     const badge = String(sourceName || 'CYBERPOLIS INTEL').toUpperCase().replace(/[<>"'&]/g, '');
-    const subCategory = isPol ? 'GEOPOLÍTICA & POLÍTICA DIGITAL' : 'CIBERSEGURIDAD & THREAT INTEL';
-    const safeTitle = String(title || 'DESPACHO DE INTELIGENCIA TÉCNICA').slice(0, 48).toUpperCase().replace(/[<>"'&]/g, '');
+    const subCategory = isPol ? 'GEOPOLITICA // POLITICA DIGITAL' : 'CIBERSEGURIDAD // THREAT INTEL';
+    const safeTitle = String(title || 'DESPACHO DE INTELIGENCIA TECNICA').slice(0, 48).toUpperCase().replace(/[<>"'&]/g, '');
 
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450">
       <defs>
@@ -140,6 +140,24 @@
     return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
   }
 
+  // Resuelve la URL de la imagen enrutando fuentes externas por el proxy del servidor para eludir bloqueos
+  function resolveArticleImage(url, category, sourceName, title) {
+    if (!url) return getDefaultImage(category, sourceName, title);
+    if (url.startsWith('data:image/svg+xml')) {
+      if (url.includes('%26') || url.includes('&')) {
+        return createIntelSVG(sourceName, category, title);
+      }
+      return url;
+    }
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      if (state.serverMode || (typeof window !== 'undefined' && window.location && window.location.protocol.startsWith('http'))) {
+        return `/api/proxy/image?url=${encodeURIComponent(url)}`;
+      }
+      return url;
+    }
+    return url;
+  }
+
   const DEFAULT_SEED_ARTICLES = [
     {
       id: "svb-001",
@@ -154,7 +172,7 @@
       authorId: "usr-admin-01",
       verifiedLinkedIn: true,
       date: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
-      imageUrl: createIntelSVG('LinkedIn // Threat Intel', 'hacking', 'ALERTA PHISHING & INFOSTEALERS'),
+      imageUrl: createIntelSVG('LinkedIn // Threat Intel', 'hacking', 'ALERTA PHISHING // INFOSTEALERS'),
       tags: ["linkedin", "phishing", "infostealer", "ingeniería-social", "malware"],
       isBreaking: true,
       isFeatured: true,
@@ -1151,7 +1169,7 @@
           if (Array.isArray(data) && data.length > 0) {
             state.articles = data;
             state.articles.forEach(a => {
-              if (!a.imageUrl || a.imageUrl.includes('unsplash.com')) {
+              if (!a.imageUrl || a.imageUrl.includes('unsplash.com') || (a.imageUrl.startsWith('data:image/svg+xml') && (a.imageUrl.includes('%26') || a.imageUrl.includes('&')))) {
                 a.imageUrl = createIntelSVG(a.sourceName, a.category, a.title);
               }
             });
@@ -1173,10 +1191,10 @@
       state.articles = DEFAULT_SEED_ARTICLES;
     }
 
-    // Auto-sanitización de caché local: sustituir cualquier imagen obsoleta de Unsplash por insignias de inteligencia
+    // Auto-sanitización de caché local: sustituir cualquier imagen obsoleta o SVG roto por insignias de inteligencia
     let changed = false;
     state.articles.forEach(a => {
-      if (!a.imageUrl || a.imageUrl.includes('unsplash.com')) {
+      if (!a.imageUrl || a.imageUrl.includes('unsplash.com') || (a.imageUrl.startsWith('data:image/svg+xml') && (a.imageUrl.includes('%26') || a.imageUrl.includes('&')))) {
         a.imageUrl = createIntelSVG(a.sourceName, a.category, a.title);
         changed = true;
       }
@@ -1348,7 +1366,7 @@
     return `
       <article class="hero-dispatch-card" data-id="${a.id}">
         <div class="hero-image-chamber">
-          <img src="${escapeHtml(a.imageUrl || getDefaultImage(a.category, a.sourceName, a.title))}" alt="${escapeHtml(a.title)}" class="hero-image" loading="lazy" referrerpolicy="no-referrer" onerror="window.handleImgError(this)">
+          <img src="${escapeHtml(resolveArticleImage(a.imageUrl, a.category, a.sourceName, a.title))}" alt="${escapeHtml(a.title)}" class="hero-image" loading="lazy" referrerpolicy="no-referrer" onerror="window.handleImgError(this)">
           <div class="hero-image-overlay"></div>
         </div>
         <div class="hero-content-chamber">
@@ -1409,7 +1427,7 @@
     return `
       <article class="dispatch-card" data-id="${a.id}">
         <div class="dispatch-image-box">
-          <img src="${escapeHtml(a.imageUrl || getDefaultImage(a.category, a.sourceName, a.title))}" alt="${escapeHtml(a.title)}" class="dispatch-img" loading="lazy" referrerpolicy="no-referrer" onerror="window.handleImgError(this)">
+          <img src="${escapeHtml(resolveArticleImage(a.imageUrl, a.category, a.sourceName, a.title))}" alt="${escapeHtml(a.title)}" class="dispatch-img" loading="lazy" referrerpolicy="no-referrer" onerror="window.handleImgError(this)">
           <div class="dispatch-card-badges">
             <span class="intel-badge ${catClass}">${catName}</span>
             <button class="bookmark-toggle-btn ${isBookmarked ? 'bookmarked' : ''}" data-action="bookmark" title="Guardar">
@@ -1511,7 +1529,7 @@
     const formattedBody = formatArticleBody(article.content);
 
     DOM.readerContentArea.innerHTML = `
-      ${article.imageUrl ? `<img src="${escapeHtml(article.imageUrl)}" alt="${escapeHtml(article.title)}" class="reader-cover-img" loading="lazy" referrerpolicy="no-referrer" onerror="window.handleImgError(this)">` : ''}
+      ${article.imageUrl ? `<img src="${escapeHtml(resolveArticleImage(article.imageUrl, article.category, article.sourceName, article.title))}" alt="${escapeHtml(article.title)}" class="reader-cover-img" loading="lazy" referrerpolicy="no-referrer" onerror="window.handleImgError(this)">` : ''}
 
       <h1 class="reader-headline">${escapeHtml(article.title)}</h1>
 

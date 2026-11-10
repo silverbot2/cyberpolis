@@ -97,9 +97,23 @@ function sanitizeStoredArticles() {
         a.title = cleanTit;
         modified = true;
       }
+
+      // Saneamiento de imágenes rotas o desactualizadas
+      if (!a.imageUrl || a.imageUrl.includes('unsplash.com')) {
+        a.imageUrl = createIntelSVG(a.sourceName, a.category, a.title);
+        modified = true;
+      } else if (a.imageUrl.startsWith('data:image/svg+xml')) {
+        const decoded = decodeURIComponent(a.imageUrl.replace('data:image/svg+xml;charset=utf-8,', ''));
+        if (decoded.includes('&') || a.imageUrl.includes('%26') || decoded.includes('POLÍTICA DIGITAL') || decoded.includes('THREAT INTEL')) {
+          a.imageUrl = createIntelSVG(a.sourceName, a.category, a.title);
+          modified = true;
+        }
+      }
     }
     if (modified) writeJSON(ARTICLES_FILE, articles);
-  } catch (e) {}
+  } catch (e) {
+    console.error('Error al sanitizar artículos almacenados:', e);
+  }
 }
 
 function readJSON(file, fallback = []) {
@@ -186,7 +200,7 @@ function createIntelSVG(sourceName, category, title = '') {
   const isPol = category === 'politica' || category === 'tecnopolitica';
   const accent = isPol ? '#f59e0b' : '#38bdf8';
   const badge = String(sourceName || 'CYBERPOLIS INTEL').toUpperCase().replace(/[<>"'&]/g, '');
-  const subCategory = isPol ? 'GEOPOLÍTICA & POLÍTICA DIGITAL' : 'CIBERSEGURIDAD & THREAT INTEL';
+  const subCategory = isPol ? 'GEOPOLITICA // POLITICA DIGITAL' : 'CIBERSEGURIDAD // THREAT INTEL';
   const safeTitle = String(title || 'DESPACHO DE INTELIGENCIA TÉCNICA').slice(0, 48).toUpperCase().replace(/[<>"'&]/g, '');
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450">
@@ -962,6 +976,53 @@ const server = http.createServer(async (req, res) => {
         lastSync: config.lastSync,
         timestamp: new Date().toISOString()
       });
+      return;
+    }
+
+    // Proxy de imágenes de fuentes externas para eludir bloqueos de hotlinking, tracking y CORS
+    if (pathname === '/api/proxy/image' && method === 'GET') {
+      const targetUrl = parsedUrl.searchParams.get('url');
+      if (!targetUrl || !targetUrl.startsWith('http')) {
+        sendJSON(res, 400, { error: 'URL requerida' });
+        return;
+      }
+
+      try {
+        const upstream = await fetch(targetUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+          },
+          signal: AbortSignal.timeout(6000)
+        });
+
+        if (!upstream.ok) {
+          res.writeHead(200, {
+            'Content-Type': 'image/svg+xml; charset=utf-8',
+            'Cache-Control': 'public, max-age=86400'
+          });
+          const fallback = decodeURIComponent(createIntelSVG('FUENTE EXTERNA', 'hacking', 'DESPACHO DE INTELIGENCIA').replace('data:image/svg+xml;charset=utf-8,', ''));
+          res.end(fallback);
+          return;
+        }
+
+        const contentType = upstream.headers.get('content-type') || 'image/jpeg';
+        const buffer = Buffer.from(await upstream.arrayBuffer());
+
+        res.writeHead(200, {
+          'Content-Type': contentType,
+          'Cache-Control': 'public, max-age=86400, stale-while-revalidate=43200',
+          'Access-Control-Allow-Origin': '*'
+        });
+        res.end(buffer);
+      } catch (err) {
+        res.writeHead(200, {
+          'Content-Type': 'image/svg+xml; charset=utf-8',
+          'Cache-Control': 'public, max-age=86400'
+        });
+        const fallback = decodeURIComponent(createIntelSVG('FUENTE EXTERNA', 'hacking', 'DESPACHO DE INTELIGENCIA').replace('data:image/svg+xml;charset=utf-8,', ''));
+        res.end(fallback);
+      }
       return;
     }
 
