@@ -21,7 +21,7 @@
       polygonDensity: 'normal',
       portalTitle: 'SILVERBOT2',
       portalSubcallsign: 'UNIX',
-      portalSubtitle: 'CYBER_DEFENSE & GEOPOLITICS INTEL',
+      portalSubtitle: 'TU HACKNOTICIERO',
       layoutMode: 'normal',
       feeds: [
         { id: "feed-incibe", name: "INCIBE — Avisos y Vulnerabilidades", url: "https://www.incibe.es/feed/avisos/all", category: "hacking", enabled: true },
@@ -38,6 +38,51 @@
     theme: localStorage.getItem('silverbot_theme') || 'dark',
     serverMode: false,
     activeReaderArticle: null
+  };
+
+  const ENTITY_MAP = {
+    '&quot;': '"', '&#039;': "'", '&apos;': "'", '&lt;': '<', '&gt;': '>', '&amp;': '&',
+    '&nbsp;': ' ', '&aacute;': 'á', '&eacute;': 'é', '&iacute;': 'í', '&oacute;': 'ó',
+    '&uacute;': 'ú', '&ntilde;': 'ñ', '&Aacute;': 'Á', '&Eacute;': 'É', '&Iacute;': 'Í',
+    '&Oacute;': 'Ó', '&Uacute;': 'Ú', '&Ntilde;': 'Ñ', '&laquo;': '«', '&raquo;': '»',
+    '&ldquo;': '"', '&rdquo;': '"', '&lsquo;': "'", '&rsquo;': "'", '&mdash;': '—',
+    '&ndash;': '–', '&hellip;': '...'
+  };
+
+  // Limpiador total de etiquetas HTML y decodificador de entidades para evitar código crudo en pantalla
+  function cleanHtmlContent(raw) {
+    if (!raw || typeof raw !== 'string') return '';
+    let str = raw
+      .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+      .replace(/<br\s*[\/]?>/gi, '\n')
+      .replace(/<\/(?:p|div|li|h[1-6]|tr)>/gi, '\n\n')
+      .replace(/<[^>]+>/g, ' ');
+
+    for (let i = 0; i < 2; i++) {
+      str = str.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)));
+      str = str.replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+      str = str.replace(/&[a-zA-Z0-9#]+;/g, m => ENTITY_MAP[m] || m);
+    }
+
+    str = str
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+      .replace(/<br\s*[\/]?>/gi, '\n')
+      .replace(/<\/(?:p|div|li|h[1-6]|tr)>/gi, '\n\n')
+      .replace(/<[^>]+>/g, ' ');
+
+    return str.replace(/[ \t]+/g, ' ').replace(/\n\s*\n\s*\n+/g, '\n\n').trim();
+  }
+
+  // Manejador global robusto de error de imagen: si la fuente externa bloquea hotlinking o falla, asigna la insignia SVG oficial
+  window.handleImgError = function(img) {
+    if (!img) return;
+    img.onerror = null;
+    const card = img.closest('[data-id]') || img.closest('article');
+    const badge = card ? (card.querySelector('.dispatch-source, .meta-token')?.textContent || 'CYBERPOLIS') : 'CYBERPOLIS';
+    img.src = createIntelSVG(badge.replace(/\/\//g, '').trim(), 'hacking', 'DESPACHO DE CIBERSEGURIDAD');
   };
 
   // Generador de insignias de inteligencia vectoriales (sustituye fotos genéricas por gráficos de inteligencia técnica)
@@ -70,9 +115,9 @@
       <path d="M 772 408 L 772 422 L 758 422" fill="none" stroke="${accent}" stroke-width="2"/>
       
       <!-- Header -->
-      <text x="50" y="58" font-family="'Space Grotesk', 'Courier New', monospace" font-size="14" font-weight="700" fill="${accent}" letter-spacing="2">// ${badge}</text>
+      <text x="50" y="58" font-family="monospace" font-size="14" font-weight="700" fill="${accent}" letter-spacing="2">// ${badge}</text>
       <circle cx="730" cy="54" r="4" fill="${accent}"/>
-      <text x="742" y="58" font-family="'Space Grotesk', 'Courier New', monospace" font-size="11" fill="#94a3b8" letter-spacing="1">OFICIAL</text>
+      <text x="742" y="58" font-family="monospace" font-size="11" fill="#94a3b8" letter-spacing="1">OFICIAL</text>
       
       <!-- Centro Visual Gráfico -->
       <circle cx="400" cy="210" r="110" fill="none" stroke="${accent}" stroke-opacity="0.12" stroke-width="1" stroke-dasharray="6 6"/>
@@ -83,13 +128,13 @@
       <circle cx="400" cy="210" r="5" fill="${accent}"/>
       
       <!-- Subtítulo e Indicador -->
-      <text x="400" y="315" text-anchor="middle" font-family="'Space Grotesk', 'Courier New', monospace" font-size="13" font-weight="700" fill="#f8fafc" letter-spacing="3">${safeTitle}</text>
-      <text x="400" y="340" text-anchor="middle" font-family="'Space Grotesk', 'Courier New', monospace" font-size="11" fill="${accent}" letter-spacing="2">${subCategory}</text>
+      <text x="400" y="315" text-anchor="middle" font-family="monospace" font-size="13" font-weight="700" fill="#f8fafc" letter-spacing="3">${safeTitle}</text>
+      <text x="400" y="340" text-anchor="middle" font-family="monospace" font-size="11" fill="${accent}" letter-spacing="2">${subCategory}</text>
       
       <!-- Telemetría Inferior -->
       <line x1="50" y1="390" x2="750" y2="390" stroke="${accent}" stroke-opacity="0.2" stroke-width="1"/>
-      <text x="50" y="415" font-family="'Space Grotesk', 'Courier New', monospace" font-size="10" fill="#64748b" letter-spacing="1">CYBERPOLIS INTEL NETWORK // ES</text>
-      <text x="750" y="415" text-anchor="end" font-family="'Space Grotesk', 'Courier New', monospace" font-size="10" fill="#94a3b8" letter-spacing="1">SIGINT // AVISO TÉCNICO</text>
+      <text x="50" y="415" font-family="monospace" font-size="10" fill="#64748b" letter-spacing="1">CYBERPOLIS INTEL NETWORK // ES</text>
+      <text x="750" y="415" text-anchor="end" font-family="monospace" font-size="10" fill="#94a3b8" letter-spacing="1">SIGINT // AVISO TÉCNICO</text>
     </svg>`;
 
     return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
@@ -451,7 +496,7 @@
     // Valores de transformación
     DOM.adminPortalTitleInput.value = state.config.portalTitle || 'SILVERBOT2';
     DOM.adminPortalSubcallsignInput.value = state.config.portalSubcallsign || 'UNIX';
-    DOM.adminPortalSubtitleInput.value = state.config.portalSubtitle || 'CYBER_DEFENSE & GEOPOLITICS INTEL';
+    DOM.adminPortalSubtitleInput.value = state.config.portalSubtitle || 'TU HACKNOTICIERO';
 
     // Botones de acento activo
     document.querySelectorAll('.accent-color-btn').forEach(btn => {
@@ -583,7 +628,7 @@
     // 4. Títulos
     const portalTitle = DOM.adminPortalTitleInput.value.trim() || 'SILVERBOT2';
     const portalSubcallsign = DOM.adminPortalSubcallsignInput.value.trim() || 'UNIX';
-    const portalSubtitle = DOM.adminPortalSubtitleInput.value.trim() || 'CYBER_DEFENSE & GEOPOLITICS INTEL';
+    const portalSubtitle = DOM.adminPortalSubtitleInput.value.trim() || 'TU HACKNOTICIERO';
 
     state.config.themeAccent = themeAccent;
     state.config.polygonDensity = polygonDensity;
@@ -670,9 +715,28 @@
   function renderUserWidget() {
     if (!DOM.userSessionWidget) return;
 
-    // Mostrar botón de Admin Panel en la cabecera si es admin
+    const isLoggedIn = !!state.currentUser;
+    const isAdmin = isLoggedIn && state.currentUser.role === 'admin';
+
+    // 1. Botón Panel Admin: solo visible para el admin
     if (DOM.openAdminControlBtn) {
-      DOM.openAdminControlBtn.style.display = (state.currentUser && state.currentUser.role === 'admin') ? 'inline-flex' : 'none';
+      DOM.openAdminControlBtn.style.display = isAdmin ? 'inline-flex' : 'none';
+    }
+
+    // 2. Botón Respaldo & Gestión de Datos: solo visible para el admin
+    if (DOM.backupModalBtn) {
+      DOM.backupModalBtn.style.display = isAdmin ? 'inline-flex' : 'none';
+    }
+
+    // 3. Botones de Publicar Noticia e Ingestión LinkedIn: SOLO visibles si está autenticado/registrado
+    if (DOM.openNewArticleModalBtn) {
+      DOM.openNewArticleModalBtn.style.display = isLoggedIn ? 'inline-flex' : 'none';
+    }
+    if (DOM.openLinkedInModalBtn) {
+      DOM.openLinkedInModalBtn.style.display = isLoggedIn ? 'inline-flex' : 'none';
+    }
+    if (DOM.emptyCreateBtn) {
+      DOM.emptyCreateBtn.style.display = isLoggedIn ? 'inline-flex' : 'none';
     }
 
     if (!state.currentUser) {
@@ -1284,7 +1348,7 @@
     return `
       <article class="hero-dispatch-card" data-id="${a.id}">
         <div class="hero-image-chamber">
-          <img src="${escapeHtml(a.imageUrl || getDefaultImage(a.category, a.sourceName, a.title))}" alt="${escapeHtml(a.title)}" class="hero-image" loading="lazy" onerror="this.onerror=null; this.src='${escapeHtml(getDefaultImage(a.category, a.sourceName, a.title))}';">
+          <img src="${escapeHtml(a.imageUrl || getDefaultImage(a.category, a.sourceName, a.title))}" alt="${escapeHtml(a.title)}" class="hero-image" loading="lazy" referrerpolicy="no-referrer" onerror="window.handleImgError(this)">
           <div class="hero-image-overlay"></div>
         </div>
         <div class="hero-content-chamber">
@@ -1345,7 +1409,7 @@
     return `
       <article class="dispatch-card" data-id="${a.id}">
         <div class="dispatch-image-box">
-          <img src="${escapeHtml(a.imageUrl || getDefaultImage(a.category, a.sourceName, a.title))}" alt="${escapeHtml(a.title)}" class="dispatch-img" loading="lazy" onerror="this.onerror=null; this.src='${escapeHtml(getDefaultImage(a.category, a.sourceName, a.title))}';">
+          <img src="${escapeHtml(a.imageUrl || getDefaultImage(a.category, a.sourceName, a.title))}" alt="${escapeHtml(a.title)}" class="dispatch-img" loading="lazy" referrerpolicy="no-referrer" onerror="window.handleImgError(this)">
           <div class="dispatch-card-badges">
             <span class="intel-badge ${catClass}">${catName}</span>
             <button class="bookmark-toggle-btn ${isBookmarked ? 'bookmarked' : ''}" data-action="bookmark" title="Guardar">
@@ -1447,7 +1511,7 @@
     const formattedBody = formatArticleBody(article.content);
 
     DOM.readerContentArea.innerHTML = `
-      ${article.imageUrl ? `<img src="${escapeHtml(article.imageUrl)}" alt="${escapeHtml(article.title)}" class="reader-cover-img" onerror="this.onerror=null; this.src='${escapeHtml(getDefaultImage(article.category, article.sourceName, article.title))}';">` : ''}
+      ${article.imageUrl ? `<img src="${escapeHtml(article.imageUrl)}" alt="${escapeHtml(article.title)}" class="reader-cover-img" loading="lazy" referrerpolicy="no-referrer" onerror="window.handleImgError(this)">` : ''}
 
       <h1 class="reader-headline">${escapeHtml(article.title)}</h1>
 
@@ -1818,6 +1882,10 @@
   }
 
   function openBackupModal() {
+    if (!state.currentUser || state.currentUser.role !== 'admin') {
+      showToast('Acceso restringido: Solo el Administrador puede gestionar respaldos.', 'error');
+      return;
+    }
     DOM.backupModal.style.display = 'flex';
   }
 
@@ -2088,10 +2156,13 @@
 
   function formatArticleBody(content) {
     if (!content) return '<p>Sin detalles adicionales.</p>';
-    const paragraphs = content.split(/\n\s*\n/);
+    const cleanContent = cleanHtmlContent(content);
+    const paragraphs = cleanContent.split(/\n\s*\n/);
     return paragraphs.map(p => {
-      const lines = p.split('\n');
-      const isList = lines.every(l => l.trim().startsWith('•') || l.trim().startsWith('-') || l.trim().startsWith('*') || /^\d+\./.test(l.trim()));
+      const trimmed = p.trim();
+      if (!trimmed) return '';
+      const lines = trimmed.split('\n');
+      const isList = lines.length > 1 && lines.every(l => l.trim().startsWith('•') || l.trim().startsWith('-') || l.trim().startsWith('*') || /^\d+\./.test(l.trim()));
 
       if (isList) {
         const listItems = lines.map(l => {
@@ -2101,8 +2172,8 @@
         return `<ul>${listItems}</ul>`;
       }
 
-      return `<p>${escapeHtml(p).replace(/\n/g, '<br>')}</p>`;
-    }).join('');
+      return `<p>${escapeHtml(trimmed).replace(/\n/g, '<br>')}</p>`;
+    }).filter(Boolean).join('');
   }
 
   function escapeHtml(str) {

@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SILVERBOT2 // UNIX — Cyber & Geopolitics Intel</title>
-  <meta name="description" content="Terminal de inteligencia, ciberseguridad y geopolítica con auto-sync de fuentes en castellano y transformador visual.">
+  <meta name="referrer" content="no-referrer">
+  <title>SILVERBOT2 // UNIX — TU HACKNOTICIERO</title>
+  <meta name="description" content="TU HACKNOTICIERO: Terminal de ciberseguridad, hacking y geopolítica con auto-sync de fuentes en castellano.">
   <link rel="icon" type="image/png" href="assets/silverbot-unix-logo.png">
-  <link rel="stylesheet" href="css/styles.css?v=2.6.2">
+  <link rel="stylesheet" href="css/styles.css?v=2.7.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&family=Syne:wght@500;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -59,7 +60,7 @@
             <span class="slash-separator">//</span>
             <span class="subcallsign" id="uiPortalSubcallsign">UNIX</span>
           </div>
-          <div class="identity-role" id="uiPortalSubtitle">CYBER_DEFENSE & GEOPOLITICS INTEL</div>
+          <div class="identity-role" id="uiPortalSubtitle">TU HACKNOTICIERO</div>
         </div>
       </div>
 
@@ -76,14 +77,14 @@
       <!-- Módulo de Usuario y Controles -->
       <div class="control-actions">
         
-        <!-- Botón Rápido Ingestión LinkedIn -->
-        <button id="openLinkedInModalBtn" class="hud-btn hud-btn-linkedin" title="Importar o sincronizar noticias de LinkedIn">
+        <!-- Botón Rápido Ingestión LinkedIn (Solo usuarios registrados) -->
+        <button id="openLinkedInModalBtn" class="hud-btn hud-btn-linkedin" style="display: none;" title="Importar o sincronizar noticias de LinkedIn">
           <span class="linkedin-glyph">in</span>
           <span class="btn-text">INGESTIÓN LINKEDIN</span>
         </button>
 
-        <!-- Botón Nueva Noticia -->
-        <button id="openNewArticleModalBtn" class="hud-btn hud-btn-action">
+        <!-- Botón Nueva Noticia (Solo usuarios registrados) -->
+        <button id="openNewArticleModalBtn" class="hud-btn hud-btn-action" style="display: none;">
           <span class="btn-cross">+</span>
           <span class="btn-text">PUBLICAR NOTICIA</span>
         </button>
@@ -102,7 +103,8 @@
           <span class="icon-glyph">◐</span>
         </button>
 
-        <button id="backupModalBtn" class="hud-btn hud-btn-icon" title="Copia de Seguridad JSON">
+        <!-- Respaldo: Solo visible para Admin -->
+        <button id="backupModalBtn" class="hud-btn hud-btn-icon" style="display: none;" title="Copia de Seguridad JSON (Solo Admin)">
           <span class="icon-glyph">⬡</span>
         </button>
       </div>
@@ -356,7 +358,7 @@
           </div>
           <div class="form-field">
             <label for="adminPortalSubtitleInput" class="hud-label">SUBTÍTULO / DESCRIPCIÓN DEL ROL</label>
-            <input type="text" id="adminPortalSubtitleInput" class="hud-input" value="CYBER_DEFENSE & GEOPOLITICS INTEL">
+            <input type="text" id="adminPortalSubtitleInput" class="hud-input" value="TU HACKNOTICIERO">
           </div>
         </div>
 
@@ -715,7 +717,7 @@
   <div class="hud-toast-container" id="toastContainer"></div>
 
   <!-- Scripts -->
-  <script src="js/polygons.js?v=2.6.2"></script>
-  <script src="js/app.js?v=2.6.2"></script>
+  <script src="js/polygons.js?v=2.7.0"></script>
+  <script src="js/app.js?v=2.7.0"></script>
 </body>
 </html>

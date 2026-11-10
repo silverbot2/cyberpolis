@@ -83,6 +83,25 @@ function ensureFiles() {
   if (!fs.existsSync(SESSIONS_FILE)) fs.writeFileSync(SESSIONS_FILE, '[]', 'utf-8');
 }
 
+function sanitizeStoredArticles() {
+  try {
+    const articles = readJSON(ARTICLES_FILE, []);
+    let modified = false;
+    for (const a of articles) {
+      const cleanSum = cleanHtmlContent(a.summary);
+      const cleanCnt = cleanHtmlContent(a.content);
+      const cleanTit = cleanHtmlContent(a.title);
+      if (cleanSum !== a.summary || cleanCnt !== a.content || cleanTit !== a.title) {
+        a.summary = cleanSum;
+        a.content = cleanCnt;
+        a.title = cleanTit;
+        modified = true;
+      }
+    }
+    if (modified) writeJSON(ARTICLES_FILE, articles);
+  } catch (e) {}
+}
+
 function readJSON(file, fallback = []) {
   try {
     ensureFiles();
@@ -125,6 +144,43 @@ function getSessionUser(req) {
 // 3. Motor de Ingestión Automática en Castellano (RSS / Feeds) & Gráficos de Inteligencia
 // ==========================================
 
+const ENTITY_MAP = {
+  '&quot;': '"', '&#039;': "'", '&apos;': "'", '&lt;': '<', '&gt;': '>', '&amp;': '&',
+  '&nbsp;': ' ', '&aacute;': 'á', '&eacute;': 'é', '&iacute;': 'í', '&oacute;': 'ó',
+  '&uacute;': 'ú', '&ntilde;': 'ñ', '&Aacute;': 'Á', '&Eacute;': 'É', '&Iacute;': 'Í',
+  '&Oacute;': 'Ó', '&Uacute;': 'Ú', '&Ntilde;': 'Ñ', '&laquo;': '«', '&raquo;': '»',
+  '&ldquo;': '"', '&rdquo;': '"', '&lsquo;': "'", '&rsquo;': "'", '&mdash;': '—',
+  '&ndash;': '–', '&hellip;': '...'
+};
+
+// Limpieza profunda de HTML y decodificación de entidades para que nunca se muestren etiquetas crudas en los despachos
+function cleanHtmlContent(raw) {
+  if (!raw || typeof raw !== 'string') return '';
+  let str = raw
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+    .replace(/<br\s*[\/]?>/gi, '\n')
+    .replace(/<\/(?:p|div|li|h[1-6]|tr)>/gi, '\n\n')
+    .replace(/<[^>]+>/g, ' ');
+
+  for (let i = 0; i < 2; i++) {
+    str = str.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)));
+    str = str.replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+    str = str.replace(/&[a-zA-Z0-9#]+;/g, m => ENTITY_MAP[m] || m);
+  }
+
+  // Segunda pasada para etiquetas que estaban ofuscadas en entidades HTML
+  str = str
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+    .replace(/<br\s*[\/]?>/gi, '\n')
+    .replace(/<\/(?:p|div|li|h[1-6]|tr)>/gi, '\n\n')
+    .replace(/<[^>]+>/g, ' ');
+
+  return str.replace(/[ \t]+/g, ' ').replace(/\n\s*\n\s*\n+/g, '\n\n').trim();
+}
+
 // Generador de insignias de inteligencia vectoriales (evita fotos genéricas de stock cuando una fuente técnica no incluye imagen)
 function createIntelSVG(sourceName, category, title = '') {
   const isPol = category === 'politica' || category === 'tecnopolitica';
@@ -155,9 +211,9 @@ function createIntelSVG(sourceName, category, title = '') {
     <path d="M 772 408 L 772 422 L 758 422" fill="none" stroke="${accent}" stroke-width="2"/>
     
     <!-- Header -->
-    <text x="50" y="58" font-family="'Space Grotesk', 'Courier New', monospace" font-size="14" font-weight="700" fill="${accent}" letter-spacing="2">// ${badge}</text>
+    <text x="50" y="58" font-family="monospace" font-size="14" font-weight="700" fill="${accent}" letter-spacing="2">// ${badge}</text>
     <circle cx="730" cy="54" r="4" fill="${accent}"/>
-    <text x="742" y="58" font-family="'Space Grotesk', 'Courier New', monospace" font-size="11" fill="#94a3b8" letter-spacing="1">OFICIAL</text>
+    <text x="742" y="58" font-family="monospace" font-size="11" fill="#94a3b8" letter-spacing="1">OFICIAL</text>
     
     <!-- Centro Visual Gráfico -->
     <circle cx="400" cy="210" r="110" fill="none" stroke="${accent}" stroke-opacity="0.12" stroke-width="1" stroke-dasharray="6 6"/>
@@ -168,19 +224,19 @@ function createIntelSVG(sourceName, category, title = '') {
     <circle cx="400" cy="210" r="5" fill="${accent}"/>
     
     <!-- Subtítulo e Indicador -->
-    <text x="400" y="315" text-anchor="middle" font-family="'Space Grotesk', 'Courier New', monospace" font-size="13" font-weight="700" fill="#f8fafc" letter-spacing="3">${safeTitle}</text>
-    <text x="400" y="340" text-anchor="middle" font-family="'Space Grotesk', 'Courier New', monospace" font-size="11" fill="${accent}" letter-spacing="2">${subCategory}</text>
+    <text x="400" y="315" text-anchor="middle" font-family="monospace" font-size="13" font-weight="700" fill="#f8fafc" letter-spacing="3">${safeTitle}</text>
+    <text x="400" y="340" text-anchor="middle" font-family="monospace" font-size="11" fill="${accent}" letter-spacing="2">${subCategory}</text>
     
     <!-- Telemetría Inferior -->
     <line x1="50" y1="390" x2="750" y2="390" stroke="${accent}" stroke-opacity="0.2" stroke-width="1"/>
-    <text x="50" y="415" font-family="'Space Grotesk', 'Courier New', monospace" font-size="10" fill="#64748b" letter-spacing="1">CYBERPOLIS INTEL NETWORK // ES</text>
-    <text x="750" y="415" text-anchor="end" font-family="'Space Grotesk', 'Courier New', monospace" font-size="10" fill="#94a3b8" letter-spacing="1">SIGINT // AVISO TÉCNICO</text>
+    <text x="50" y="415" font-family="monospace" font-size="10" fill="#64748b" letter-spacing="1">CYBERPOLIS INTEL NETWORK // ES</text>
+    <text x="750" y="415" text-anchor="end" font-family="monospace" font-size="10" fill="#94a3b8" letter-spacing="1">SIGINT // AVISO TÉCNICO</text>
   </svg>`;
 
   return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
 
-// Parseador nativo de XML para RSS y Atom con extracción de imágenes reales
+// Parseador nativo de XML para RSS y Atom con extracción de imágenes reales y limpieza de HTML
 function parseXMLFeed(xmlText) {
   const items = [];
   const cleanXml = xmlText.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
@@ -208,11 +264,9 @@ function parseXMLFeed(xmlText) {
       imageUrl = imgMatch[1].replace(/&amp;/g, '&');
     }
 
-    const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+    const title = cleanHtmlContent(titleMatch ? titleMatch[1] : '');
     const link = linkMatch ? linkMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-    let description = descMatch ? descMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-    description = description.replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
-
+    const description = cleanHtmlContent(descMatch ? descMatch[1] : '');
     const pubDate = dateMatch ? new Date(dateMatch[1].trim()).toISOString() : new Date().toISOString();
 
     if (title && (link || description)) {
@@ -326,17 +380,20 @@ async function syncSpanishFeeds() {
           ? item.imageUrl.trim()
           : createIntelSVG(feed.name, category, item.title);
 
+        const cleanTitle = cleanHtmlContent(item.title);
+        const cleanDesc = cleanHtmlContent(item.description);
+
         const newArticle = {
           id: 'auto-es-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
-          title: sanitizeInput(item.title),
+          title: sanitizeInput(cleanTitle),
           category,
           sourceName: sanitizeInput(feed.name),
           sourceUrl: sanitizeInput(item.link || feed.url),
           imageUrl: sanitizeInput(articleImg),
-          summary: sanitizeInput(item.description.slice(0, 240) + '...'),
-          content: sanitizeInput(item.description + `\n\nFuente de inteligencia oficial en castellano: ${feed.name}.\nConsulta el informe completo y avisos de mitigación a través del enlace de procedencia verificado.`),
+          summary: sanitizeInput(cleanDesc.slice(0, 240) + '...'),
+          content: sanitizeInput(cleanDesc + `\n\nFuente de inteligencia oficial en castellano: ${feed.name}.\nConsulta el informe completo y avisos de mitigación a través del enlace de procedencia verificado.`),
           tags,
-          readTime: `${Math.max(2, Math.ceil(item.description.split(/\s+/).length / 140))} min`,
+          readTime: `${Math.max(2, Math.ceil(cleanDesc.split(/\s+/).length / 140))} min`,
           isBreaking: lower.includes('crítica') || lower.includes('urgente') || lower.includes('alerta'),
           isFeatured: false,
           author: `${feed.name.split(' ')[0]} (Auto-Feed)`,
@@ -500,7 +557,7 @@ const server = http.createServer(async (req, res) => {
         polygonDensity: sanitizeInput(body.polygonDensity || currentConfig.polygonDensity || 'normal'),
         portalTitle: sanitizeInput(body.portalTitle || currentConfig.portalTitle || 'SILVERBOT2'),
         portalSubcallsign: sanitizeInput(body.portalSubcallsign || currentConfig.portalSubcallsign || 'UNIX'),
-        portalSubtitle: sanitizeInput(body.portalSubtitle || currentConfig.portalSubtitle || 'CYBER_DEFENSE & GEOPOLITICS INTEL'),
+        portalSubtitle: sanitizeInput(body.portalSubtitle || currentConfig.portalSubtitle || 'TU HACKNOTICIERO'),
         layoutMode: sanitizeInput(body.layoutMode || currentConfig.layoutMode || 'normal'),
         feeds: Array.isArray(body.feeds) ? body.feeds : currentConfig.feeds
       };
@@ -917,6 +974,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 ensureFiles();
+sanitizeStoredArticles();
 initBackgroundSync();
 
 function startServer(targetPort) {
