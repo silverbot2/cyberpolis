@@ -22,12 +22,15 @@
       portalTitle: 'SILVERBOT2',
       portalSubcallsign: 'UNIX',
       portalSubtitle: 'TU HACKNOTICIERO',
+      portalLogoUrl: 'assets/silverbot-unix-logo.png',
       layoutMode: 'editorial',
       feeds: [
-        { id: "feed-incibe", name: "INCIBE — Avisos y Vulnerabilidades", url: "https://www.incibe.es/feed/avisos/all", category: "hacking", enabled: true },
-        { id: "feed-unaaldia", name: "Una al Día — Hispasec Ciberseguridad", url: "https://unaaldia.hispasec.com/feed", category: "hacking", enabled: true },
-        { id: "feed-ccn", name: "CCN-CERT — Centro Criptológico Nacional", url: "https://www.ccn-cert.cni.es/es/avisos-ccn-cert.html?format=feed&type=rss", category: "tecnopolitica", enabled: true },
-        { id: "feed-hackplayers", name: "HackPlayers — Ciberseguridad e Investigación", url: "https://www.hackplayers.com/feeds/posts/default?alt=rss", category: "hacking", enabled: true }
+        { id: "feed-redeszone", name: "RedesZone — Seguridad y Redes", url: "https://www.redeszone.net/feed/", category: "hacking", enabled: true },
+        { id: "feed-cybernews-es", name: "CyberSecurity News ES", url: "https://www.cybersecuritynews.es/feed/", category: "hacking", enabled: true },
+        { id: "feed-unaaldia", name: "Una al Día — Hispasec", url: "https://unaaldia.hispasec.com/feed", category: "hacking", enabled: true },
+        { id: "feed-hackplayers", name: "HackPlayers — Ciberseguridad", url: "https://www.hackplayers.com/feeds/posts/default?alt=rss", category: "hacking", enabled: true },
+        { id: "feed-genbeta-sec", name: "Genbeta — Ciberseguridad", url: "https://www.genbeta.com/tag/ciberseguridad/rss2.xml", category: "hacking", enabled: true },
+        { id: "feed-eldiario-tecno", name: "elDiario.es — Tecnopolítica y Sociedad", url: "https://www.eldiario.es/rss/tecnologia/", category: "tecnopolitica", enabled: true }
       ]
     },
     currentCategory: 'all',
@@ -37,7 +40,11 @@
     bookmarks: new Set(JSON.parse(localStorage.getItem('silverbot_bookmarks') || '[]')),
     theme: localStorage.getItem('silverbot_theme_v3') || 'light',
     serverMode: false,
-    activeReaderArticle: null
+    activeReaderArticle: null,
+    forumThreads: [],
+    forumFilter: 'Todos',
+    activeForumThreadId: null,
+    pendingLogoDataUrl: null
   };
 
   const ENTITY_MAP = {
@@ -308,9 +315,13 @@
     brandResetBtn: document.getElementById('brandResetBtn'),
 
     // Elementos de Identidad Transformables
+    uiPortalLogo: document.getElementById('uiPortalLogo'),
     uiPortalTitle: document.getElementById('uiPortalTitle'),
     uiPortalSubcallsign: document.getElementById('uiPortalSubcallsign'),
     uiPortalSubtitle: document.getElementById('uiPortalSubtitle'),
+    tagsMatrix: document.querySelector('.tags-matrix'),
+    feedHeader: document.querySelector('.feed-header-module'),
+    forumSection: document.getElementById('forumSection'),
 
     // Contadores
     countAll: document.getElementById('countAll'),
@@ -318,6 +329,7 @@
     countPolitica: document.getElementById('countPolitica'),
     countTecno: document.getElementById('countTecno'),
     countBookmarks: document.getElementById('countBookmarks'),
+    countForum: document.getElementById('countForum'),
 
     // Modal Panel Admin & Transformador
     adminControlModal: document.getElementById('adminControlModal'),
@@ -339,6 +351,10 @@
     adminPortalTitleInput: document.getElementById('adminPortalTitleInput'),
     adminPortalSubcallsignInput: document.getElementById('adminPortalSubcallsignInput'),
     adminPortalSubtitleInput: document.getElementById('adminPortalSubtitleInput'),
+    adminLogoPreview: document.getElementById('adminLogoPreview'),
+    adminPortalLogoInput: document.getElementById('adminPortalLogoInput'),
+    adminPortalLogoFile: document.getElementById('adminPortalLogoFile'),
+    adminResetLogoBtn: document.getElementById('adminResetLogoBtn'),
     applyTransformBtn: document.getElementById('applyTransformBtn'),
     cancelTransformBtn: document.getElementById('cancelTransformBtn'),
 
@@ -423,6 +439,7 @@
     await checkAuthSession();
     await loadConfig();
     await loadArticles();
+    await loadForum();
 
     applySiteTransformation(state.config);
     renderUserWidget();
@@ -481,10 +498,25 @@
     document.body.classList.remove('layout-normal', 'layout-compact', 'layout-editorial');
     document.body.classList.add(`layout-${cfg.layoutMode || 'normal'}`);
 
-    // 3. Títulos e Identidad
+    // 3. Títulos, Logo e Identidad
     if (DOM.uiPortalTitle && cfg.portalTitle) DOM.uiPortalTitle.textContent = cfg.portalTitle;
     if (DOM.uiPortalSubcallsign && cfg.portalSubcallsign) DOM.uiPortalSubcallsign.textContent = cfg.portalSubcallsign;
     if (DOM.uiPortalSubtitle && cfg.portalSubtitle) DOM.uiPortalSubtitle.textContent = cfg.portalSubtitle;
+    const activeLogo = cfg.portalLogoUrl || 'assets/silverbot-unix-logo.png';
+    if (DOM.uiPortalLogo) {
+      DOM.uiPortalLogo.src = activeLogo;
+      DOM.uiPortalLogo.onerror = () => {
+        DOM.uiPortalLogo.onerror = null;
+        DOM.uiPortalLogo.src = 'assets/silverbot-unix-logo.png';
+      };
+    }
+    if (DOM.adminLogoPreview) {
+      DOM.adminLogoPreview.src = activeLogo;
+      DOM.adminLogoPreview.onerror = () => {
+        DOM.adminLogoPreview.onerror = null;
+        DOM.adminLogoPreview.src = 'assets/silverbot-unix-logo.png';
+      };
+    }
 
     // 4. Malla de Polígonos 3D
     if (window.polygonEngine) {
@@ -530,6 +562,14 @@
     DOM.adminPortalTitleInput.value = state.config.portalTitle || 'SILVERBOT2';
     DOM.adminPortalSubcallsignInput.value = state.config.portalSubcallsign || 'UNIX';
     DOM.adminPortalSubtitleInput.value = state.config.portalSubtitle || 'TU HACKNOTICIERO';
+    const currentLogo = state.config.portalLogoUrl || 'assets/silverbot-unix-logo.png';
+    state.pendingLogoDataUrl = null;
+    if (DOM.adminPortalLogoInput) {
+      DOM.adminPortalLogoInput.value = currentLogo.startsWith('data:image/') ? '[Imagen personalizada cargada]' : currentLogo;
+    }
+    if (DOM.adminLogoPreview) {
+      DOM.adminLogoPreview.src = currentLogo;
+    }
 
     // Botones de acento activo
     document.querySelectorAll('.accent-color-btn').forEach(btn => {
@@ -658,10 +698,17 @@
     const activeLayoutBtn = document.querySelector('.layout-mode-btn.active');
     const layoutMode = activeLayoutBtn ? activeLayoutBtn.dataset.layout : 'normal';
 
-    // 4. Títulos
+    // 4. Títulos y Logotipo
     const portalTitle = DOM.adminPortalTitleInput.value.trim() || 'SILVERBOT2';
     const portalSubcallsign = DOM.adminPortalSubcallsignInput.value.trim() || 'UNIX';
     const portalSubtitle = DOM.adminPortalSubtitleInput.value.trim() || 'TU HACKNOTICIERO';
+    const rawLogoInput = DOM.adminPortalLogoInput ? DOM.adminPortalLogoInput.value.trim() : '';
+    let portalLogoUrl = state.config.portalLogoUrl || 'assets/silverbot-unix-logo.png';
+    if (state.pendingLogoDataUrl) {
+      portalLogoUrl = state.pendingLogoDataUrl;
+    } else if (rawLogoInput && rawLogoInput !== '[Imagen personalizada cargada]') {
+      portalLogoUrl = rawLogoInput;
+    }
 
     state.config.themeAccent = themeAccent;
     state.config.polygonDensity = polygonDensity;
@@ -669,6 +716,8 @@
     state.config.portalTitle = portalTitle;
     state.config.portalSubcallsign = portalSubcallsign;
     state.config.portalSubtitle = portalSubtitle;
+    state.config.portalLogoUrl = portalLogoUrl;
+    state.pendingLogoDataUrl = null;
 
     applySiteTransformation(state.config);
     await saveConfigToServer();
@@ -792,7 +841,7 @@
             <span class="user-pill-name">${escapeHtml(state.currentUser.displayName)}</span>
             <span class="user-role-badge ${roleBadgeClass}">${roleLabel}</span>
           </div>
-          <span style="font-size: 0.7rem; color: var(--text-muted); margin-left: 2px;">▾</span>
+          <span style="font-size: 0.7rem; color: var(--text-muted); margin-left: 2px;">▴</span>
         </div>
 
         <div class="user-dropdown-menu" id="userDropdownMenu" style="display: none;">
@@ -837,6 +886,10 @@
       document.getElementById('menuOpenLinkedInBtn').onclick = openLinkedInModal;
       document.getElementById('menuUsersListBtn').onclick = openUsersDirectory;
       document.getElementById('menuLogoutBtn').onclick = handleLogout;
+    }
+
+    if (state.currentCategory === 'forum') {
+      renderForum();
     }
   }
 
@@ -1327,11 +1380,18 @@
     return copy;
   }
 
-  // Selección editorial equilibrada: elige las 8 noticias más importantes repartidas entre TODAS las fuentes activas
+  // Selección editorial equilibrada: elige las 8 noticias más importantes repartidas entre TODAS las fuentes activas recientes
   function curateTopArticles(articlesList, limit = 8) {
     if (!Array.isArray(articlesList) || articlesList.length === 0) return [];
     const nonDemos = articlesList.filter(a => !isDemoPlaceholder(a));
-    const workingPool = nonDemos.length >= 4 ? nonDemos : articlesList;
+    let workingPool = nonDemos.length >= 4 ? nonDemos : articlesList;
+
+    // Si hay suficientes noticias recientes (<= 5 días respecto a la más actual), evitar que fuentes sin publicar semanas atrás ocupen portada
+    const newestPoolTs = Math.max(...workingPool.map(a => new Date(a.date).getTime() || 0));
+    const recentPool = workingPool.filter(a => (newestPoolTs - (new Date(a.date).getTime() || 0)) <= 120 * 3600 * 1000);
+    if (recentPool.length >= limit) {
+      workingPool = recentPool;
+    }
 
     const groups = new Map();
     for (const art of workingPool) {
@@ -1376,7 +1436,7 @@
     return sortArticlesByMode(selected, state.sortBy);
   }
 
-  // Selección dinámica de Portada (#1): nunca queda clavada en artículos demo antiguos
+  // Selección dinámica de Portada (#1): prioriza titulares de HOY con fotografía real
   function selectPortadaLead(curatedList, sortBy = state.sortBy) {
     if (!curatedList || curatedList.length === 0) return null;
     if (sortBy === 'popular' || sortBy === 'breaking') {
@@ -1391,11 +1451,11 @@
       const ageHoursA = Math.max(0, (newestTs - tsA) / 3600000);
       const ageHoursB = Math.max(0, (newestTs - tsB) / 3600000);
 
-      const featA = (a.isFeatured && !isDemoPlaceholder(a) && ageHoursA <= 72) ? 16 : 0;
-      const featB = (b.isFeatured && !isDemoPlaceholder(b) && ageHoursB <= 72) ? 16 : 0;
+      const featA = (a.isFeatured && !isDemoPlaceholder(a) && ageHoursA <= 18) ? 10 : 0;
+      const featB = (b.isFeatured && !isDemoPlaceholder(b) && ageHoursB <= 18) ? 10 : 0;
 
-      const scoreA = featA + (isRealPhoto(a) ? 8 : 0) + (a.isBreaking ? 3 : 0) - (ageHoursA * 0.3);
-      const scoreB = featB + (isRealPhoto(b) ? 8 : 0) + (b.isBreaking ? 3 : 0) - (ageHoursB * 0.3);
+      const scoreA = featA + (isRealPhoto(a) ? 8 : 0) + (a.isBreaking ? 3 : 0) - (ageHoursA * 0.55);
+      const scoreB = featB + (isRealPhoto(b) ? 8 : 0) + (b.isBreaking ? 3 : 0) - (ageHoursB * 0.55);
 
       if (Math.abs(scoreB - scoreA) > 0.05) return scoreB - scoreA;
       return tsB - tsA;
@@ -1450,6 +1510,27 @@
   }
 
   function renderFeed() {
+    if (state.currentCategory === 'forum') {
+      if (DOM.tagsMatrix) DOM.tagsMatrix.style.display = 'none';
+      if (DOM.feedHeader) DOM.feedHeader.style.display = 'none';
+      if (DOM.featuredSection) {
+        DOM.featuredSection.innerHTML = '';
+        DOM.featuredSection.style.display = 'none';
+      }
+      if (DOM.articlesGrid) DOM.articlesGrid.innerHTML = '';
+      if (DOM.emptyState) DOM.emptyState.style.display = 'none';
+      if (DOM.forumSection) DOM.forumSection.style.display = 'flex';
+      renderForum();
+      return;
+    }
+
+    if (DOM.tagsMatrix) DOM.tagsMatrix.style.display = '';
+    if (DOM.feedHeader) DOM.feedHeader.style.display = '';
+    if (DOM.forumSection) {
+      DOM.forumSection.style.display = 'none';
+      DOM.forumSection.innerHTML = '';
+    }
+
     const filtered = getFilteredArticles();
 
     let titleText = 'LO MÁS IMPORTANTE HOY';
@@ -1566,6 +1647,7 @@
             ${a.verifiedLinkedIn ? '<span class="verified-linkedin-badge"><span>in</span> LINKEDIN</span>' : ''}
           </div>
 
+          <div class="hero-source-eyebrow">${escapeHtml(sourceShort)}</div>
           <h1 class="hero-headline" data-action="read">${escapeHtml(a.title)}</h1>
           <p class="hero-abstract">${escapeHtml(a.summary)}</p>
 
@@ -2221,6 +2303,112 @@
     if (DOM.applyTransformBtn) DOM.applyTransformBtn.addEventListener('click', handleApplyTransformation);
     if (DOM.cancelTransformBtn) DOM.cancelTransformBtn.addEventListener('click', closeAdminControl);
 
+    // Personalizador de logotipo del portal (Admin)
+    if (DOM.adminPortalLogoFile) {
+      DOM.adminPortalLogoFile.addEventListener('change', e => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => {
+          const dataUrl = ev.target.result;
+          if (typeof dataUrl !== 'string') return;
+          const img = new Image();
+          img.onload = () => {
+            const maxDim = 220;
+            const scale = Math.min(1, maxDim / Math.max(img.width || maxDim, img.height || maxDim));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(32, Math.round((img.width || maxDim) * scale));
+            canvas.height = Math.max(32, Math.round((img.height || maxDim) * scale));
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const pngDataUrl = canvas.toDataURL('image/png');
+            state.pendingLogoDataUrl = pngDataUrl;
+            if (DOM.adminLogoPreview) DOM.adminLogoPreview.src = pngDataUrl;
+            if (DOM.adminPortalLogoInput) DOM.adminPortalLogoInput.value = '[Imagen personalizada lista para guardar]';
+            showToast('Logotipo cargado y optimizado. Pulsa "Aplicar Transformación Web" para guardar.');
+          };
+          img.onerror = () => {
+            showToast('No se pudo leer la imagen seleccionada. Prueba con PNG, JPG o WebP.');
+          };
+          img.src = dataUrl;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+    if (DOM.adminPortalLogoInput) {
+      DOM.adminPortalLogoInput.addEventListener('input', () => {
+        const val = DOM.adminPortalLogoInput.value.trim();
+        if (val && val !== '[Imagen personalizada cargada]' && val !== '[Imagen personalizada lista para guardar]') {
+          state.pendingLogoDataUrl = null;
+          if (DOM.adminLogoPreview) DOM.adminLogoPreview.src = val;
+        }
+      });
+    }
+    if (DOM.adminResetLogoBtn) {
+      DOM.adminResetLogoBtn.addEventListener('click', () => {
+        const defaultLogo = 'assets/silverbot-unix-logo.png';
+        state.pendingLogoDataUrl = null;
+        if (DOM.adminPortalLogoInput) DOM.adminPortalLogoInput.value = defaultLogo;
+        if (DOM.adminLogoPreview) DOM.adminLogoPreview.src = defaultLogo;
+        if (DOM.adminPortalLogoFile) DOM.adminPortalLogoFile.value = '';
+        showToast('Vista previa restaurada al logo original. Aplica para guardar.');
+      });
+    }
+
+    // Delegación de eventos del Foro & Debate Comunitario
+    if (DOM.forumSection) {
+      DOM.forumSection.addEventListener('click', e => {
+        const filterBtn = e.target.closest('.forum-filter-pill[data-forum-cat]');
+        if (filterBtn) {
+          state.forumFilter = filterBtn.dataset.forumCat || 'Todos';
+          renderForum();
+          return;
+        }
+        const toggleBtn = e.target.closest('[data-forum-toggle]');
+        if (toggleBtn) {
+          const id = toggleBtn.dataset.forumToggle;
+          state.activeForumThreadId = state.activeForumThreadId === id ? null : id;
+          renderForum();
+          return;
+        }
+        const deleteBtn = e.target.closest('[data-forum-delete]');
+        if (deleteBtn) {
+          handleDeleteForumThread(deleteBtn.dataset.forumDelete);
+          return;
+        }
+        if (e.target.closest('#toggleForumComposerBtn')) {
+          if (!state.currentUser) {
+            openAuthModal();
+            return;
+          }
+          state.showForumComposer = !state.showForumComposer;
+          renderForum();
+          return;
+        }
+        if (e.target.closest('#cancelForumComposerBtn')) {
+          state.showForumComposer = false;
+          renderForum();
+          return;
+        }
+        if (e.target.closest('#forumLoginPromptBtn') || e.target.closest('[data-forum-login]')) {
+          openAuthModal();
+        }
+      });
+
+      DOM.forumSection.addEventListener('submit', e => {
+        if (e.target.id === 'forumCreateThreadForm') {
+          e.preventDefault();
+          handleCreateForumThread(e.target);
+          return;
+        }
+        const replyForm = e.target.closest('.forum-reply-form[data-thread-id]');
+        if (replyForm) {
+          e.preventDefault();
+          handlePostForumReply(replyForm.dataset.threadId, replyForm);
+        }
+      });
+    }
+
     // Delegación para Color Picker en Transformador
     if (DOM.accentColorPicker) {
       DOM.accentColorPicker.addEventListener('click', e => {
@@ -2432,6 +2620,350 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+  }
+
+  // ==========================================
+  // 14. Foro & Debate Comunitario
+  // ==========================================
+  async function loadForum() {
+    if (state.serverMode) {
+      try {
+        const res = await fetch('/api/forum');
+        if (res.ok) {
+          const threads = await res.json();
+          if (Array.isArray(threads)) {
+            state.forumThreads = threads;
+            localStorage.setItem('silverbot_forum_cache', JSON.stringify(threads));
+            updateForumCount();
+            if (state.currentCategory === 'forum') renderForum();
+            return;
+          }
+        }
+      } catch (e) {}
+    }
+
+    try {
+      const cached = JSON.parse(localStorage.getItem('silverbot_forum_cache') || 'null');
+      if (Array.isArray(cached) && cached.length > 0) {
+        state.forumThreads = cached;
+      }
+    } catch (e) {}
+
+    if (!Array.isArray(state.forumThreads) || state.forumThreads.length === 0) {
+      state.forumThreads = [
+        {
+          id: 'frm-demo-1',
+          title: '¿Qué herramientas usáis para analizar alertas CVE y vulnerabilidades críticas?',
+          category: 'Ciberseguridad',
+          body: 'Abrimos este hilo para compartir feeds, scripts o flujos recomendados en el día a día para priorizar parches.',
+          author: 'Silverbot2',
+          authorId: 'usr-admin-01',
+          authorRole: 'admin',
+          createdAt: new Date(Date.now() - 3600000 * 6).toISOString(),
+          replies: []
+        }
+      ];
+    }
+    updateForumCount();
+    if (state.currentCategory === 'forum') renderForum();
+  }
+
+  function updateForumCount() {
+    if (DOM.countForum) {
+      DOM.countForum.textContent = Array.isArray(state.forumThreads) ? state.forumThreads.length : 0;
+    }
+  }
+
+  function renderForum() {
+    if (!DOM.forumSection) return;
+
+    const categories = ['Todos', 'Ciberseguridad', 'Tecnopolítica', 'Herramientas', 'Dudas & Ayuda'];
+    let list = Array.isArray(state.forumThreads) ? [...state.forumThreads] : [];
+
+    if (state.forumFilter && state.forumFilter !== 'Todos') {
+      list = list.filter(t => (t.category || '').toLowerCase() === state.forumFilter.toLowerCase());
+    }
+
+    const q = (state.searchQuery || '').toLowerCase().trim();
+    if (q) {
+      list = list.filter(t =>
+        (t.title || '').toLowerCase().includes(q) ||
+        (t.body || '').toLowerCase().includes(q) ||
+        (t.author || '').toLowerCase().includes(q) ||
+        (t.category || '').toLowerCase().includes(q)
+      );
+    }
+
+    const isLoggedIn = !!state.currentUser;
+
+    const headerHtml = `
+      <div class="forum-header-card">
+        <div class="forum-header-info">
+          <h2>Foro & Debate Comunitario</h2>
+          <p>Espacio abierto de lectura para debates técnicos sobre ciberseguridad, herramientas OSINT y actualidad digital.</p>
+        </div>
+        <div>
+          ${isLoggedIn
+            ? `<button type="button" id="toggleForumComposerBtn" class="hud-btn hud-btn-action">${state.showForumComposer ? '× Cerrar formulario' : '+ Nuevo tema de debate'}</button>`
+            : `<button type="button" id="forumLoginPromptBtn" class="hud-btn hud-btn-outline">🔑 Iniciar sesión / Registro para participar</button>`
+          }
+        </div>
+      </div>
+    `;
+
+    const toolbarHtml = `
+      <div class="forum-toolbar">
+        <div class="forum-filter-pills">
+          ${categories.map(cat => `
+            <button type="button" class="forum-filter-pill ${state.forumFilter === cat ? 'active' : ''}" data-forum-cat="${escapeHtml(cat)}">
+              ${escapeHtml(cat)}
+            </button>
+          `).join('')}
+        </div>
+        <span class="feed-meta">${list.length} ${list.length === 1 ? 'hilo activo' : 'hilos activos'}</span>
+      </div>
+    `;
+
+    const composerHtml = (isLoggedIn && state.showForumComposer) ? `
+      <div class="forum-composer-card">
+        <h3 class="forum-composer-title">Abrir un nuevo tema en el foro</h3>
+        <form id="forumCreateThreadForm">
+          <div class="form-grid-2">
+            <div class="form-field">
+              <label for="forumThreadTitle" class="hud-label">TÍTULO DEL DEBATE *</label>
+              <input type="text" id="forumThreadTitle" class="hud-input" maxlength="160" required placeholder="Ej: Análisis de nueva vulnerabilidad en routers...">
+            </div>
+            <div class="form-field">
+              <label for="forumThreadCategory" class="hud-label">CATEGORÍA</label>
+              <select id="forumThreadCategory" class="hud-select">
+                <option value="Ciberseguridad">Ciberseguridad</option>
+                <option value="Tecnopolítica">Tecnopolítica</option>
+                <option value="Herramientas">Herramientas</option>
+                <option value="Dudas & Ayuda">Dudas & Ayuda</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="forumThreadBody" class="hud-label">MENSAJE *</label>
+            <textarea id="forumThreadBody" class="hud-textarea" rows="4" maxlength="4000" required placeholder="Expón tu análisis, consulta o punto de vista..."></textarea>
+          </div>
+          <div class="modal-footer-actions">
+            <button type="button" id="cancelForumComposerBtn" class="hud-btn hud-btn-outline">Cancelar</button>
+            <button type="submit" class="hud-btn hud-btn-action">Publicar hilo</button>
+          </div>
+        </form>
+      </div>
+    ` : '';
+
+    let threadsHtml = '';
+    if (list.length === 0) {
+      threadsHtml = `
+        <div class="empty-intel-box">
+          <div class="empty-hud-icon">💬</div>
+          <h3 class="empty-hud-title">Sin hilos en esta categoría</h3>
+          <p class="empty-hud-msg">No hay debates publicados con los filtros actuales.</p>
+        </div>
+      `;
+    } else {
+      threadsHtml = `<div class="forum-threads-list">${list.map(t => {
+        const replies = Array.isArray(t.replies) ? t.replies : [];
+        const isExpanded = state.activeForumThreadId === t.id;
+        const canDelete = isLoggedIn && (state.currentUser.role === 'admin' || state.currentUser.id === t.authorId);
+        const roleTag = t.authorRole === 'admin' ? 'ADMIN' : 'MIEMBRO';
+
+        const repliesHtml = isExpanded ? `
+          <div class="forum-replies-panel">
+            ${replies.length === 0
+              ? `<p style="font-size: 0.85rem; color: var(--text-muted); margin: 0;">Todavía no hay respuestas. Sé el primero en comentar.</p>`
+              : replies.map(rep => `
+                <div class="forum-reply-item">
+                  <div class="forum-reply-header">
+                    <span class="forum-author-badge">${escapeHtml(rep.author || 'Usuario')}</span>
+                    <span class="forum-role-tag">${rep.authorRole === 'admin' ? 'ADMIN' : 'MIEMBRO'}</span>
+                    <span>• ${getRelativeTime(rep.createdAt)}</span>
+                  </div>
+                  <p class="forum-reply-text">${escapeHtml(rep.text || '')}</p>
+                </div>
+              `).join('')
+            }
+
+            ${isLoggedIn ? `
+              <form class="forum-reply-form" data-thread-id="${escapeHtml(t.id)}">
+                <textarea class="hud-textarea" name="replyText" rows="2" maxlength="2500" required placeholder="Escribe tu respuesta en el debate..."></textarea>
+                <div style="display: flex; justify-content: flex-end;">
+                  <button type="submit" class="hud-btn hud-btn-action">Responder</button>
+                </div>
+              </form>
+            ` : `
+              <div class="forum-guest-notice">
+                <span>Inicia sesión o regístrate abajo para responder a este debate.</span>
+                <button type="button" class="hud-btn hud-btn-outline" data-forum-login="1">🔑 Acceder / Registro</button>
+              </div>
+            `}
+          </div>
+        ` : '';
+
+        return `
+          <article class="forum-thread-card" data-thread-id="${escapeHtml(t.id)}">
+            <div class="forum-thread-top">
+              <div class="forum-thread-meta-left">
+                <span class="forum-cat-badge">${escapeHtml(t.category || 'General')}</span>
+                <span class="forum-author-badge">${escapeHtml(t.author || 'Anónimo')}</span>
+                <span class="forum-role-tag">${roleTag}</span>
+                <span>• ${getRelativeTime(t.createdAt)}</span>
+              </div>
+              ${canDelete ? `<button type="button" class="forum-delete-btn" data-forum-delete="${escapeHtml(t.id)}">Eliminar</button>` : ''}
+            </div>
+            <h3 class="forum-thread-title">${escapeHtml(t.title)}</h3>
+            <p class="forum-thread-body">${escapeHtml(t.body)}</p>
+            <div class="forum-thread-actions">
+              <button type="button" class="forum-reply-toggle-btn" data-forum-toggle="${escapeHtml(t.id)}">
+                <span>💬 ${replies.length} ${replies.length === 1 ? 'respuesta' : 'respuestas'}</span>
+                <span>· ${isExpanded ? 'Ocultar debate ▴' : 'Ver debate y responder ▾'}</span>
+              </button>
+            </div>
+            ${repliesHtml}
+          </article>
+        `;
+      }).join('')}</div>`;
+    }
+
+    DOM.forumSection.innerHTML = headerHtml + toolbarHtml + composerHtml + threadsHtml;
+  }
+
+  async function handleCreateForumThread(form) {
+    if (!state.currentUser) {
+      openAuthModal();
+      return;
+    }
+    const titleEl = form.querySelector('#forumThreadTitle');
+    const catEl = form.querySelector('#forumThreadCategory');
+    const bodyEl = form.querySelector('#forumThreadBody');
+    const title = titleEl ? titleEl.value.trim() : '';
+    const category = catEl ? catEl.value : 'Ciberseguridad';
+    const body = bodyEl ? bodyEl.value.trim() : '';
+
+    if (!title || !body) {
+      showToast('Completa el título y el mensaje del hilo.');
+      return;
+    }
+
+    if (state.serverMode && state.authToken) {
+      try {
+        const res = await fetch('/api/forum', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${state.authToken}`
+          },
+          body: JSON.stringify({ title, category, body })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showToast(data.error || 'No se pudo publicar el tema.');
+          return;
+        }
+        state.forumThreads.unshift(data.thread);
+        localStorage.setItem('silverbot_forum_cache', JSON.stringify(state.forumThreads));
+        state.showForumComposer = false;
+        state.activeForumThreadId = data.thread.id;
+        updateForumCount();
+        renderForum();
+        showToast('¡Tema publicado en el foro!');
+        return;
+      } catch (e) {}
+    }
+
+    const localThread = {
+      id: 'frm-' + Date.now(),
+      title,
+      category,
+      body,
+      author: state.currentUser.displayName,
+      authorId: state.currentUser.id,
+      authorRole: state.currentUser.role,
+      createdAt: new Date().toISOString(),
+      replies: []
+    };
+    state.forumThreads.unshift(localThread);
+    localStorage.setItem('silverbot_forum_cache', JSON.stringify(state.forumThreads));
+    state.showForumComposer = false;
+    state.activeForumThreadId = localThread.id;
+    updateForumCount();
+    renderForum();
+    showToast('¡Tema guardado en modo local!');
+  }
+
+  async function handlePostForumReply(threadId, form) {
+    if (!state.currentUser) {
+      openAuthModal();
+      return;
+    }
+    const textEl = form.querySelector('textarea[name="replyText"]');
+    const text = textEl ? textEl.value.trim() : '';
+    if (!text) return;
+
+    if (state.serverMode && state.authToken) {
+      try {
+        const res = await fetch(`/api/forum/${encodeURIComponent(threadId)}/reply`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${state.authToken}`
+          },
+          body: JSON.stringify({ text })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showToast(data.error || 'No se pudo publicar la respuesta.');
+          return;
+        }
+        const idx = state.forumThreads.findIndex(t => t.id === threadId);
+        if (idx !== -1 && data.thread) state.forumThreads[idx] = data.thread;
+        localStorage.setItem('silverbot_forum_cache', JSON.stringify(state.forumThreads));
+        renderForum();
+        showToast('Respuesta publicada.');
+        return;
+      } catch (e) {}
+    }
+
+    const thread = state.forumThreads.find(t => t.id === threadId);
+    if (thread) {
+      if (!Array.isArray(thread.replies)) thread.replies = [];
+      thread.replies.push({
+        id: 'rep-' + Date.now(),
+        text,
+        author: state.currentUser.displayName,
+        authorId: state.currentUser.id,
+        authorRole: state.currentUser.role,
+        createdAt: new Date().toISOString()
+      });
+      localStorage.setItem('silverbot_forum_cache', JSON.stringify(state.forumThreads));
+      renderForum();
+      showToast('Respuesta guardada en modo local.');
+    }
+  }
+
+  async function handleDeleteForumThread(threadId) {
+    if (!state.currentUser) return;
+    if (state.serverMode && state.authToken) {
+      try {
+        const res = await fetch(`/api/forum/${encodeURIComponent(threadId)}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${state.authToken}` }
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          showToast(data.error || 'No tienes permisos para eliminar este tema.');
+          return;
+        }
+      } catch (e) {}
+    }
+    state.forumThreads = state.forumThreads.filter(t => t.id !== threadId);
+    localStorage.setItem('silverbot_forum_cache', JSON.stringify(state.forumThreads));
+    updateForumCount();
+    renderForum();
+    showToast('Hilo eliminado del foro.');
   }
 
   if (document.readyState === 'loading') {

@@ -1,0 +1,33 @@
+[
+  {
+    "id": "frm-001",
+    "title": "Directiva NIS2 en España y Europa: ¿Están realmente preparadas las pymes?",
+    "category": "Geopolítica",
+    "body": "Con el endurecimiento de plazos de notificación de incidentes (24 horas de alerta temprana) y las responsabilidades para direcciones técnicas, abrimos debate sobre qué controles mínimos estáis priorizando este trimestre en auditorías y SOC.",
+    "author": "Silverbot2 // Unix",
+    "authorId": "usr-admin-01",
+    "authorRole": "admin",
+    "createdAt": "2026-11-10T18:30:00.000Z",
+    "replies": [
+      {
+        "id": "rep-001",
+        "text": "Lo más urgente que estamos viendo es inventario real de activos expuestos y MFA resistente a phishing (FIDO2) antes de invertir en herramientas complejas.",
+        "author": "Silverbot2 // Unix",
+        "authorId": "usr-admin-01",
+        "authorRole": "admin",
+        "createdAt": "2026-11-10T19:15:00.000Z"
+      }
+    ]
+  },
+  {
+    "id": "frm-002",
+    "title": "Hilo abierto: Herramientas OSINT y fuentes fiables para análisis de infraestructuras",
+    "category": "Herramientas",
+    "body": "Comparte en este hilo utilidades, scripts, feeds de IOCs o metodologías de reconocimiento pasivo que utilices en tu día a día para investigar campañas de phishing e infostealers.",
+    "author": "Silverbot2 // Unix",
+    "authorId": "usr-admin-01",
+    "authorRole": "admin",
+    "createdAt": "2026-11-09T12:00:00.000Z",
+    "replies": []
+  }
+]

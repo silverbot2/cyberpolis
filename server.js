@@ -14,6 +14,7 @@ const ARTICLES_FILE = path.join(DATA_DIR, 'articles.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
+const FORUM_FILE = path.join(DATA_DIR, 'forum.json');
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=UTF-8',
@@ -73,6 +74,17 @@ function sanitizeInput(str) {
     .trim();
 }
 
+function sanitizeLogoUrl(raw) {
+  if (!raw || typeof raw !== 'string') return 'assets/silverbot-unix-logo.png';
+  const trimmed = raw.trim();
+  if (/^assets\/[a-zA-Z0-9._\-\/]+$/.test(trimmed)) return trimmed;
+  if (/^https?:\/\/[^\s"'<>]+$/i.test(trimmed)) return sanitizeInput(trimmed);
+  if (/^data:image\/(?:png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(trimmed) && trimmed.length <= 600000) {
+    return trimmed;
+  }
+  return 'assets/silverbot-unix-logo.png';
+}
+
 // ==========================================
 // 2. Persistencia en Disco
 // ==========================================
@@ -81,6 +93,7 @@ function ensureFiles() {
   if (!fs.existsSync(ARTICLES_FILE)) fs.writeFileSync(ARTICLES_FILE, '[]', 'utf-8');
   if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, '[]', 'utf-8');
   if (!fs.existsSync(SESSIONS_FILE)) fs.writeFileSync(SESSIONS_FILE, '[]', 'utf-8');
+  if (!fs.existsSync(FORUM_FILE)) fs.writeFileSync(FORUM_FILE, '[]', 'utf-8');
 }
 
 function isValidArticleImageUrl(imgUrl) {
@@ -503,25 +516,20 @@ async function syncSpanishFeeds() {
 
     let items = [];
     try {
-      // Intentar descargar feed online con timeout de 6 segundos
+      // Intentar descargar feed online con User-Agent de navegador y timeout de 8 segundos
       const res = await fetch(feed.url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CyberPolis-NewsBot/3.0)' },
-        signal: AbortSignal.timeout(6000)
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'application/rss+xml, application/xml, text/xml, */*'
+        },
+        signal: AbortSignal.timeout(8000)
       });
       if (res.ok) {
         const xml = await res.text();
         items = parseXMLFeed(xml, feed.url).slice(0, 6);
       }
     } catch (err) {
-      // Si la red externa no responde o está en sandbox, recurrir al pool de respaldo
-    }
-
-    // Si falló la red, usar los despachos especializados de respaldo correspondientes
-    if (items.length === 0) {
-      items = FALLBACK_SPANISH_INTEL.filter(item => 
-        item.feedSource.toLowerCase().includes(feed.name.split(' ')[0].toLowerCase()) ||
-        feed.name.toLowerCase().includes(item.feedSource.split(' ')[0].toLowerCase())
-      );
+      // Silenciar fallo puntual de red de un feed concreto para que el resto siga funcionando
     }
 
     for (const item of items) {
@@ -584,6 +592,33 @@ async function syncSpanishFeeds() {
         articles.unshift(newArticle);
         newArticlesAdded++;
       }
+    }
+  }
+
+  if (articles.length === 0 && newArticlesAdded === 0) {
+    // Respaldo de emergencia únicamente si el almacenamiento está completamente vacío y no hubo red
+    for (const item of FALLBACK_SPANISH_INTEL) {
+      articles.push({
+        id: 'auto-es-fallback-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+        title: sanitizeInput(item.title),
+        category: item.category || 'hacking',
+        sourceName: sanitizeInput(item.feedSource),
+        sourceUrl: sanitizeInput(item.link),
+        imageUrl: item.imageUrl,
+        summary: sanitizeInput(item.description),
+        content: sanitizeInput(item.description),
+        tags: ['ciberseguridad'],
+        readTime: '3 min',
+        isBreaking: false,
+        isFeatured: false,
+        author: sanitizeInput(item.feedSource),
+        authorRole: 'feed',
+        verifiedLinkedIn: false,
+        isAutoFeed: true,
+        date: item.pubDate,
+        views: 0
+      });
+      newArticlesAdded++;
     }
   }
 
@@ -763,7 +798,8 @@ const server = http.createServer(async (req, res) => {
         portalTitle: sanitizeInput(body.portalTitle || currentConfig.portalTitle || 'SILVERBOT2'),
         portalSubcallsign: sanitizeInput(body.portalSubcallsign || currentConfig.portalSubcallsign || 'UNIX'),
         portalSubtitle: sanitizeInput(body.portalSubtitle || currentConfig.portalSubtitle || 'TU HACKNOTICIERO'),
-        layoutMode: sanitizeInput(body.layoutMode || currentConfig.layoutMode || 'normal'),
+        portalLogoUrl: body.portalLogoUrl !== undefined ? sanitizeLogoUrl(body.portalLogoUrl) : (currentConfig.portalLogoUrl || 'assets/silverbot-unix-logo.png'),
+        layoutMode: sanitizeInput(body.layoutMode || currentConfig.layoutMode || 'editorial'),
         feeds: Array.isArray(body.feeds) ? body.feeds : currentConfig.feeds
       };
 
@@ -1154,6 +1190,125 @@ const server = http.createServer(async (req, res) => {
 
       writeJSON(ARTICLES_FILE, body);
       sendJSON(res, 200, { success: true, count: body.length });
+      return;
+    }
+
+    // ----------------------------------------------------
+    // API FORO COMUNITARIO
+    // ----------------------------------------------------
+
+    if (pathname === '/api/forum' && method === 'GET') {
+      const threads = readJSON(FORUM_FILE, []);
+      threads.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      sendJSON(res, 200, threads);
+      return;
+    }
+
+    if (pathname === '/api/forum' && method === 'POST') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser) {
+        sendJSON(res, 401, { error: 'Debes iniciar sesión para abrir un tema en el foro' });
+        return;
+      }
+      if (!checkRateLimit(ip, 15, 60000)) {
+        sendJSON(res, 429, { error: 'Demasiadas publicaciones seguidas. Espera un momento.' });
+        return;
+      }
+
+      const body = await parseBody(req);
+      const title = sanitizeInput(body.title || '').slice(0, 160);
+      const category = sanitizeInput(body.category || 'General').slice(0, 40);
+      const text = sanitizeInput(body.body || '').slice(0, 4000);
+
+      if (!title || !text) {
+        sendJSON(res, 400, { error: 'El título y el mensaje son obligatorios' });
+        return;
+      }
+
+      const threads = readJSON(FORUM_FILE, []);
+      const newThread = {
+        id: 'frm-' + Date.now(),
+        title,
+        category,
+        body: text,
+        author: currentUser.displayName,
+        authorId: currentUser.id,
+        authorRole: currentUser.role,
+        createdAt: new Date().toISOString(),
+        replies: []
+      };
+
+      threads.unshift(newThread);
+      if (threads.length > 100) threads.length = 100;
+      writeJSON(FORUM_FILE, threads);
+      sendJSON(res, 201, { success: true, thread: newThread });
+      return;
+    }
+
+    if (/^\/api\/forum\/[^/]+\/reply$/.test(pathname) && method === 'POST') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser) {
+        sendJSON(res, 401, { error: 'Debes iniciar sesión para responder en el foro' });
+        return;
+      }
+      if (!checkRateLimit(ip, 25, 60000)) {
+        sendJSON(res, 429, { error: 'Demasiadas respuestas seguidas. Espera un momento.' });
+        return;
+      }
+
+      const threadId = pathname.split('/')[3];
+      const body = await parseBody(req);
+      const text = sanitizeInput(body.text || '').slice(0, 2500);
+      if (!text) {
+        sendJSON(res, 400, { error: 'La respuesta no puede estar vacía' });
+        return;
+      }
+
+      const threads = readJSON(FORUM_FILE, []);
+      const thread = threads.find(t => t.id === threadId);
+      if (!thread) {
+        sendJSON(res, 404, { error: 'Tema no encontrado' });
+        return;
+      }
+
+      const reply = {
+        id: 'rep-' + Date.now(),
+        text,
+        author: currentUser.displayName,
+        authorId: currentUser.id,
+        authorRole: currentUser.role,
+        createdAt: new Date().toISOString()
+      };
+
+      if (!Array.isArray(thread.replies)) thread.replies = [];
+      thread.replies.push(reply);
+      writeJSON(FORUM_FILE, threads);
+      sendJSON(res, 201, { success: true, reply, thread });
+      return;
+    }
+
+    if (pathname.startsWith('/api/forum/') && method === 'DELETE') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser) {
+        sendJSON(res, 401, { error: 'No autenticado' });
+        return;
+      }
+
+      const id = pathname.replace('/api/forum/', '');
+      const threads = readJSON(FORUM_FILE, []);
+      const target = threads.find(t => t.id === id);
+      if (!target) {
+        sendJSON(res, 404, { error: 'Tema no encontrado' });
+        return;
+      }
+
+      if (target.authorId !== currentUser.id && currentUser.role !== 'admin') {
+        sendJSON(res, 403, { error: 'Solo el autor o el administrador pueden eliminar este tema' });
+        return;
+      }
+
+      writeJSON(FORUM_FILE, threads.filter(t => t.id !== id));
+      sendJSON(res, 200, { success: true });
       return;
     }
 

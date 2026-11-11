@@ -7,7 +7,7 @@
   <title>SILVERBOT2 // UNIX — TU HACKNOTICIERO</title>
   <meta name="description" content="TU HACKNOTICIERO: Diario de ciberseguridad, hacking y geopolítica digital con selección editorial automatizada en castellano.">
   <link rel="icon" type="image/png" href="assets/silverbot-unix-logo.png">
-  <link rel="stylesheet" href="css/styles.css?v=3.0.0">
+  <link rel="stylesheet" href="css/styles.css?v=4.0.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
@@ -37,11 +37,6 @@
           <span>Actualizando edición de Silverbot2 // Unix...</span>
         </div>
       </div>
-      <div class="telemetry-right-metrics">
-        <span class="feed-sync-status-badge" id="autoSyncBadge" title="Estado de fuentes automáticas en castellano">AUTO-SYNC: ON</span>
-        <span class="security-chip" title="Protegido con Scrypt + TimingSafe + RBAC">EDICIÓN VERIFICADA</span>
-        <div class="system-time-display" id="systemClock">00:00:00 UTC</div>
-      </div>
     </div>
   </aside>
 
@@ -52,7 +47,7 @@
       <!-- Identidad: Silverbot2 // Unix -->
       <div class="identity-module" id="brandResetBtn">
         <div class="logo-polygon-frame">
-          <img src="assets/silverbot-unix-logo.png" alt="Silverbot2 Unix Logo" class="user-logo-img">
+          <img id="uiPortalLogo" src="assets/silverbot-unix-logo.png" alt="Silverbot2 Unix Logo" class="user-logo-img">
         </div>
         <div class="identity-text">
           <div class="identity-title">
@@ -68,44 +63,16 @@
       <div class="search-module">
         <div class="search-input-shell">
           <span class="search-prompt">🔍</span>
-          <input type="text" id="searchInput" placeholder="Buscar noticias, INCIBE, CVE, LinkedIn, geopolítica..." autocomplete="off">
+          <input type="text" id="searchInput" placeholder="Buscar noticias, RedesZone, CVE, ciberseguridad, tecnopolítica..." autocomplete="off">
           <button id="clearSearchBtn" class="poly-clear-btn" title="Limpiar">&times;</button>
           <span class="search-key-hint">/</span>
         </div>
       </div>
 
-      <!-- Módulo de Usuario y Controles -->
+      <!-- Controles de Tema -->
       <div class="control-actions">
-        
-        <!-- Botón Rápido Ingestión LinkedIn (Solo usuarios registrados) -->
-        <button id="openLinkedInModalBtn" class="hud-btn hud-btn-linkedin" style="display: none;" title="Importar o sincronizar noticias de LinkedIn">
-          <span class="linkedin-glyph">in</span>
-          <span class="btn-text">IMPORTAR LINKEDIN</span>
-        </button>
-
-        <!-- Botón Nueva Noticia (Solo usuarios registrados) -->
-        <button id="openNewArticleModalBtn" class="hud-btn hud-btn-action" style="display: none;">
-          <span class="btn-cross">+</span>
-          <span class="btn-text">PUBLICAR</span>
-        </button>
-
-        <!-- Botón Panel de Control Admin (Solo visible para Silverbot2 / Admin) -->
-        <button id="openAdminControlBtn" class="hud-btn hud-btn-admin" style="display: none;" title="Abrir Panel de Control & Transformador de la Web">
-          <span class="admin-gear-icon">⚙️</span>
-          <span class="btn-text">ADMIN</span>
-        </button>
-
-        <!-- Menú de Autenticación / Perfil de Usuario -->
-        <div class="user-session-widget" id="userSessionWidget"></div>
-
-        <!-- Botones de Utilidad -->
         <button id="themeToggleBtn" class="hud-btn hud-btn-icon" title="Cambiar entre tema Claro y Oscuro">
           <span class="icon-glyph">◐</span>
-        </button>
-
-        <!-- Respaldo: Solo visible para Admin -->
-        <button id="backupModalBtn" class="hud-btn hud-btn-icon" style="display: none;" title="Copia de Seguridad JSON (Solo Admin)">
-          <span class="icon-glyph">💾</span>
         </button>
       </div>
 
@@ -135,6 +102,10 @@
         <button class="poly-tab" data-category="bookmarks">
           <span class="tab-name">Guardadas ⭐</span>
           <span class="tab-count" id="countBookmarks">0</span>
+        </button>
+        <button class="poly-tab" data-category="forum">
+          <span class="tab-name">Foro & Debate 💬</span>
+          <span class="tab-count" id="countForum">0</span>
         </button>
       </div>
 
@@ -187,6 +158,9 @@
       <!-- Malla Editorial de Noticias -->
       <div class="dispatches-grid" id="articlesGrid"></div>
 
+      <!-- Sección Foro & Debate Comunitario -->
+      <section id="forumSection" class="forum-section" style="display: none;"></section>
+
       <!-- Estado Vacío -->
       <div class="empty-intel-box" id="emptyState" style="display: none;">
         <div class="empty-hud-icon">📰</div>
@@ -194,7 +168,7 @@
         <p class="empty-hud-msg" id="emptyMessage">No se han encontrado noticias con los filtros seleccionados.</p>
         <div class="empty-hud-actions">
           <button id="resetFiltersBtn" class="hud-btn hud-btn-outline">Ver portada completa</button>
-          <button id="emptyCreateBtn" class="hud-btn hud-btn-action">+ Publicar noticia</button>
+          <button id="emptyCreateBtn" class="hud-btn hud-btn-action" style="display: none;">+ Publicar noticia</button>
         </div>
       </div>
 
@@ -203,22 +177,57 @@
 
   <!-- Pie de Página -->
   <footer class="hud-footer">
-    <div class="hud-container footer-content">
-      <div class="footer-left-intel">
-        <div class="footer-brand-title">SILVERBOT2 // UNIX — TU HACKNOTICIERO</div>
-        <p class="footer-subtitle">Diario digital de ciberseguridad, amenazas y geopolítica tecnológica · Selección en castellano (INCIBE, Una al Día, CCN-CERT, HackPlayers).</p>
-        <div class="footer-status-pill" id="serverStatusBadge">
-          <span class="status-dot"></span>
-          <span id="syncStatusText">Conectando...</span>
+    <div class="hud-container">
+
+      <!-- Barra Inferior de Acceso / Administración / Publicación -->
+      <div class="footer-access-bar">
+        <div class="footer-access-label">
+          <span class="footer-access-title">ACCESO &amp; REDACCIÓN</span>
+          <span class="footer-access-desc">Acceso exclusivo para miembros registrados, colaboradores y administrador</span>
+        </div>
+        <div class="footer-access-actions">
+          <button id="openLinkedInModalBtn" class="hud-btn hud-btn-linkedin" style="display: none;" title="Importar o sincronizar noticias de LinkedIn">
+            <span class="linkedin-glyph">in</span>
+            <span class="btn-text">IMPORTAR LINKEDIN</span>
+          </button>
+
+          <button id="openNewArticleModalBtn" class="hud-btn hud-btn-action" style="display: none;">
+            <span class="btn-cross">+</span>
+            <span class="btn-text">PUBLICAR</span>
+          </button>
+
+          <button id="openAdminControlBtn" class="hud-btn hud-btn-admin" style="display: none;" title="Abrir Panel de Control & Transformador de la Web">
+            <span class="admin-gear-icon">⚙️</span>
+            <span class="btn-text">ADMIN</span>
+          </button>
+
+          <button id="backupModalBtn" class="hud-btn hud-btn-icon" style="display: none;" title="Copia de Seguridad JSON (Solo Admin)">
+            <span class="icon-glyph">💾</span>
+          </button>
+
+          <!-- Menú de Autenticación / Perfil de Usuario (se despliega hacia arriba) -->
+          <div class="user-session-widget" id="userSessionWidget"></div>
         </div>
       </div>
-      <div class="footer-right-intel">
-        <div class="keybinds-bar">
-          <span class="key-pill"><kbd>/</kbd> Buscar</span>
-          <span class="key-pill"><kbd>Esc</kbd> Cerrar lector</span>
+
+      <div class="footer-content">
+        <div class="footer-left-intel">
+          <div class="footer-brand-title">SILVERBOT2 // UNIX — TU HACKNOTICIERO</div>
+          <p class="footer-subtitle">Diario digital de ciberseguridad, amenazas y geopolítica tecnológica · Selección en castellano (RedesZone, CyberSecurity News, Una al Día, HackPlayers, Genbeta, elDiario.es).</p>
+          <div class="footer-status-pill" id="serverStatusBadge">
+            <span class="status-dot"></span>
+            <span id="syncStatusText">Conectando...</span>
+          </div>
         </div>
-        <div class="footer-coords">SILVERBOT2 // UNIX · EDICIÓN DIGITAL 2026</div>
+        <div class="footer-right-intel">
+          <div class="keybinds-bar">
+            <span class="key-pill"><kbd>/</kbd> Buscar</span>
+            <span class="key-pill"><kbd>Esc</kbd> Cerrar lector</span>
+          </div>
+          <div class="footer-coords">SILVERBOT2 // UNIX · EDICIÓN DIGITAL 2026</div>
+        </div>
       </div>
+
     </div>
   </footer>
 
@@ -353,6 +362,30 @@
           <div class="form-field">
             <label for="adminPortalSubtitleInput" class="hud-label">SUBTÍTULO / DESCRIPCIÓN DEL ROL</label>
             <input type="text" id="adminPortalSubtitleInput" class="hud-input" value="TU HACKNOTICIERO">
+          </div>
+        </div>
+
+        <!-- 4. Logotipo Personalizado del Portal -->
+        <div class="transform-block">
+          <label class="hud-label">LOGOTIPO DEL PORTAL</label>
+          <div class="admin-logo-customizer">
+            <div class="admin-logo-preview-frame">
+              <img id="adminLogoPreview" src="assets/silverbot-unix-logo.png" alt="Vista previa del logotipo">
+            </div>
+            <div class="admin-logo-controls">
+              <div class="form-field" style="margin-bottom: 8px;">
+                <label for="adminPortalLogoInput" class="hud-label">URL DE IMAGEN O DATA URI</label>
+                <input type="text" id="adminPortalLogoInput" class="hud-input" placeholder="assets/silverbot-unix-logo.png o https://...">
+              </div>
+              <div class="admin-logo-actions">
+                <label for="adminPortalLogoFile" class="hud-btn hud-btn-outline admin-upload-label">
+                  <span>📁 Subir mi imagen</span>
+                  <input type="file" id="adminPortalLogoFile" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden>
+                </label>
+                <button type="button" id="adminResetLogoBtn" class="hud-btn hud-btn-outline">Restaurar original</button>
+              </div>
+              <p class="admin-help-text">Puedes subir tu propia imagen desde tu ordenador (PNG, JPG o WebP) o pegar una URL.</p>
+            </div>
           </div>
         </div>
 
@@ -711,7 +744,7 @@
   <div class="hud-toast-container" id="toastContainer"></div>
 
   <!-- Scripts -->
-  <script src="js/polygons.js?v=3.0.0"></script>
-  <script src="js/app.js?v=3.0.0"></script>
+  <script src="js/polygons.js?v=4.0.0"></script>
+  <script src="js/app.js?v=4.0.0"></script>
 </body>
 </html>

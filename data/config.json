@@ -1,18 +1,27 @@
 {
   "autoSyncEnabled": true,
   "syncIntervalMinutes": 30,
-  "lastSync": "2026-11-10T10:45:00.000Z",
+  "lastSync": null,
   "themeAccent": "cyan",
   "polygonDensity": "paused",
   "portalTitle": "SILVERBOT2",
   "portalSubcallsign": "UNIX",
   "portalSubtitle": "TU HACKNOTICIERO",
+  "portalLogoUrl": "assets/silverbot-unix-logo.png",
   "layoutMode": "editorial",
   "feeds": [
     {
-      "id": "feed-incibe",
-      "name": "INCIBE — Avisos y Vulnerabilidades",
-      "url": "https://www.incibe.es/feed/avisos/all",
+      "id": "feed-redeszone",
+      "name": "RedesZone — Seguridad y Redes",
+      "url": "https://www.redeszone.net/feed/",
+      "category": "hacking",
+      "language": "es",
+      "enabled": true
+    },
+    {
+      "id": "feed-cybernews-es",
+      "name": "CyberSecurity News ES — Amenazas",
+      "url": "https://www.cybersecuritynews.es/feed/",
       "category": "hacking",
       "language": "es",
       "enabled": true
@@ -26,18 +35,26 @@
       "enabled": true
     },
     {
-      "id": "feed-ccn",
-      "name": "CCN-CERT — Centro Criptológico Nacional",
-      "url": "https://www.ccn-cert.cni.es/es/avisos-ccn-cert.html?format=feed&type=rss",
+      "id": "feed-hackplayers",
+      "name": "HackPlayers — Ciberseguridad e Investigación",
+      "url": "https://www.hackplayers.com/feeds/posts/default?alt=rss",
+      "category": "hacking",
+      "language": "es",
+      "enabled": true
+    },
+    {
+      "id": "feed-genbeta-sec",
+      "name": "Genbeta — Ciberseguridad",
+      "url": "https://www.genbeta.com/tag/ciberseguridad/rss2.xml",
       "category": "tecnopolitica",
       "language": "es",
       "enabled": true
     },
     {
-      "id": "feed-hackplayers",
-      "name": "HackPlayers — Ciberseguridad e Investigación",
-      "url": "https://www.hackplayers.com/feeds/posts/default?alt=rss",
-      "category": "hacking",
+      "id": "feed-eldiario-tecno",
+      "name": "elDiario.es — Tecnopolítica y Sociedad",
+      "url": "https://www.eldiario.es/rss/tecnologia/",
+      "category": "politica",
       "language": "es",
       "enabled": true
     }
