@@ -2541,6 +2541,10 @@
       const img = e.target;
       if (!img || img.tagName !== 'IMG' || img.dataset.imgFallbackApplied === '1') return;
       img.dataset.imgFallbackApplied = '1';
+      if (img.classList.contains('ad-banner-img')) {
+        img.style.display = 'none';
+        return;
+      }
       if (img.id === 'uiPortalLogo' || img.id === 'adminLogoPreview' || img.classList.contains('user-logo-img') || img.classList.contains('user-avatar-mini')) {
         if (!img.src.endsWith('assets/silverbot-unix-logo.png')) {
           img.src = 'assets/silverbot-unix-logo.png';

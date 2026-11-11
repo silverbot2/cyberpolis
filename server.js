@@ -1382,7 +1382,89 @@ function parseBody(req) {
   });
 }
 
-function serveStatic(req, res, pathname) {
+function escapeHtmlSsr(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderSsrIndexHtml(req, rawHtml, query = {}) {
+  try {
+    const config = readJSON(CONFIG_FILE, {});
+    const articles = [...readJSON(ARTICLES_FILE, [])]
+      .filter(a => a && a.title)
+      .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
+    const brandTitle = sanitizeInput(config.portalTitle || 'CYBERPOLIS', 60) || 'CYBERPOLIS';
+    const brandSubtitle = sanitizeInput(config.portalSubtitle || 'TU HACKNOTICIERO', 80) || 'TU HACKNOTICIERO';
+    const proto = isSecureRequest(req) ? 'https' : 'http';
+    const host = String((req && req.headers && (req.headers['x-forwarded-host'] || req.headers.host)) || 'cyberpolis.onrender.com').split(',')[0].trim().replace(/[^a-zA-Z0-9.\-:]/g, '');
+    const baseUrl = `${proto}://${host}`;
+
+    const articleId = query && typeof query.article === 'string' ? query.article.trim() : '';
+    const activeArticle = articleId ? articles.find(a => String(a.id) === articleId) : null;
+
+    let html = rawHtml;
+    if (activeArticle) {
+      const pageTitle = `${activeArticle.title} — ${brandTitle}`;
+      const pageDesc = (activeArticle.summary || activeArticle.content || '').slice(0, 165).replace(/\s+/g, ' ').trim();
+      const canonicalUrl = `${baseUrl}/?article=${encodeURIComponent(activeArticle.id)}`;
+      html = html
+        .replace(/<title>[\s\S]*?<\/title>/i, () => `<title>${escapeHtmlSsr(pageTitle)}</title>`)
+        .replace(/<meta name="description" content="[^"]*">/i, () => `<meta name="description" content="${escapeHtmlSsr(pageDesc)}">`)
+        .replace(/<meta property="og:title" content="[^"]*">/i, () => `<meta property="og:title" content="${escapeHtmlSsr(pageTitle)}">`)
+        .replace(/<meta property="og:description" content="[^"]*">/i, () => `<meta property="og:description" content="${escapeHtmlSsr(pageDesc)}">`)
+        .replace(/<meta property="og:url" content="[^"]*">/i, () => `<meta property="og:url" content="${escapeHtmlSsr(canonicalUrl)}">`)
+        .replace(/<link rel="canonical" id="canonicalLink" href="[^"]*">/i, () => `<link rel="canonical" id="canonicalLink" href="${escapeHtmlSsr(canonicalUrl)}">`);
+    }
+
+    const topHero = articles.find(a => a.isFeatured) || articles[0];
+    const gridList = articles.filter(a => !topHero || a.id !== topHero.id).slice(0, 7);
+
+    if (topHero) {
+      const heroHtml = `
+        <article class="hero-dispatch-card" data-id="${escapeHtmlSsr(topHero.id)}">
+          <div class="hero-content-chamber" style="grid-column: 1 / -1;">
+            <span class="hero-source-eyebrow">${escapeHtmlSsr(topHero.sourceName || brandTitle)}</span>
+            <h1 class="hero-headline"><a href="/?article=${encodeURIComponent(topHero.id)}" style="color:inherit;text-decoration:none;">${escapeHtmlSsr(topHero.title)}</a></h1>
+            <p class="hero-summary">${escapeHtmlSsr(topHero.summary || '')}</p>
+          </div>
+        </article>`;
+      html = html.replace(
+        '<section class="hero-dispatch-section" id="featuredSection"></section>',
+        () => `<section class="hero-dispatch-section" id="featuredSection">${heroHtml}</section>`
+      );
+    }
+
+    if (gridList.length > 0) {
+      const cardsHtml = gridList.map(a => `
+        <article class="dispatch-card" data-id="${escapeHtmlSsr(a.id)}">
+          <div class="dispatch-content-box">
+            <div class="dispatch-meta-top">
+              <span class="dispatch-source">${escapeHtmlSsr(a.sourceName || brandTitle)}</span>
+            </div>
+            <h3 class="dispatch-title"><a href="/?article=${encodeURIComponent(a.id)}" style="color:inherit;text-decoration:none;">${escapeHtmlSsr(a.title)}</a></h3>
+            <p class="dispatch-excerpt">${escapeHtmlSsr(a.summary || '')}</p>
+          </div>
+        </article>`).join('');
+      html = html.replace(
+        '<div class="dispatches-grid" id="articlesGrid"></div>',
+        () => `<div class="dispatches-grid" id="articlesGrid"><div class="dispatches-grid-standard">${cardsHtml}</div></div>`
+      );
+    }
+
+    return html
+      .replace('<span class="callsign" id="uiPortalTitle">CYBERPOLIS</span>', () => `<span class="callsign" id="uiPortalTitle">${escapeHtmlSsr(brandTitle)}</span>`)
+      .replace('<div class="identity-role" id="uiPortalSubtitle">TU HACKNOTICIERO</div>', () => `<div class="identity-role" id="uiPortalSubtitle">${escapeHtmlSsr(brandSubtitle)}</div>`);
+  } catch (e) {
+    return rawHtml;
+  }
+}
+
+function serveStatic(req, res, pathname, query = {}) {
   let decodedPath = pathname;
   try {
     decodedPath = decodeURIComponent(pathname || '/');
@@ -1399,7 +1481,10 @@ function serveStatic(req, res, pathname) {
   }
 
   const normalized = path.posix.normalize(decodedPath === '/' ? '/index.html' : decodedPath);
-  const allowedExact = normalized === '/index.html' || normalized === '/favicon.ico';
+  const allowedExact =
+    normalized === '/index.html' ||
+    normalized === '/favicon.ico' ||
+    normalized === '/googlef43c9fcec7c53a25.html';
   const allowedDir = normalized.startsWith('/assets/') || normalized.startsWith('/css/') || normalized.startsWith('/js/');
 
   // Bloqueo estricto de /data/, /.git/, código fuente del servidor, dotfiles y JSON internos
@@ -1427,19 +1512,37 @@ function serveStatic(req, res, pathname) {
 
     const ext = path.extname(filePath).toLowerCase();
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-    const isHtml = normalized === '/index.html';
+    const isMainIndex = normalized === '/index.html';
+    const isVerificationFile = normalized === '/googlef43c9fcec7c53a25.html';
 
     const headers = buildSecurityHeaders(req, {
-      isHtml,
+      isHtml: isMainIndex || isVerificationFile,
       contentType,
-      cacheControl: isHtml ? 'no-cache' : 'public, max-age=3600'
+      cacheControl: (isMainIndex || isVerificationFile) ? 'no-cache' : 'public, max-age=3600'
     });
-    res.writeHead(200, headers);
 
-    if (isHtml) {
-      recordVisitEvent(req, { page: req.url || '/' });
+    if (req.method === 'HEAD') {
+      res.writeHead(200, headers);
+      res.end();
+      return;
     }
 
+    if (isMainIndex) {
+      recordVisitEvent(req, { page: req.url || '/' });
+      fs.readFile(filePath, 'utf-8', (readErr, rawHtml) => {
+        if (readErr) {
+          res.writeHead(500, { 'Content-Type': 'text/plain; charset=UTF-8' });
+          res.end('Error cargando portada');
+          return;
+        }
+        const ssrHtml = renderSsrIndexHtml(req, rawHtml, query);
+        res.writeHead(200, headers);
+        res.end(ssrHtml);
+      });
+      return;
+    }
+
+    res.writeHead(200, headers);
     const stream = fs.createReadStream(filePath);
     stream.pipe(res);
   });
@@ -2526,8 +2629,13 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (pathname === '/api/status' && method === 'GET') {
+    if (pathname === '/api/status' && (method === 'GET' || method === 'HEAD')) {
       const config = readJSON(CONFIG_FILE, {});
+      if (method === 'HEAD') {
+        res.writeHead(200, buildSecurityHeaders(req));
+        res.end();
+        return;
+      }
       sendJSON(req, res, 200, {
         status: 'online',
         autoSyncEnabled: !!config.autoSyncEnabled,
@@ -2640,14 +2748,19 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (pathname === '/robots.txt' && method === 'GET') {
+    if (pathname === '/robots.txt' && (method === 'GET' || method === 'HEAD')) {
       const proto = isSecureRequest(req) ? 'https' : 'http';
-      const host = String(req.headers.host || 'cyberpolis.onrender.com').replace(/[^a-zA-Z0-9.\-:]/g, '');
+      const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'cyberpolis.onrender.com').split(',')[0].trim().replace(/[^a-zA-Z0-9.\-:]/g, '');
       const baseUrl = `${proto}://${host}`;
       const robotsTxt = [
         'User-agent: *',
         'Allow: /',
-        'Disallow: /api/',
+        'Allow: /api/articles',
+        'Allow: /api/forum',
+        'Allow: /api/admin/config',
+        'Allow: /api/proxy/image',
+        'Disallow: /api/auth/',
+        'Disallow: /api/admin/',
         'Disallow: /data/',
         '',
         `Sitemap: ${baseUrl}/sitemap.xml`
@@ -2656,13 +2769,13 @@ const server = http.createServer(async (req, res) => {
         contentType: 'text/plain; charset=UTF-8',
         cacheControl: 'public, max-age=3600'
       }));
-      res.end(robotsTxt);
+      res.end(method === 'HEAD' ? undefined : robotsTxt);
       return;
     }
 
-    if (pathname === '/sitemap.xml' && method === 'GET') {
+    if (pathname === '/sitemap.xml' && (method === 'GET' || method === 'HEAD')) {
       const proto = isSecureRequest(req) ? 'https' : 'http';
-      const host = String(req.headers.host || 'cyberpolis.onrender.com').replace(/[^a-zA-Z0-9.\-:]/g, '');
+      const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'cyberpolis.onrender.com').split(',')[0].trim().replace(/[^a-zA-Z0-9.\-:]/g, '');
       const baseUrl = `${proto}://${host}`;
       const escapeXml = str => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
       const articles = readJSON(ARTICLES_FILE, []);
@@ -2697,7 +2810,7 @@ const server = http.createServer(async (req, res) => {
         contentType: 'application/xml; charset=UTF-8',
         cacheControl: 'public, max-age=1800'
       }));
-      res.end(xml);
+      res.end(method === 'HEAD' ? undefined : xml);
       return;
     }
 
@@ -2706,7 +2819,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    serveStatic(req, res, pathname);
+    serveStatic(req, res, pathname, parsedUrl.query);
 
   } catch (err) {
     console.error('Error interno del servidor:', err);

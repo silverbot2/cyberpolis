@@ -9,6 +9,7 @@
   <meta name="keywords" content="cyberpolis, ciberseguridad, noticias ciberseguridad, hacknoticiero, hacking ético, vulnerabilidades CVE, seguridad informática, tecnopolítica, geopolítica digital, ransomware, foro ciberseguridad">
   <meta name="author" content="CYBERPOLIS">
   <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <meta name="google-site-verification" content="IJjvehM27ja_cPtWRVMRsoti0iVbUIXplOs14BVLu84">
   <meta name="theme-color" content="#0284c7">
   <link rel="canonical" id="canonicalLink" href="https://cyberpolis.onrender.com/">
 
@@ -57,7 +58,8 @@
   </script>
 
   <link rel="icon" type="image/png" href="assets/silverbot-unix-logo.png">
-  <link rel="stylesheet" href="css/styles.css?v=7.0.0">
+  <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
+  <link rel="stylesheet" href="css/styles.css?v=7.1.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
@@ -187,41 +189,76 @@
 
   <!-- Contenido Central -->
   <main class="hud-main">
-    <div class="hud-container">
+    <div class="hud-container portal-main-layout">
 
-      <!-- Noticia Principal de Portada -->
-      <section class="hero-dispatch-section" id="featuredSection"></section>
+      <div class="portal-main-col">
+        <!-- Noticia Principal de Portada -->
+        <section class="hero-dispatch-section" id="featuredSection"></section>
 
-      <!-- Encabezado de la Sección de Noticias -->
-      <header class="feed-header-module">
-        <div class="feed-header-left">
-          <span class="feed-prefix">SELECCIÓN EDITORIAL</span>
-          <h2 class="feed-title" id="feedTitle">LO MÁS IMPORTANTE HOY</h2>
-        </div>
-        <div class="feed-header-right">
-          <span class="feed-meta" id="feedMeta">Las 8 noticias principales entre todas las fuentes</span>
-        </div>
-      </header>
+        <!-- Encabezado de la Sección de Noticias -->
+        <header class="feed-header-module">
+          <div class="feed-header-left">
+            <span class="feed-prefix">SELECCIÓN EDITORIAL</span>
+            <h2 class="feed-title" id="feedTitle">LO MÁS IMPORTANTE HOY</h2>
+          </div>
+          <div class="feed-header-right">
+            <span class="feed-meta" id="feedMeta">Las 8 noticias principales entre todas las fuentes</span>
+          </div>
+        </header>
 
-      <!-- Malla Editorial de Noticias -->
-      <div class="dispatches-grid" id="articlesGrid"></div>
+        <!-- Malla Editorial de Noticias -->
+        <div class="dispatches-grid" id="articlesGrid"></div>
 
-      <!-- Sección Foro & Debate Comunitario -->
-      <section id="forumSection" class="forum-section" style="display: none;"></section>
+        <!-- Sección Foro & Debate Comunitario -->
+        <section id="forumSection" class="forum-section" style="display: none;"></section>
 
-      <!-- Sección Contacto Editorial -->
-      <section id="contactSection" class="contact-section" style="display: none;"></section>
+        <!-- Sección Contacto Editorial -->
+        <section id="contactSection" class="contact-section" style="display: none;"></section>
 
-      <!-- Estado Vacío -->
-      <div class="empty-intel-box" id="emptyState" style="display: none;">
-        <div class="empty-hud-icon">📰</div>
-        <h3 class="empty-hud-title">Sin noticias coincidentes</h3>
-        <p class="empty-hud-msg" id="emptyMessage">No se han encontrado noticias con los filtros seleccionados.</p>
-        <div class="empty-hud-actions">
-          <button id="resetFiltersBtn" class="hud-btn hud-btn-outline">Ver portada completa</button>
-          <button id="emptyCreateBtn" class="hud-btn hud-btn-action" style="display: none;">+ Publicar noticia</button>
+        <!-- Estado Vacío -->
+        <div class="empty-intel-box" id="emptyState" style="display: none;">
+          <div class="empty-hud-icon">📰</div>
+          <h3 class="empty-hud-title">Sin noticias coincidentes</h3>
+          <p class="empty-hud-msg" id="emptyMessage">No se han encontrado noticias con los filtros seleccionados.</p>
+          <div class="empty-hud-actions">
+            <button id="resetFiltersBtn" class="hud-btn hud-btn-outline">Ver portada completa</button>
+            <button id="emptyCreateBtn" class="hud-btn hud-btn-action" style="display: none;">+ Publicar noticia</button>
+          </div>
         </div>
       </div>
+
+      <!-- Barra Lateral Publicitaria -->
+      <aside class="portal-sidebar" aria-label="Espacio publicitario lateral">
+        <div class="ad-slot-card">
+          <div class="ad-slot-label">
+            <span>PATROCINADO</span>
+            <span>ESPACIO LATERAL</span>
+          </div>
+          <a href="https://theprison.com/carceles" target="_blank" rel="noopener noreferrer sponsored" class="prison-side-banner" title="Explora las cárceles de The Prison">
+            <div class="prison-banner-visual">
+              <img src="assets/ads/theprison-alcatraz.webp" alt="Fortaleza de Alcatraz en The Prison" class="prison-banner-photo ad-banner-img" loading="lazy">
+              <div class="prison-banner-scrim"></div>
+              <div class="prison-banner-brand">
+                <img src="assets/ads/theprison-marca.webp" alt="The Prison" class="prison-banner-logo ad-banner-img" loading="lazy">
+                <span class="prison-live-pill">ALCATRAZ · ACTIVA</span>
+              </div>
+            </div>
+            <div class="prison-banner-body">
+              <span class="prison-banner-eyebrow">🔥 GUERRA DE BANDAS EN TIEMPO REAL</span>
+              <h3 class="prison-banner-title">¿Quién manda hoy en The Prison?</h3>
+              <p class="prison-banner-desc">Descubre qué banda controla Alcatraz, quién acumula más poder y qué se mueve en el Trapicheo.</p>
+              <span class="prison-banner-cta">
+                <span>ENTRAR A LAS CÁRCELES</span>
+                <span>↗</span>
+              </span>
+              <div class="prison-banner-foot">
+                <span>theprison.com/carceles</span>
+                <span>24/7 ONLINE</span>
+              </div>
+            </div>
+          </a>
+        </div>
+      </aside>
 
     </div>
   </main>
@@ -960,6 +997,6 @@
 
   <!-- Scripts -->
   <script src="js/polygons.js?v=7.0.0"></script>
-  <script src="js/app.js?v=7.0.0"></script>
+  <script src="js/app.js?v=7.1.0"></script>
 </body>
 </html>
