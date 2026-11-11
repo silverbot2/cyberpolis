@@ -779,14 +779,18 @@
       const res = await fetch('/api/status', { method: 'GET', headers: { 'Accept': 'application/json' } });
       if (res.ok) {
         state.serverMode = true;
-        DOM.syncStatusText.textContent = 'EDICIÓN ONLINE · FUENTES EN CASTELLANO ACTIVAS';
-        DOM.syncStatusText.style.color = 'var(--accent-green)';
+        if (DOM.syncStatusText) {
+          DOM.syncStatusText.textContent = 'EDICIÓN ONLINE · FUENTES EN CASTELLANO ACTIVAS';
+          DOM.syncStatusText.style.color = 'var(--accent-green)';
+        }
         return;
       }
     } catch (e) {}
     state.serverMode = false;
-    DOM.syncStatusText.textContent = 'MODO LOCAL · EDICIÓN SIN CONEXIÓN';
-    DOM.syncStatusText.style.color = 'var(--text-silver)';
+    if (DOM.syncStatusText) {
+      DOM.syncStatusText.textContent = 'MODO LOCAL · EDICIÓN SIN CONEXIÓN';
+      DOM.syncStatusText.style.color = 'var(--text-silver)';
+    }
   }
 
   async function checkAuthSession() {
@@ -851,9 +855,8 @@
 
     if (!state.currentUser) {
       DOM.userSessionWidget.innerHTML = `
-        <button id="openAuthModalBtn" class="hud-btn hud-btn-outline" style="border-color: var(--accent-cyan);">
-          <span style="color: var(--accent-cyan);">🔑</span>
-          <span>ACCEDER / REGISTRO</span>
+        <button id="openAuthModalBtn" class="footer-action-link footer-login-link" title="Acceso para usuarios registrados y administrador">
+          Acceder / Registro
         </button>
       `;
       const btn = document.getElementById('openAuthModalBtn');

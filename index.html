@@ -57,7 +57,7 @@
   </script>
 
   <link rel="icon" type="image/png" href="assets/silverbot-unix-logo.png">
-  <link rel="stylesheet" href="css/styles.css?v=5.0.0">
+  <link rel="stylesheet" href="css/styles.css?v=5.1.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
@@ -233,71 +233,43 @@
     </div>
   </main>
 
-  <!-- Pie de Página -->
+  <!-- Pie de Página Minimalista -->
   <footer class="hud-footer">
-    <div class="hud-container">
+    <div class="hud-container footer-minimal-row">
 
-      <!-- Barra Inferior de Acceso / Administración / Publicación -->
-      <div class="footer-access-bar">
-        <div class="footer-access-label">
-          <span class="footer-access-title">ACCESO &amp; REDACCIÓN</span>
-          <span class="footer-access-desc">Acceso exclusivo para miembros registrados, colaboradores y administrador</span>
-        </div>
-        <div class="footer-access-actions">
-          <button id="openLinkedInModalBtn" class="hud-btn hud-btn-linkedin" style="display: none;" title="Importar o sincronizar noticias de LinkedIn">
-            <span class="linkedin-glyph">in</span>
-            <span class="btn-text">IMPORTAR LINKEDIN</span>
-          </button>
-
-          <button id="openNewArticleModalBtn" class="hud-btn hud-btn-action" style="display: none;">
-            <span class="btn-cross">+</span>
-            <span class="btn-text">PUBLICAR</span>
-          </button>
-
-          <button id="openAdminControlBtn" class="hud-btn hud-btn-admin" style="display: none;" title="Abrir Panel de Control & Transformador de la Web">
-            <span class="admin-gear-icon">⚙️</span>
-            <span class="btn-text">ADMIN</span>
-          </button>
-
-          <button id="backupModalBtn" class="hud-btn hud-btn-icon" style="display: none;" title="Copia de Seguridad JSON (Solo Admin)">
-            <span class="icon-glyph">💾</span>
-          </button>
-
-          <!-- Menú de Autenticación / Perfil de Usuario (se despliega hacia arriba) -->
-          <div class="user-session-widget" id="userSessionWidget"></div>
-        </div>
-      </div>
-
-      <div class="footer-content">
-        <div class="footer-left-intel">
-          <div class="footer-brand-title">SILVERBOT2 // UNIX — TU HACKNOTICIERO</div>
-          <p class="footer-subtitle">Diario digital de ciberseguridad, amenazas y geopolítica tecnológica · Selección en castellano (RedesZone, CyberSecurity News, Una al Día, HackPlayers, Genbeta, elDiario.es).</p>
-          <div class="footer-status-pill" id="serverStatusBadge">
-            <span class="status-dot"></span>
-            <span id="syncStatusText">Conectando...</span>
-          </div>
-        </div>
-        <div class="footer-right-intel">
-          <div class="keybinds-bar">
-            <span class="key-pill"><kbd>/</kbd> Buscar</span>
-            <span class="key-pill"><kbd>Esc</kbd> Cerrar lector</span>
-          </div>
-          <div class="footer-coords">SILVERBOT2 // UNIX · EDICIÓN DIGITAL 2026</div>
-        </div>
-      </div>
-
-      <!-- Barra Legal: Derechos de Autor, Uso y Privacidad -->
-      <div class="footer-legal-bar">
-        <div class="footer-copyright">
-          &copy; 2026 <strong id="footerCopyrightBrand">SILVERBOT2 // UNIX — TU HACKNOTICIERO</strong>. Todos los derechos reservados. Contenidos informativos enlazados a sus medios de origen.
-        </div>
+      <div class="footer-minimal-left">
+        <span class="footer-copyright">
+          &copy; 2026 <strong id="footerCopyrightBrand">SILVERBOT2 // UNIX — TU HACKNOTICIERO</strong> · Todos los derechos reservados
+        </span>
+        <span class="footer-dot-sep" aria-hidden="true">&middot;</span>
         <nav class="footer-legal-nav" aria-label="Información legal">
           <button type="button" class="footer-legal-link" data-legal-doc="aviso">Aviso Legal</button>
           <button type="button" class="footer-legal-link" data-legal-doc="uso">Política de Uso</button>
-          <button type="button" class="footer-legal-link" data-legal-doc="privacidad">Política de Privacidad</button>
+          <button type="button" class="footer-legal-link" data-legal-doc="privacidad">Privacidad</button>
           <button type="button" class="footer-legal-link" data-legal-doc="cookies">Cookies</button>
           <button type="button" class="footer-legal-link" id="footerContactLink">Contacto</button>
         </nav>
+      </div>
+
+      <div class="footer-minimal-actions">
+        <button id="openLinkedInModalBtn" class="footer-action-link" style="display: none;" title="Importar o sincronizar noticias de LinkedIn">
+          <span>in</span> LinkedIn
+        </button>
+
+        <button id="openNewArticleModalBtn" class="footer-action-link footer-action-primary" style="display: none;">
+          + Publicar
+        </button>
+
+        <button id="openAdminControlBtn" class="footer-action-link footer-action-admin" style="display: none;" title="Abrir Panel de Control Admin">
+          ⚙️ Admin
+        </button>
+
+        <button id="backupModalBtn" class="footer-action-link" style="display: none;" title="Copia de Seguridad JSON (Solo Admin)">
+          💾 Respaldo
+        </button>
+
+        <!-- Acceso / Perfil Minimalista (menú desplegable hacia arriba) -->
+        <div class="user-session-widget footer-user-widget" id="userSessionWidget"></div>
       </div>
 
     </div>
@@ -846,7 +818,7 @@
   <div class="hud-toast-container" id="toastContainer"></div>
 
   <!-- Scripts -->
-  <script src="js/polygons.js?v=5.0.0"></script>
-  <script src="js/app.js?v=5.0.0"></script>
+  <script src="js/polygons.js?v=5.1.0"></script>
+  <script src="js/app.js?v=5.1.0"></script>
 </body>
 </html>
