@@ -85,6 +85,13 @@ function sanitizeLogoUrl(raw) {
   return 'assets/silverbot-unix-logo.png';
 }
 
+function sanitizeEmail(raw) {
+  if (!raw || typeof raw !== 'string') return '';
+  const trimmed = raw.trim().slice(0, 120);
+  if (!trimmed) return '';
+  return /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]{2,}$/.test(trimmed) ? trimmed : '';
+}
+
 // ==========================================
 // 2. Persistencia en Disco
 // ==========================================
@@ -799,6 +806,7 @@ const server = http.createServer(async (req, res) => {
         portalSubcallsign: sanitizeInput(body.portalSubcallsign || currentConfig.portalSubcallsign || 'UNIX'),
         portalSubtitle: sanitizeInput(body.portalSubtitle || currentConfig.portalSubtitle || 'TU HACKNOTICIERO'),
         portalLogoUrl: body.portalLogoUrl !== undefined ? sanitizeLogoUrl(body.portalLogoUrl) : (currentConfig.portalLogoUrl || 'assets/silverbot-unix-logo.png'),
+        contactEmail: body.contactEmail !== undefined ? sanitizeEmail(body.contactEmail) : (currentConfig.contactEmail || ''),
         layoutMode: sanitizeInput(body.layoutMode || currentConfig.layoutMode || 'editorial'),
         feeds: Array.isArray(body.feeds) ? body.feeds : currentConfig.feeds
       };
@@ -1384,6 +1392,67 @@ const server = http.createServer(async (req, res) => {
       } catch (err) {
         sendSvgFallback();
       }
+      return;
+    }
+
+    if (pathname === '/robots.txt' && method === 'GET') {
+      const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
+      const host = String(req.headers.host || 'cyberpolis.onrender.com').replace(/[^a-zA-Z0-9.\-:]/g, '');
+      const baseUrl = `${proto}://${host}`;
+      const robotsTxt = [
+        'User-agent: *',
+        'Allow: /',
+        'Disallow: /api/admin/',
+        'Disallow: /api/backup/',
+        '',
+        `Sitemap: ${baseUrl}/sitemap.xml`
+      ].join('\n');
+      res.writeHead(200, {
+        'Content-Type': 'text/plain; charset=UTF-8',
+        'Cache-Control': 'public, max-age=3600'
+      });
+      res.end(robotsTxt);
+      return;
+    }
+
+    if (pathname === '/sitemap.xml' && method === 'GET') {
+      const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
+      const host = String(req.headers.host || 'cyberpolis.onrender.com').replace(/[^a-zA-Z0-9.\-:]/g, '');
+      const baseUrl = `${proto}://${host}`;
+      const escapeXml = str => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const articles = readJSON(ARTICLES_FILE, []);
+      const todayIso = new Date().toISOString().slice(0, 10);
+
+      const staticUrls = [
+        { loc: `${baseUrl}/`, lastmod: todayIso, changefreq: 'hourly', priority: '1.0' },
+        { loc: `${baseUrl}/?cat=hacking`, lastmod: todayIso, changefreq: 'daily', priority: '0.85' },
+        { loc: `${baseUrl}/?cat=politica`, lastmod: todayIso, changefreq: 'daily', priority: '0.8' },
+        { loc: `${baseUrl}/?cat=tecnopolitica`, lastmod: todayIso, changefreq: 'daily', priority: '0.8' },
+        { loc: `${baseUrl}/?cat=forum`, lastmod: todayIso, changefreq: 'daily', priority: '0.75' },
+        { loc: `${baseUrl}/?cat=contact`, lastmod: todayIso, changefreq: 'monthly', priority: '0.5' }
+      ];
+
+      const articleUrls = articles.slice(0, 40).map(a => {
+        const d = a.date ? new Date(a.date) : new Date();
+        const iso = Number.isNaN(d.getTime()) ? todayIso : d.toISOString().slice(0, 10);
+        return {
+          loc: `${baseUrl}/?article=${encodeURIComponent(a.id)}`,
+          lastmod: iso,
+          changefreq: 'weekly',
+          priority: '0.7'
+        };
+      });
+
+      const xmlEntries = [...staticUrls, ...articleUrls].map(u =>
+        `  <url>\n    <loc>${escapeXml(u.loc)}</loc>\n    <lastmod>${u.lastmod}</lastmod>\n    <changefreq>${u.changefreq}</changefreq>\n    <priority>${u.priority}</priority>\n  </url>`
+      ).join('\n');
+
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${xmlEntries}\n</urlset>`;
+      res.writeHead(200, {
+        'Content-Type': 'application/xml; charset=UTF-8',
+        'Cache-Control': 'public, max-age=1800'
+      });
+      res.end(xml);
       return;
     }
 

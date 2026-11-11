@@ -8,6 +8,7 @@
   "portalSubcallsign": "UNIX",
   "portalSubtitle": "TU HACKNOTICIERO",
   "portalLogoUrl": "assets/silverbot-unix-logo.png",
+  "contactEmail": "",
   "layoutMode": "editorial",
   "feeds": [
     {

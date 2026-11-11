@@ -23,6 +23,7 @@
       portalSubcallsign: 'UNIX',
       portalSubtitle: 'TU HACKNOTICIERO',
       portalLogoUrl: 'assets/silverbot-unix-logo.png',
+      contactEmail: '',
       layoutMode: 'editorial',
       feeds: [
         { id: "feed-redeszone", name: "RedesZone — Seguridad y Redes", url: "https://www.redeszone.net/feed/", category: "hacking", enabled: true },
@@ -322,6 +323,15 @@
     tagsMatrix: document.querySelector('.tags-matrix'),
     feedHeader: document.querySelector('.feed-header-module'),
     forumSection: document.getElementById('forumSection'),
+    contactSection: document.getElementById('contactSection'),
+    legalModal: document.getElementById('legalModal'),
+    legalModalTitle: document.getElementById('legalModalTitle'),
+    legalModalBody: document.getElementById('legalModalBody'),
+    legalTabsRow: document.getElementById('legalTabsRow'),
+    closeLegalModalBtn: document.getElementById('closeLegalModalBtn'),
+    closeLegalFooterBtn: document.getElementById('closeLegalFooterBtn'),
+    footerContactLink: document.getElementById('footerContactLink'),
+    footerCopyrightBrand: document.getElementById('footerCopyrightBrand'),
 
     // Contadores
     countAll: document.getElementById('countAll'),
@@ -351,6 +361,7 @@
     adminPortalTitleInput: document.getElementById('adminPortalTitleInput'),
     adminPortalSubcallsignInput: document.getElementById('adminPortalSubcallsignInput'),
     adminPortalSubtitleInput: document.getElementById('adminPortalSubtitleInput'),
+    adminContactEmailInput: document.getElementById('adminContactEmailInput'),
     adminLogoPreview: document.getElementById('adminLogoPreview'),
     adminPortalLogoInput: document.getElementById('adminPortalLogoInput'),
     adminPortalLogoFile: document.getElementById('adminPortalLogoFile'),
@@ -444,6 +455,7 @@
     applySiteTransformation(state.config);
     renderUserWidget();
     renderAll();
+    handleUrlSeoParams();
 
     // Auto-recarga silenciosa de noticias cada 3 minutos para mostrar despachos frescos sin recargar
     setInterval(async () => {
@@ -517,6 +529,13 @@
         DOM.adminLogoPreview.src = 'assets/silverbot-unix-logo.png';
       };
     }
+    if (DOM.footerCopyrightBrand) {
+      const fullBrand = `${cfg.portalTitle || 'SILVERBOT2'} // ${cfg.portalSubcallsign || 'UNIX'} — ${cfg.portalSubtitle || 'TU HACKNOTICIERO'}`;
+      DOM.footerCopyrightBrand.textContent = fullBrand;
+    }
+    if (state.currentCategory === 'contact') {
+      renderContact();
+    }
 
     // 4. Malla de Polígonos 3D
     if (window.polygonEngine) {
@@ -562,6 +581,9 @@
     DOM.adminPortalTitleInput.value = state.config.portalTitle || 'SILVERBOT2';
     DOM.adminPortalSubcallsignInput.value = state.config.portalSubcallsign || 'UNIX';
     DOM.adminPortalSubtitleInput.value = state.config.portalSubtitle || 'TU HACKNOTICIERO';
+    if (DOM.adminContactEmailInput) {
+      DOM.adminContactEmailInput.value = state.config.contactEmail || '';
+    }
     const currentLogo = state.config.portalLogoUrl || 'assets/silverbot-unix-logo.png';
     state.pendingLogoDataUrl = null;
     if (DOM.adminPortalLogoInput) {
@@ -702,6 +724,11 @@
     const portalTitle = DOM.adminPortalTitleInput.value.trim() || 'SILVERBOT2';
     const portalSubcallsign = DOM.adminPortalSubcallsignInput.value.trim() || 'UNIX';
     const portalSubtitle = DOM.adminPortalSubtitleInput.value.trim() || 'TU HACKNOTICIERO';
+    const rawEmail = DOM.adminContactEmailInput ? DOM.adminContactEmailInput.value.trim() : '';
+    if (rawEmail && !/^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]{2,}$/.test(rawEmail)) {
+      showToast('El correo de contacto no tiene un formato válido.', 'error');
+      return;
+    }
     const rawLogoInput = DOM.adminPortalLogoInput ? DOM.adminPortalLogoInput.value.trim() : '';
     let portalLogoUrl = state.config.portalLogoUrl || 'assets/silverbot-unix-logo.png';
     if (state.pendingLogoDataUrl) {
@@ -716,6 +743,7 @@
     state.config.portalTitle = portalTitle;
     state.config.portalSubcallsign = portalSubcallsign;
     state.config.portalSubtitle = portalSubtitle;
+    state.config.contactEmail = rawEmail;
     state.config.portalLogoUrl = portalLogoUrl;
     state.pendingLogoDataUrl = null;
 
@@ -890,6 +918,8 @@
 
     if (state.currentCategory === 'forum') {
       renderForum();
+    } else if (state.currentCategory === 'contact') {
+      renderContact();
     }
   }
 
@@ -1519,8 +1549,32 @@
       }
       if (DOM.articlesGrid) DOM.articlesGrid.innerHTML = '';
       if (DOM.emptyState) DOM.emptyState.style.display = 'none';
+      if (DOM.contactSection) {
+        DOM.contactSection.style.display = 'none';
+        DOM.contactSection.innerHTML = '';
+      }
       if (DOM.forumSection) DOM.forumSection.style.display = 'flex';
       renderForum();
+      updateSeoMeta();
+      return;
+    }
+
+    if (state.currentCategory === 'contact') {
+      if (DOM.tagsMatrix) DOM.tagsMatrix.style.display = 'none';
+      if (DOM.feedHeader) DOM.feedHeader.style.display = 'none';
+      if (DOM.featuredSection) {
+        DOM.featuredSection.innerHTML = '';
+        DOM.featuredSection.style.display = 'none';
+      }
+      if (DOM.articlesGrid) DOM.articlesGrid.innerHTML = '';
+      if (DOM.emptyState) DOM.emptyState.style.display = 'none';
+      if (DOM.forumSection) {
+        DOM.forumSection.style.display = 'none';
+        DOM.forumSection.innerHTML = '';
+      }
+      if (DOM.contactSection) DOM.contactSection.style.display = 'flex';
+      renderContact();
+      updateSeoMeta();
       return;
     }
 
@@ -1530,6 +1584,11 @@
       DOM.forumSection.style.display = 'none';
       DOM.forumSection.innerHTML = '';
     }
+    if (DOM.contactSection) {
+      DOM.contactSection.style.display = 'none';
+      DOM.contactSection.innerHTML = '';
+    }
+    updateSeoMeta();
 
     const filtered = getFilteredArticles();
 
@@ -1817,6 +1876,7 @@
     state.activeReaderArticle = article;
     article.views = (article.views || 0) + 1;
     persistArticles();
+    updateSeoMeta(article);
 
     const isBookmarked = state.bookmarks.has(article.id);
     const catName = getCategoryLabel(article.category);
@@ -1879,6 +1939,7 @@
   function closeReaderModal() {
     DOM.readerModal.style.display = 'none';
     state.activeReaderArticle = null;
+    updateSeoMeta();
   }
 
   // ==========================================
@@ -1894,7 +1955,7 @@
     DOM.formModalTitle.textContent = 'REGISTRAR NUEVA NOTICIA DE INTELIGENCIA';
     DOM.articleForm.reset();
     DOM.editArticleId.value = '';
-    DOM.formCategory.value = state.currentCategory !== 'all' && state.currentCategory !== 'bookmarks'
+    DOM.formCategory.value = !['all', 'bookmarks', 'forum', 'contact'].includes(state.currentCategory)
       ? state.currentCategory
       : 'hacking';
     DOM.formSourceName.value = `LinkedIn // ${state.currentUser.displayName}`;
@@ -2408,6 +2469,63 @@
         }
       });
     }
+
+    // Delegación de eventos de Sección Contacto Editorial
+    if (DOM.contactSection) {
+      DOM.contactSection.addEventListener('click', async e => {
+        if (e.target.closest('[data-contact-forum]')) {
+          setCategory('forum');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
+        if (e.target.closest('[data-contact-admin]')) {
+          openAdminControl();
+          switchAdminTab('transform');
+          return;
+        }
+        const copyBtn = e.target.closest('[data-copy-email]');
+        if (copyBtn) {
+          const email = copyBtn.dataset.copyEmail || '';
+          if (email && navigator.clipboard && navigator.clipboard.writeText) {
+            try {
+              await navigator.clipboard.writeText(email);
+              showToast('Correo copiado al portapapeles.');
+              return;
+            } catch (err) {}
+          }
+          showToast(email ? `Correo de contacto: ${email}` : 'Correo todavía no configurado.');
+        }
+      });
+    }
+
+    // Enlaces Legales, Derechos de Autor y Política de Uso (Pie de Página)
+    document.querySelectorAll('[data-legal-doc]').forEach(btn => {
+      btn.addEventListener('click', () => openLegalModal(btn.dataset.legalDoc || 'aviso'));
+    });
+    if (DOM.legalTabsRow) {
+      DOM.legalTabsRow.addEventListener('click', e => {
+        const tabBtn = e.target.closest('[data-legal-tab]');
+        if (tabBtn) openLegalModal(tabBtn.dataset.legalTab || 'aviso');
+      });
+    }
+    if (DOM.closeLegalModalBtn) DOM.closeLegalModalBtn.addEventListener('click', closeLegalModal);
+    if (DOM.closeLegalFooterBtn) DOM.closeLegalFooterBtn.addEventListener('click', closeLegalModal);
+    if (DOM.legalModal) {
+      DOM.legalModal.addEventListener('click', e => {
+        if (e.target === DOM.legalModal) closeLegalModal();
+      });
+    }
+    if (DOM.footerContactLink) {
+      DOM.footerContactLink.addEventListener('click', () => {
+        setCategory('contact');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    }
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && DOM.legalModal && DOM.legalModal.style.display === 'flex') {
+        closeLegalModal();
+      }
+    });
 
     // Delegación para Color Picker en Transformador
     if (DOM.accentColorPicker) {
@@ -2964,6 +3082,183 @@
     updateForumCount();
     renderForum();
     showToast('Hilo eliminado del foro.');
+  }
+
+  // ==========================================
+  // 15. Contacto Editorial, Marco Legal y SEO
+  // ==========================================
+  function renderContact() {
+    if (!DOM.contactSection) return;
+    const email = (state.config.contactEmail || '').trim();
+    const isAdmin = state.currentUser && state.currentUser.role === 'admin';
+    const brandName = `${state.config.portalTitle || 'SILVERBOT2'} // ${state.config.portalSubcallsign || 'UNIX'}`;
+
+    DOM.contactSection.innerHTML = `
+      <div class="contact-hero-card">
+        <h2>Contacto & Redacción — ${escapeHtml(brandName)}</h2>
+        <p>Canal informativo para consultas editoriales, sugerencias de fuentes en castellano, avisos de rectificación y comunicación directa con la administración del diario.</p>
+      </div>
+
+      <div class="contact-grid">
+        <div class="contact-info-card">
+          <h3>Correo Electrónico de Contacto</h3>
+          ${email ? `
+            <p>Puedes escribir directamente a la redacción de ${escapeHtml(brandName)} a través de nuestra dirección oficial:</p>
+            <div class="contact-email-box">
+              <a href="mailto:${escapeHtml(email)}" class="contact-email-link">${escapeHtml(email)}</a>
+              <button type="button" class="hud-btn hud-btn-outline" data-copy-email="${escapeHtml(email)}">Copiar correo</button>
+            </div>
+          ` : `
+            <div class="contact-pending-pill">⏳ Correo de contacto en preparación (no habilitado todavía)</div>
+            <p>Actualmente no hay una dirección de correo electrónico pública habilitada. El administrador puede activarla o modificarla en cualquier momento desde el Panel de Control.</p>
+          `}
+          ${isAdmin ? `
+            <div style="margin-top: 4px;">
+              <button type="button" class="hud-btn hud-btn-outline" data-contact-admin="1">⚙️ Personalizar correo en Admin</button>
+            </div>
+          ` : ''}
+        </div>
+
+        <div class="contact-info-card">
+          <h3>Consultas Técnicas, Prensa y Comunidad</h3>
+          <p>Para debates abiertos sobre vulnerabilidades, herramientas de seguridad informática o normativa tecnológica, participa en nuestro espacio comunitario.</p>
+          <p>Si representas a un medio citado y deseas revisar la atribución de un titular o enlace, utiliza el canal oficial en cuanto esté activo o solicita revisión al administrador.</p>
+          <div style="margin-top: auto;">
+            <button type="button" class="hud-btn hud-btn-action" data-contact-forum="1">Ir al Foro & Debate 💬</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function openLegalModal(docKey = 'aviso') {
+    if (!DOM.legalModal || !DOM.legalModalBody) return;
+    const validKeys = ['aviso', 'uso', 'privacidad', 'cookies'];
+    const key = validKeys.includes(docKey) ? docKey : 'aviso';
+    const brandName = `${state.config.portalTitle || 'SILVERBOT2'} // ${state.config.portalSubcallsign || 'UNIX'} — ${state.config.portalSubtitle || 'TU HACKNOTICIERO'}`;
+    const contactEmail = (state.config.contactEmail || '').trim();
+    const contactText = contactEmail
+      ? `<a href="mailto:${escapeHtml(contactEmail)}" class="contact-email-link">${escapeHtml(contactEmail)}</a>`
+      : 'la pestaña Contacto (pendiente de habilitación por el administrador)';
+
+    document.querySelectorAll('.legal-tab-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.legalTab === key);
+    });
+
+    const docs = {
+      aviso: {
+        title: 'AVISO LEGAL Y DERECHOS',
+        html: `
+          <h4>1. Titularidad y Naturaleza del Portal</h4>
+          <p><strong>${escapeHtml(brandName)}</strong> es un medio digital informativo especializado en ciberseguridad, vulnerabilidades, ingeniería de sistemas y geopolítica tecnológica en lengua española.</p>
+          <h4>2. Propiedad Intelectual y Atribución de Fuentes</h4>
+          <p>&copy; 2026 ${escapeHtml(brandName)}. El diseño, el código original, la marca y los textos propios están protegidos por la normativa de propiedad intelectual. Las noticias agregadas desde medios externos muestran extractos informativos citando expresamente su fuente y enlazando al artículo original completo.</p>
+          <h4>3. Contacto y Reclamaciones</h4>
+          <p>Para notificaciones legales o solicitudes sobre contenidos enlazados, puedes dirigirte a través de ${contactText}.</p>
+        `
+      },
+      uso: {
+        title: 'POLÍTICA DE USO Y NORMAS COMUNITARIAS',
+        html: `
+          <h4>1. Finalidad Informativa y Educativa</h4>
+          <p>La información técnica, avisos CVE y debates publicados tienen fines estrictamente informativos, defensivos y de divulgación en ciberseguridad. Queda prohibido utilizar los contenidos o el foro para difundir malware, credenciales ilícitas o ataques contra sistemas de terceros.</p>
+          <h4>2. Publicación y Participación en el Foro</h4>
+          <p>La lectura de noticias y debates es libre y abierta. Para publicar hilos, responder en el foro o enviar artículos de análisis es necesario contar con una cuenta registrada.</p>
+          <h4>3. Moderación</h4>
+          <p>La administración podrá editar o retirar publicaciones o comentarios que contengan spam, suplantación de identidad, código malicioso o infracciones legales.</p>
+        `
+      },
+      privacidad: {
+        title: 'POLÍTICA DE PRIVACIDAD Y PROTECCIÓN DE DATOS',
+        html: `
+          <h4>1. Datos Tratados</h4>
+          <p>Los lectores sin cuenta pueden navegar sin facilitar datos personales. Al registrarse voluntariamente, solo se almacenan el nombre público, identificador de usuario, rol y contraseña protegida mediante hash criptográfico seguro (Scrypt con sal aleatoria).</p>
+          <h4>2. Finalidad y Conservación</h4>
+          <p>Los datos de cuenta se emplean exclusivamente para gestionar tu acceso, tus publicaciones y tu participación en el foro. No cedemos ni vendemos datos personales a terceros.</p>
+          <h4>3. Derechos del Usuario</h4>
+          <p>Puedes solicitar información o la eliminación de tu cuenta a través de ${contactText}.</p>
+        `
+      },
+      cookies: {
+        title: 'POLÍTICA DE COOKIES Y ALMACENAMIENTO LOCAL',
+        html: `
+          <h4>1. Uso Técnico Esencial</h4>
+          <p>Este portal no utiliza cookies publicitarias ni rastreadores de terceros para perfilado comercial.</p>
+          <h4>2. Almacenamiento Local del Navegador</h4>
+          <ul>
+            <li><strong>Tema visual y marcadores:</strong> Preferencia entre modo claro editorial o modo oscuro y lista local de noticias guardadas.</li>
+            <li><strong>Sesión autenticada:</strong> Token de sesión almacenado solo cuando decides iniciar sesión para mantener el acceso de forma segura.</li>
+          </ul>
+          <p>Puedes borrar estos datos en cualquier momento desde los ajustes de tu navegador o cerrando sesión.</p>
+        `
+      }
+    };
+
+    const selected = docs[key];
+    if (DOM.legalModalTitle) DOM.legalModalTitle.textContent = selected.title;
+    DOM.legalModalBody.innerHTML = selected.html;
+    DOM.legalModal.style.display = 'flex';
+  }
+
+  function closeLegalModal() {
+    if (DOM.legalModal) DOM.legalModal.style.display = 'none';
+  }
+
+  function updateSeoMeta(article = null) {
+    const baseBrand = `${state.config.portalTitle || 'SILVERBOT2'} // ${state.config.portalSubcallsign || 'UNIX'} — ${state.config.portalSubtitle || 'TU HACKNOTICIERO'}`;
+    const descEl = document.querySelector('meta[name="description"]');
+    const canonicalEl = document.getElementById('canonicalLink');
+
+    if (article && article.title) {
+      document.title = `${article.title} | ${baseBrand}`;
+      if (descEl && article.summary) descEl.setAttribute('content', String(article.summary).slice(0, 160));
+      if (canonicalEl && window.location.origin.startsWith('http')) {
+        canonicalEl.setAttribute('href', `${window.location.origin}/?article=${encodeURIComponent(article.id)}`);
+      }
+      return;
+    }
+
+    const sectionTitles = {
+      all: `${baseBrand} | Noticias de Ciberseguridad y Hacking`,
+      hacking: `Ciberseguridad y Hacking | ${baseBrand}`,
+      politica: `Política y Geopolítica Tecnológica | ${baseBrand}`,
+      tecnopolitica: `Tecnopolítica y Leyes Digitales | ${baseBrand}`,
+      bookmarks: `Noticias Guardadas | ${baseBrand}`,
+      forum: `Foro y Debate de Ciberseguridad | ${baseBrand}`,
+      contact: `Contacto y Redacción | ${baseBrand}`
+    };
+
+    document.title = sectionTitles[state.currentCategory] || sectionTitles.all;
+    if (descEl) {
+      descEl.setAttribute('content', 'TU HACKNOTICIERO: Diario digital de ciberseguridad, vulnerabilidades CVE, hacking ético, geopolítica y tecnopolítica en castellano, con foro de debate comunitario.');
+    }
+    if (canonicalEl && window.location.origin.startsWith('http')) {
+      const suffix = state.currentCategory !== 'all' ? `/?cat=${encodeURIComponent(state.currentCategory)}` : '/';
+      canonicalEl.setAttribute('href', `${window.location.origin}${suffix}`);
+    }
+  }
+
+  function handleUrlSeoParams() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const qParam = params.get('q');
+      const catParam = params.get('cat');
+      const articleParam = params.get('article');
+
+      if (qParam && DOM.searchInput) {
+        state.searchQuery = qParam;
+        DOM.searchInput.value = qParam;
+        DOM.clearSearchBtn.style.display = 'block';
+        renderFeed();
+      }
+      if (catParam && ['all', 'hacking', 'politica', 'tecnopolitica', 'bookmarks', 'forum', 'contact'].includes(catParam)) {
+        setCategory(catParam);
+      }
+      if (articleParam) {
+        const exists = state.articles.some(a => a.id === articleParam);
+        if (exists) openReaderModal(articleParam);
+      }
+    } catch (e) {}
   }
 
   if (document.readyState === 'loading') {

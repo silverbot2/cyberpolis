@@ -4,10 +4,60 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="no-referrer">
-  <title>SILVERBOT2 // UNIX — TU HACKNOTICIERO</title>
-  <meta name="description" content="TU HACKNOTICIERO: Diario de ciberseguridad, hacking y geopolítica digital con selección editorial automatizada en castellano.">
+  <title>SILVERBOT2 // UNIX — TU HACKNOTICIERO | Noticias de Ciberseguridad y Hacking</title>
+  <meta name="description" content="TU HACKNOTICIERO: Diario digital de ciberseguridad, vulnerabilidades CVE, hacking ético, geopolítica y tecnopolítica en castellano, con foro de debate comunitario.">
+  <meta name="keywords" content="ciberseguridad, noticias ciberseguridad, hacknoticiero, hacking ético, vulnerabilidades CVE, seguridad informática, tecnopolítica, geopolítica digital, ransomware, foro ciberseguridad, silverbot2">
+  <meta name="author" content="SILVERBOT2 // UNIX">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <meta name="theme-color" content="#0284c7">
+  <link rel="canonical" id="canonicalLink" href="https://cyberpolis.onrender.com/">
+
+  <!-- Open Graph / Redes Sociales -->
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="es_ES">
+  <meta property="og:site_name" content="SILVERBOT2 // UNIX — TU HACKNOTICIERO">
+  <meta property="og:title" content="SILVERBOT2 // UNIX — TU HACKNOTICIERO | Ciberseguridad y Tecnopolítica">
+  <meta property="og:description" content="Actualidad verificada sobre ciberseguridad, vulnerabilidades, redes, hacking ético y tecnopolítica en español.">
+  <meta property="og:url" content="https://cyberpolis.onrender.com/">
+  <meta property="og:image" content="https://cyberpolis.onrender.com/assets/silverbot-unix-logo.png">
+  <meta property="og:image:alt" content="Logotipo de SILVERBOT2 // UNIX — Tu HackNoticiero">
+
+  <!-- Twitter Cards -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="SILVERBOT2 // UNIX — TU HACKNOTICIERO">
+  <meta name="twitter:description" content="Diario digital de ciberseguridad, hacking y geopolítica tecnológica en castellano.">
+  <meta name="twitter:image" content="https://cyberpolis.onrender.com/assets/silverbot-unix-logo.png">
+
+  <!-- Datos Estructurados Schema.org (JSON-LD) -->
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "NewsMediaOrganization",
+          "name": "SILVERBOT2 // UNIX — TU HACKNOTICIERO",
+          "url": "https://cyberpolis.onrender.com/",
+          "logo": "https://cyberpolis.onrender.com/assets/silverbot-unix-logo.png",
+          "inLanguage": "es-ES",
+          "description": "Diario digital independiente de ciberseguridad, hacking ético y tecnopolítica en español."
+        },
+        {
+          "@type": "WebSite",
+          "name": "SILVERBOT2 // UNIX — TU HACKNOTICIERO",
+          "url": "https://cyberpolis.onrender.com/",
+          "inLanguage": "es-ES",
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": "https://cyberpolis.onrender.com/?q={search_term_string}",
+            "query-input": "required name=search_term_string"
+          }
+        }
+      ]
+    }
+  </script>
+
   <link rel="icon" type="image/png" href="assets/silverbot-unix-logo.png">
-  <link rel="stylesheet" href="css/styles.css?v=4.0.0">
+  <link rel="stylesheet" href="css/styles.css?v=5.0.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
@@ -59,6 +109,8 @@
         </div>
       </div>
 
+      <div class="nav-masthead-divider" aria-hidden="true"></div>
+
       <!-- Buscador -->
       <div class="search-module">
         <div class="search-input-shell">
@@ -106,6 +158,9 @@
         <button class="poly-tab" data-category="forum">
           <span class="tab-name">Foro & Debate 💬</span>
           <span class="tab-count" id="countForum">0</span>
+        </button>
+        <button class="poly-tab" data-category="contact">
+          <span class="tab-name">Contacto ✉️</span>
         </button>
       </div>
 
@@ -160,6 +215,9 @@
 
       <!-- Sección Foro & Debate Comunitario -->
       <section id="forumSection" class="forum-section" style="display: none;"></section>
+
+      <!-- Sección Contacto Editorial -->
+      <section id="contactSection" class="contact-section" style="display: none;"></section>
 
       <!-- Estado Vacío -->
       <div class="empty-intel-box" id="emptyState" style="display: none;">
@@ -226,6 +284,20 @@
           </div>
           <div class="footer-coords">SILVERBOT2 // UNIX · EDICIÓN DIGITAL 2026</div>
         </div>
+      </div>
+
+      <!-- Barra Legal: Derechos de Autor, Uso y Privacidad -->
+      <div class="footer-legal-bar">
+        <div class="footer-copyright">
+          &copy; 2026 <strong id="footerCopyrightBrand">SILVERBOT2 // UNIX — TU HACKNOTICIERO</strong>. Todos los derechos reservados. Contenidos informativos enlazados a sus medios de origen.
+        </div>
+        <nav class="footer-legal-nav" aria-label="Información legal">
+          <button type="button" class="footer-legal-link" data-legal-doc="aviso">Aviso Legal</button>
+          <button type="button" class="footer-legal-link" data-legal-doc="uso">Política de Uso</button>
+          <button type="button" class="footer-legal-link" data-legal-doc="privacidad">Política de Privacidad</button>
+          <button type="button" class="footer-legal-link" data-legal-doc="cookies">Cookies</button>
+          <button type="button" class="footer-legal-link" id="footerContactLink">Contacto</button>
+        </nav>
       </div>
 
     </div>
@@ -362,6 +434,10 @@
           <div class="form-field">
             <label for="adminPortalSubtitleInput" class="hud-label">SUBTÍTULO / DESCRIPCIÓN DEL ROL</label>
             <input type="text" id="adminPortalSubtitleInput" class="hud-input" value="TU HACKNOTICIERO">
+          </div>
+          <div class="form-field">
+            <label for="adminContactEmailInput" class="hud-label">CORREO DE CONTACTO PÚBLICO (OPCIONAL)</label>
+            <input type="email" id="adminContactEmailInput" class="hud-input" placeholder="Ej: redaccion@tudominio.com (déjalo vacío si aún no hay correo)">
           </div>
         </div>
 
@@ -740,11 +816,37 @@
     </div>
   </div>
 
+  <!-- Modal Legal: Derechos, Política de Uso, Privacidad y Cookies -->
+  <div class="hud-modal-overlay" id="legalModal" style="display: none;">
+    <div class="hud-modal-window modal-wide">
+      <div class="hud-modal-head">
+        <div class="modal-head-title">
+          <span class="modal-glyph">⚖️</span>
+          <h3 id="legalModalTitle">INFORMACIÓN LEGAL Y POLÍTICA DE USO</h3>
+        </div>
+        <button class="modal-x-btn" id="closeLegalModalBtn">&times;</button>
+      </div>
+
+      <div class="hud-modal-body">
+        <div class="legal-tabs-row" id="legalTabsRow">
+          <button type="button" class="legal-tab-btn" data-legal-tab="aviso">Aviso Legal</button>
+          <button type="button" class="legal-tab-btn" data-legal-tab="uso">Política de Uso</button>
+          <button type="button" class="legal-tab-btn" data-legal-tab="privacidad">Privacidad</button>
+          <button type="button" class="legal-tab-btn" data-legal-tab="cookies">Cookies</button>
+        </div>
+        <div class="legal-doc-body" id="legalModalBody"></div>
+        <div class="modal-footer-actions" style="margin-top: 18px;">
+          <button type="button" id="closeLegalFooterBtn" class="hud-btn hud-btn-action">Entendido</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Contenedor Toast -->
   <div class="hud-toast-container" id="toastContainer"></div>
 
   <!-- Scripts -->
-  <script src="js/polygons.js?v=4.0.0"></script>
-  <script src="js/app.js?v=4.0.0"></script>
+  <script src="js/polygons.js?v=5.0.0"></script>
+  <script src="js/app.js?v=5.0.0"></script>
 </body>
 </html>
