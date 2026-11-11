@@ -1,5 +1,5 @@
 // Servidor HTTP nativo en Node.js (Sin dependencias externas)
-// CYBERPOLIS // SILVERBOT2 & UNIX — Secure Core, Auto Spanish RSS Sync & Site Customizer
+// CYBERPOLIS — Secure Core, Auto Spanish RSS Sync, Analytics & User Admin
 
 const http = require('http');
 const fs = require('fs');
@@ -15,6 +15,7 @@ const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const FORUM_FILE = path.join(DATA_DIR, 'forum.json');
+const ANALYTICS_FILE = path.join(DATA_DIR, 'analytics.json');
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=UTF-8',
@@ -101,6 +102,213 @@ function ensureFiles() {
   if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, '[]', 'utf-8');
   if (!fs.existsSync(SESSIONS_FILE)) fs.writeFileSync(SESSIONS_FILE, '[]', 'utf-8');
   if (!fs.existsSync(FORUM_FILE)) fs.writeFileSync(FORUM_FILE, '[]', 'utf-8');
+  if (!fs.existsSync(ANALYTICS_FILE)) {
+    fs.writeFileSync(ANALYTICS_FILE, JSON.stringify({ totalViews: 0, dailyStats: {}, visitors: [] }, null, 2), 'utf-8');
+  }
+}
+
+const recentVisitDedup = new Map();
+
+function extractClientIp(req) {
+  const raw = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1');
+  return raw.split(',')[0].trim().replace(/^::ffff:/, '').slice(0, 64);
+}
+
+function parseUserAgentInfo(uaRaw = '') {
+  const ua = String(uaRaw || '');
+  const isBot = /bot|crawl|spider|slurp|bingpreview|lighthouse|headless|curl|wget|python-requests|go-http-client|node-fetch/i.test(ua);
+  let deviceType = 'Escritorio';
+  if (isBot) deviceType = 'Bot / Rastreador';
+  else if (/mobile|android|iphone|ipod|iemobile|opera mini/i.test(ua)) deviceType = 'Móvil';
+  else if (/ipad|tablet|playbook|silk/i.test(ua)) deviceType = 'Tablet';
+
+  let browser = 'Otro';
+  if (isBot) browser = 'Bot / Crawler';
+  else if (/edg\//i.test(ua)) browser = 'Edge';
+  else if (/opr\/|opera/i.test(ua)) browser = 'Opera';
+  else if (/chrome|crios/i.test(ua)) browser = 'Chrome';
+  else if (/firefox|fxios/i.test(ua)) browser = 'Firefox';
+  else if (/safari/i.test(ua)) browser = 'Safari';
+
+  let os = 'Otro';
+  if (isBot) os = 'Crawler';
+  else if (/windows/i.test(ua)) os = 'Windows';
+  else if (/android/i.test(ua)) os = 'Android';
+  else if (/iphone|ipad|ipod|ios/i.test(ua)) os = 'iOS';
+  else if (/mac os x|macintosh/i.test(ua)) os = 'macOS';
+  else if (/linux/i.test(ua)) os = 'Linux';
+
+  return { browser, os, deviceType, isBot };
+}
+
+function extractReferrerDomain(refRaw = '') {
+  const ref = String(refRaw || '').trim();
+  if (!ref) return 'Directo';
+  try {
+    const parsed = new URL(ref);
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+    if (!host || host.includes('cyberpolis.onrender.com') || host === 'localhost' || host === '127.0.0.1') {
+      return 'Directo';
+    }
+    if (host.includes('google.')) return 'Google';
+    if (host.includes('bing.')) return 'Bing';
+    if (host.includes('linkedin.')) return 'LinkedIn';
+    if (host === 't.co' || host.includes('twitter.') || host.includes('x.com')) return 'X / Twitter';
+    return host;
+  } catch (e) {
+    return 'Directo';
+  }
+}
+
+function recordVisitEvent(req, opts = {}) {
+  try {
+    const ip = extractClientIp(req);
+    const ua = String(req.headers['user-agent'] || '');
+    const uaInfo = parseUserAgentInfo(ua);
+    const visitorId = crypto.createHash('sha256').update(`${ip}|${ua}`).digest('hex').slice(0, 12);
+    const page = sanitizeInput(opts.page || '/').slice(0, 120) || '/';
+    const articleTitle = sanitizeInput(opts.articleTitle || '').slice(0, 140);
+    const dedupKey = `${visitorId}|${page}|${articleTitle}`;
+    const nowMs = Date.now();
+
+    const lastSeen = recentVisitDedup.get(dedupKey);
+    if (lastSeen && (nowMs - lastSeen) < 120000) {
+      return;
+    }
+    recentVisitDedup.set(dedupKey, nowMs);
+    if (recentVisitDedup.size > 2000) {
+      for (const [k, ts] of recentVisitDedup.entries()) {
+        if (nowMs - ts > 300000) recentVisitDedup.delete(k);
+      }
+    }
+
+    const sessionUser = getSessionUser(req);
+    const referrer = extractReferrerDomain(opts.referrer || req.headers.referer || req.headers.referrer || '');
+    const country = sanitizeInput(String(req.headers['cf-ipcountry'] || req.headers['x-country-code'] || '')).slice(0, 8);
+    const dateKey = new Date().toISOString().slice(0, 10);
+
+    const analytics = readJSON(ANALYTICS_FILE, { totalViews: 0, dailyStats: {}, visitors: [] });
+    if (typeof analytics.totalViews !== 'number') analytics.totalViews = 0;
+    if (!analytics.dailyStats || typeof analytics.dailyStats !== 'object') analytics.dailyStats = {};
+    if (!Array.isArray(analytics.visitors)) analytics.visitors = [];
+
+    if (!analytics.dailyStats[dateKey]) {
+      analytics.dailyStats[dateKey] = { views: 0, botViews: 0, uniqueVisitors: [] };
+    }
+    const dayBucket = analytics.dailyStats[dateKey];
+    if (uaInfo.isBot) {
+      dayBucket.botViews = (dayBucket.botViews || 0) + 1;
+    } else {
+      dayBucket.views = (dayBucket.views || 0) + 1;
+      analytics.totalViews += 1;
+      if (!Array.isArray(dayBucket.uniqueVisitors)) dayBucket.uniqueVisitors = [];
+      if (!dayBucket.uniqueVisitors.includes(visitorId) && dayBucket.uniqueVisitors.length < 5000) {
+        dayBucket.uniqueVisitors.push(visitorId);
+      }
+    }
+
+    // Conservar últimos 30 días de estadísticas diarias
+    const dayKeys = Object.keys(analytics.dailyStats).sort();
+    while (dayKeys.length > 30) {
+      const oldest = dayKeys.shift();
+      delete analytics.dailyStats[oldest];
+    }
+
+    analytics.visitors.unshift({
+      id: 'vis-' + nowMs + '-' + Math.random().toString(36).slice(2, 6),
+      timestamp: new Date(nowMs).toISOString(),
+      ip,
+      visitorId,
+      country,
+      browser: uaInfo.browser,
+      os: uaInfo.os,
+      deviceType: uaInfo.deviceType,
+      isBot: uaInfo.isBot,
+      referrer,
+      page,
+      articleTitle,
+      username: sessionUser ? sessionUser.username : '',
+      displayName: sessionUser ? sessionUser.displayName : ''
+    });
+
+    if (analytics.visitors.length > 250) {
+      analytics.visitors.length = 250;
+    }
+
+    writeJSON(ANALYTICS_FILE, analytics);
+  } catch (err) {
+    console.error('Error registrando analítica:', err.message);
+  }
+}
+
+function buildAnalyticsDashboard() {
+  const analytics = readJSON(ANALYTICS_FILE, { totalViews: 0, dailyStats: {}, visitors: [] });
+  const users = readJSON(USERS_FILE, []);
+  const sessions = readJSON(SESSIONS_FILE, []);
+  const articles = readJSON(ARTICLES_FILE, []);
+  const forumThreads = readJSON(FORUM_FILE, []);
+
+  const now = Date.now();
+  const activeSessionsCount = sessions.filter(s => s.expiresAt > now).length;
+  const todayKey = new Date(now).toISOString().slice(0, 10);
+  const dailyStats = analytics.dailyStats || {};
+  const todayStats = dailyStats[todayKey] || { views: 0, botViews: 0, uniqueVisitors: [] };
+
+  const dailySeries = [];
+  const last7UniqueSet = new Set();
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now - i * 86400000);
+    const key = d.toISOString().slice(0, 10);
+    const bucket = dailyStats[key] || { views: 0, botViews: 0, uniqueVisitors: [] };
+    (bucket.uniqueVisitors || []).forEach(v => last7UniqueSet.add(v));
+    dailySeries.push({
+      date: key,
+      label: d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' }),
+      views: bucket.views || 0,
+      botViews: bucket.botViews || 0,
+      unique: Array.isArray(bucket.uniqueVisitors) ? bucket.uniqueVisitors.length : 0
+    });
+  }
+
+  const visitors = Array.isArray(analytics.visitors) ? analytics.visitors : [];
+  const countBy = (arr, selector) => {
+    const map = new Map();
+    for (const item of arr) {
+      const k = selector(item) || 'Desconocido';
+      map.set(k, (map.get(k) || 0) + 1);
+    }
+    return [...map.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([name, count]) => ({ name, count }));
+  };
+
+  const humanVisitors = visitors.filter(v => !v.isBot);
+  const topBrowsers = countBy(humanVisitors.length ? humanVisitors : visitors, v => v.browser);
+  const topDevices = countBy(visitors, v => v.deviceType);
+  const topReferrers = countBy(humanVisitors.length ? humanVisitors : visitors, v => v.referrer);
+  const topArticles = [...articles]
+    .sort((a, b) => (b.views || 0) - (a.views || 0))
+    .slice(0, 6)
+    .map(a => ({ id: a.id, title: a.title, sourceName: a.sourceName || 'Redacción', views: a.views || 0 }));
+
+  return {
+    totalViews: analytics.totalViews || 0,
+    todayViews: todayStats.views || 0,
+    todayBotViews: todayStats.botViews || 0,
+    uniqueToday: Array.isArray(todayStats.uniqueVisitors) ? todayStats.uniqueVisitors.length : 0,
+    uniqueLast7Days: last7UniqueSet.size,
+    registeredUsersCount: users.length,
+    activeSessionsCount,
+    articlesCount: articles.length,
+    forumThreadsCount: forumThreads.length,
+    dailySeries,
+    topBrowsers,
+    topDevices,
+    topReferrers,
+    topArticles,
+    recentVisitors: visitors.slice(0, 60)
+  };
 }
 
 function isValidArticleImageUrl(imgUrl) {
@@ -315,7 +523,7 @@ function getSessionUser(req) {
 
   const users = readJSON(USERS_FILE, []);
   const user = users.find(u => u.id === session.userId);
-  if (!user) return null;
+  if (!user || user.status === 'suspended') return null;
 
   const { salt, hash, ...safeUser } = user;
   return safeUser;
@@ -367,7 +575,7 @@ function createIntelSVG(sourceName, category, title = '') {
   const isPol = category === 'politica' || category === 'tecnopolitica';
   const accent = isPol ? '#d97706' : '#0284c7';
   const softTint = isPol ? '#fef3c7' : '#e0f2fe';
-  const badge = String(sourceName || 'SILVERBOT2 // UNIX').split('—')[0].trim().toUpperCase().replace(/[<>"'&]/g, '');
+  const badge = String(sourceName || 'CYBERPOLIS').split('—')[0].trim().toUpperCase().replace(/[<>"'&]/g, '');
   const subCategory = isPol ? 'GEOPOLITICA // NORMATIVA DIGITAL' : 'ACTUALIDAD // CIBERSEGURIDAD';
   const rawTitle = String(title || 'INFORME DE ACTUALIDAD Y SEGURIDAD').toUpperCase().replace(/[<>"'&]/g, '');
   const line1 = rawTitle.slice(0, 34);
@@ -392,7 +600,7 @@ function createIntelSVG(sourceName, category, title = '') {
     <text x="82" y="210" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="25" font-weight="800" fill="#0f172a" letter-spacing="-0.3">${line1}</text>
     ${line2 ? `<text x="82" y="248" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="25" font-weight="800" fill="#0f172a" letter-spacing="-0.3">${line2}</text>` : ''}
     <line x1="82" y1="322" x2="718" y2="322" stroke="#e2e8f0" stroke-width="1"/>
-    <text x="82" y="362" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="13" font-weight="700" fill="#475569" letter-spacing="0.5">SILVERBOT2 // UNIX — TU HACKNOTICIERO</text>
+    <text x="82" y="362" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="13" font-weight="700" fill="#475569" letter-spacing="0.5">CYBERPOLIS — TU HACKNOTICIERO</text>
     <text x="718" y="362" text-anchor="end" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="${accent}">BOLETÍN VERIFICADO</text>
   </svg>`;
 
@@ -752,6 +960,10 @@ function serveStatic(req, res, pathname) {
       'X-Content-Type-Options': 'nosniff'
     });
 
+    if (safePath === '/index.html') {
+      recordVisitEvent(req, { page: req.url || '/' });
+    }
+
     const stream = fs.createReadStream(filePath);
     stream.pipe(res);
   });
@@ -802,8 +1014,8 @@ const server = http.createServer(async (req, res) => {
         syncIntervalMinutes: parseInt(body.syncIntervalMinutes, 10) || currentConfig.syncIntervalMinutes || 30,
         themeAccent: sanitizeInput(body.themeAccent || currentConfig.themeAccent || 'cyan'),
         polygonDensity: sanitizeInput(body.polygonDensity || currentConfig.polygonDensity || 'normal'),
-        portalTitle: sanitizeInput(body.portalTitle || currentConfig.portalTitle || 'SILVERBOT2'),
-        portalSubcallsign: sanitizeInput(body.portalSubcallsign || currentConfig.portalSubcallsign || 'UNIX'),
+        portalTitle: sanitizeInput(body.portalTitle || currentConfig.portalTitle || 'CYBERPOLIS'),
+        portalSubcallsign: body.portalSubcallsign !== undefined ? sanitizeInput(body.portalSubcallsign) : (currentConfig.portalSubcallsign || ''),
         portalSubtitle: sanitizeInput(body.portalSubtitle || currentConfig.portalSubtitle || 'TU HACKNOTICIERO'),
         portalLogoUrl: body.portalLogoUrl !== undefined ? sanitizeLogoUrl(body.portalLogoUrl) : (currentConfig.portalLogoUrl || 'assets/silverbot-unix-logo.png'),
         contactEmail: body.contactEmail !== undefined ? sanitizeEmail(body.contactEmail) : (currentConfig.contactEmail || ''),
@@ -862,6 +1074,14 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, 401, { error: 'Credenciales inválidas' });
         return;
       }
+
+      if (user.status === 'suspended') {
+        sendJSON(res, 403, { error: 'Tu cuenta está suspendida por un administrador.' });
+        return;
+      }
+
+      user.lastLoginAt = new Date().toISOString();
+      writeJSON(USERS_FILE, users);
 
       const token = generateSecureToken();
       const sessions = readJSON(SESSIONS_FILE, []);
@@ -970,6 +1190,260 @@ const server = http.createServer(async (req, res) => {
         createdAt: u.createdAt
       }));
       sendJSON(res, 200, safeList);
+      return;
+    }
+
+    // ----------------------------------------------------
+    // API ANALÍTICA DE VISITAS Y MÉTRICAS
+    // ----------------------------------------------------
+
+    if (pathname === '/api/analytics/visit' && method === 'POST') {
+      if (checkRateLimit(ip + '|vis', 45, 60000)) {
+        const body = await parseBody(req).catch(() => ({}));
+        recordVisitEvent(req, {
+          page: body.page || '/',
+          articleTitle: body.articleTitle || '',
+          referrer: body.referrer || ''
+        });
+      }
+      sendJSON(res, 200, { ok: true });
+      return;
+    }
+
+    if (pathname === '/api/admin/analytics' && method === 'GET') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(res, 403, { error: 'Acceso denegado: solo el Administrador puede ver las métricas' });
+        return;
+      }
+      sendJSON(res, 200, buildAnalyticsDashboard());
+      return;
+    }
+
+    if (pathname === '/api/admin/analytics' && method === 'DELETE') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(res, 403, { error: 'Acceso denegado' });
+        return;
+      }
+      writeJSON(ANALYTICS_FILE, { totalViews: 0, dailyStats: {}, visitors: [] });
+      sendJSON(res, 200, { success: true, message: 'Historial de métricas reiniciado' });
+      return;
+    }
+
+    // ----------------------------------------------------
+    // API GESTIÓN DE USUARIOS (SOLO ADMIN)
+    // ----------------------------------------------------
+
+    if (pathname === '/api/admin/users' && method === 'GET') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(res, 403, { error: 'Acceso denegado: solo el Administrador puede gestionar usuarios' });
+        return;
+      }
+      const users = readJSON(USERS_FILE, []);
+      const sessions = readJSON(SESSIONS_FILE, []);
+      const articles = readJSON(ARTICLES_FILE, []);
+      const forumThreads = readJSON(FORUM_FILE, []);
+      const now = Date.now();
+
+      const adminList = users.map(u => ({
+        id: u.id,
+        username: u.username,
+        displayName: u.displayName,
+        email: u.email || '',
+        role: u.role || 'analyst',
+        status: u.status || 'active',
+        createdAt: u.createdAt || u.updatedAt || null,
+        lastLoginAt: u.lastLoginAt || null,
+        articlesCount: articles.filter(a => a.authorId === u.id).length,
+        forumThreadsCount: forumThreads.filter(t => t.authorId === u.id).length,
+        activeSessions: sessions.filter(s => s.userId === u.id && s.expiresAt > now).length
+      }));
+      sendJSON(res, 200, adminList);
+      return;
+    }
+
+    if (pathname === '/api/admin/users' && method === 'POST') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(res, 403, { error: 'Acceso denegado' });
+        return;
+      }
+      const body = await parseBody(req);
+      const cleanUser = String(body.username || '').trim().toLowerCase();
+      const displayName = sanitizeInput(body.displayName || cleanUser);
+      const email = sanitizeEmail(body.email || '');
+      const password = String(body.password || '');
+      const role = body.role === 'admin' ? 'admin' : 'analyst';
+
+      if (!/^[a-zA-Z0-9_]{3,24}$/.test(cleanUser)) {
+        sendJSON(res, 400, { error: 'El usuario debe tener entre 3 y 24 caracteres alfanuméricos o _' });
+        return;
+      }
+      if (password.length < 8) {
+        sendJSON(res, 400, { error: 'La contraseña debe tener al menos 8 caracteres' });
+        return;
+      }
+
+      const users = readJSON(USERS_FILE, []);
+      if (users.some(u => u.username.toLowerCase() === cleanUser)) {
+        sendJSON(res, 409, { error: 'Ya existe un usuario con ese nombre' });
+        return;
+      }
+
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = hashPassword(password, salt);
+      const newUser = {
+        id: 'usr-' + Date.now(),
+        username: cleanUser,
+        displayName: displayName || cleanUser,
+        email: email || `${cleanUser}@cyberpolis.local`,
+        role,
+        status: 'active',
+        linkedInProfile: '',
+        avatar: 'assets/silverbot-unix-logo.png',
+        salt,
+        hash,
+        createdAt: new Date().toISOString()
+      };
+      users.push(newUser);
+      writeJSON(USERS_FILE, users);
+
+      const { salt: _s, hash: _h, ...safeUser } = newUser;
+      sendJSON(res, 201, { success: true, user: safeUser });
+      return;
+    }
+
+    if (/^\/api\/admin\/users\/[^/]+\/reset-password$/.test(pathname) && method === 'POST') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(res, 403, { error: 'Acceso denegado' });
+        return;
+      }
+      const userId = decodeURIComponent(pathname.split('/')[4]);
+      const body = await parseBody(req).catch(() => ({}));
+      const requestedPass = String(body.newPassword || '').trim();
+      if (requestedPass && requestedPass.length < 8) {
+        sendJSON(res, 400, { error: 'La nueva contraseña debe tener mínimo 8 caracteres' });
+        return;
+      }
+      const finalPassword = requestedPass || ('Cyp!' + crypto.randomBytes(5).toString('hex'));
+
+      const users = readJSON(USERS_FILE, []);
+      const idx = users.findIndex(u => u.id === userId);
+      if (idx === -1) {
+        sendJSON(res, 404, { error: 'Usuario no encontrado' });
+        return;
+      }
+
+      const newSalt = crypto.randomBytes(16).toString('hex');
+      users[idx].salt = newSalt;
+      users[idx].hash = hashPassword(finalPassword, newSalt);
+      users[idx].updatedAt = new Date().toISOString();
+      writeJSON(USERS_FILE, users);
+
+      // Invalidar sesiones previas del usuario afectado salvo la actual del propio admin
+      const authToken = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+      let sessions = readJSON(SESSIONS_FILE, []);
+      sessions = sessions.filter(s => s.userId !== userId || s.token === authToken);
+      writeJSON(SESSIONS_FILE, sessions);
+
+      sendJSON(res, 200, {
+        success: true,
+        message: `Contraseña restablecida para ${users[idx].username}`,
+        tempPassword: finalPassword
+      });
+      return;
+    }
+
+    if (/^\/api\/admin\/users\/[^/]+\/role$/.test(pathname) && method === 'PUT') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(res, 403, { error: 'Acceso denegado' });
+        return;
+      }
+      const userId = decodeURIComponent(pathname.split('/')[4]);
+      const body = await parseBody(req).catch(() => ({}));
+      const newRole = body.role === 'admin' ? 'admin' : 'analyst';
+
+      if (userId === currentUser.id && newRole !== 'admin') {
+        sendJSON(res, 400, { error: 'No puedes quitarte a ti mismo el rol de Administrador' });
+        return;
+      }
+
+      const users = readJSON(USERS_FILE, []);
+      const idx = users.findIndex(u => u.id === userId);
+      if (idx === -1) {
+        sendJSON(res, 404, { error: 'Usuario no encontrado' });
+        return;
+      }
+      users[idx].role = newRole;
+      users[idx].updatedAt = new Date().toISOString();
+      writeJSON(USERS_FILE, users);
+      sendJSON(res, 200, { success: true, role: newRole });
+      return;
+    }
+
+    if (/^\/api\/admin\/users\/[^/]+\/status$/.test(pathname) && method === 'PUT') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(res, 403, { error: 'Acceso denegado' });
+        return;
+      }
+      const userId = decodeURIComponent(pathname.split('/')[4]);
+      const body = await parseBody(req).catch(() => ({}));
+      const newStatus = body.status === 'suspended' ? 'suspended' : 'active';
+
+      if (userId === currentUser.id && newStatus === 'suspended') {
+        sendJSON(res, 400, { error: 'No puedes suspender tu propia cuenta de Administrador' });
+        return;
+      }
+
+      const users = readJSON(USERS_FILE, []);
+      const idx = users.findIndex(u => u.id === userId);
+      if (idx === -1) {
+        sendJSON(res, 404, { error: 'Usuario no encontrado' });
+        return;
+      }
+      users[idx].status = newStatus;
+      users[idx].updatedAt = new Date().toISOString();
+      writeJSON(USERS_FILE, users);
+
+      if (newStatus === 'suspended') {
+        let sessions = readJSON(SESSIONS_FILE, []);
+        sessions = sessions.filter(s => s.userId !== userId);
+        writeJSON(SESSIONS_FILE, sessions);
+      }
+
+      sendJSON(res, 200, { success: true, status: newStatus });
+      return;
+    }
+
+    if (/^\/api\/admin\/users\/[^/]+$/.test(pathname) && method === 'DELETE') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(res, 403, { error: 'Acceso denegado' });
+        return;
+      }
+      const userId = decodeURIComponent(pathname.split('/')[4]);
+      if (userId === currentUser.id) {
+        sendJSON(res, 400, { error: 'No puedes eliminar tu propia cuenta activa' });
+        return;
+      }
+
+      const users = readJSON(USERS_FILE, []);
+      if (!users.some(u => u.id === userId)) {
+        sendJSON(res, 404, { error: 'Usuario no encontrado' });
+        return;
+      }
+      writeJSON(USERS_FILE, users.filter(u => u.id !== userId));
+
+      let sessions = readJSON(SESSIONS_FILE, []);
+      sessions = sessions.filter(s => s.userId !== userId);
+      writeJSON(SESSIONS_FILE, sessions);
+
+      sendJSON(res, 200, { success: true });
       return;
     }
 

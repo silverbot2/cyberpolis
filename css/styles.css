@@ -2992,3 +2992,381 @@ body.theme-accent-indigo { --accent-cyan: #4f46e5; --accent-cyan-glow: rgba(79, 
     display: none;
   }
 }
+
+
+/* ==========================================================================
+   V6.0 PANEL ADMIN: DASHBOARD DE MÉTRICAS Y GESTIÓN DE USUARIOS
+   ========================================================================== */
+.hud-modal-window.modal-wide {
+  max-width: 960px;
+}
+
+.admin-tabs-bar {
+  flex-wrap: wrap;
+}
+
+.admin-panel-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.admin-panel-heading {
+  font-family: var(--font-heading);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 2px 0;
+}
+
+.admin-toolbar-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* KPI Grid */
+.admin-metrics-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.admin-kpi-card {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-kpi-label {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.admin-kpi-val {
+  font-family: var(--font-heading);
+  font-size: 1.65rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.admin-kpi-sub {
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+}
+
+/* Gráfico 7 días */
+.admin-chart-card {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-hairline);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 18px;
+}
+
+.admin-chart-title {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin: 0 0 14px 0;
+}
+
+.admin-bars-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+  align-items: end;
+  height: 120px;
+}
+
+.admin-bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  height: 100%;
+}
+
+.admin-bar-value {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.admin-bar-track {
+  width: 100%;
+  max-width: 36px;
+  height: 76px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-hairline);
+  border-radius: 6px;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+
+.admin-bar-fill {
+  width: 100%;
+  background: var(--accent-cyan);
+  border-radius: 4px 4px 0 0;
+  min-height: 4px;
+  transition: height 0.3s ease;
+}
+
+.admin-bar-label {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+/* Desgloses 3 columnas */
+.admin-breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.admin-mini-panel {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.admin-mini-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.admin-mini-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.admin-mini-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-mini-count {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+/* Tabla de Visitantes Recientes */
+.admin-visitors-table-wrap {
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+  overflow-x: auto;
+  background: var(--bg-panel);
+}
+
+.admin-visitors-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.admin-visitors-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border-hairline);
+  white-space: nowrap;
+}
+
+.admin-visitors-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-hairline);
+  color: var(--text-secondary);
+  vertical-align: middle;
+}
+
+.admin-visitors-table tr:last-child td {
+  border-bottom: none;
+}
+
+.visitor-ip-code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-primary);
+}
+
+.visitor-user-pill {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  border: 1px solid var(--border-hairline);
+}
+
+.visitor-bot-pill {
+  color: #d97706;
+  border-color: rgba(217, 119, 6, 0.35);
+}
+
+/* Gestión de Usuarios Admin */
+.admin-create-user-card {
+  background: var(--bg-subtle);
+  border: 1px solid var(--accent-cyan);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.admin-users-manage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.admin-user-card {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-hairline);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.admin-user-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-user-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.admin-user-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-user-name {
+  font-weight: 700;
+  font-size: 0.96rem;
+  color: var(--text-primary);
+}
+
+.admin-user-handle {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.user-status-badge {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+.user-status-badge.active {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+}
+
+.user-status-badge.suspended {
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+}
+
+.admin-user-meta {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.admin-user-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-role-select {
+  padding: 5px 8px;
+  font-size: 0.78rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+}
+
+.admin-reset-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  background: var(--bg-panel);
+  border: 1px dashed var(--border-hairline);
+  border-radius: 8px;
+}
+
+.admin-reset-inline input {
+  flex: 1;
+  min-width: 180px;
+}
+
+@media (max-width: 820px) {
+  .admin-metrics-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .admin-breakdown-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .admin-metrics-kpis {
+    grid-template-columns: 1fr;
+  }
+}

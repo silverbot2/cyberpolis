@@ -1,6 +1,6 @@
 /**
- * SILVERBOT2 // UNIX — INTEL DISPATCH TERMINAL
- * Client Application Logic with Auto Spanish RSS Sync & Live Site Customizer
+ * CYBERPOLIS — TU HACKNOTICIERO
+ * Client Application Logic with Auto Spanish RSS Sync, Metrics & Admin Controls
  */
 
 (function () {
@@ -19,8 +19,8 @@
       lastSync: null,
       themeAccent: 'cyan',
       polygonDensity: 'paused',
-      portalTitle: 'SILVERBOT2',
-      portalSubcallsign: 'UNIX',
+      portalTitle: 'CYBERPOLIS',
+      portalSubcallsign: '',
       portalSubtitle: 'TU HACKNOTICIERO',
       portalLogoUrl: 'assets/silverbot-unix-logo.png',
       contactEmail: '',
@@ -45,7 +45,12 @@
     forumThreads: [],
     forumFilter: 'Todos',
     activeForumThreadId: null,
-    pendingLogoDataUrl: null
+    pendingLogoDataUrl: null,
+    adminMetrics: null,
+    adminUsers: [],
+    adminUserSearch: '',
+    resetPasswordUserId: null,
+    confirmDeleteUserId: null
   };
 
   const ENTITY_MAP = {
@@ -127,7 +132,7 @@
     const isPol = category === 'politica' || category === 'tecnopolitica';
     const accent = isPol ? '#d97706' : '#0284c7';
     const softTint = isPol ? '#fef3c7' : '#e0f2fe';
-    const badge = String(sourceName || 'SILVERBOT2 // UNIX').split('—')[0].trim().toUpperCase().replace(/[<>"'&]/g, '');
+    const badge = String(sourceName || 'CYBERPOLIS').split('—')[0].trim().toUpperCase().replace(/[<>"'&]/g, '');
     const subCategory = isPol ? 'GEOPOLITICA // NORMATIVA DIGITAL' : 'ACTUALIDAD // CIBERSEGURIDAD';
     const rawTitle = String(title || 'INFORME DE ACTUALIDAD Y SEGURIDAD').toUpperCase().replace(/[<>"'&]/g, '');
     const line1 = rawTitle.slice(0, 34);
@@ -152,7 +157,7 @@
       <text x="82" y="210" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="25" font-weight="800" fill="#0f172a" letter-spacing="-0.3">${line1}</text>
       ${line2 ? `<text x="82" y="248" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="25" font-weight="800" fill="#0f172a" letter-spacing="-0.3">${line2}</text>` : ''}
       <line x1="82" y1="322" x2="718" y2="322" stroke="#e2e8f0" stroke-width="1"/>
-      <text x="82" y="362" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="13" font-weight="700" fill="#475569" letter-spacing="0.5">SILVERBOT2 // UNIX — TU HACKNOTICIERO</text>
+      <text x="82" y="362" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="13" font-weight="700" fill="#475569" letter-spacing="0.5">CYBERPOLIS — TU HACKNOTICIERO</text>
       <text x="718" y="362" text-anchor="end" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="${accent}">BOLETÍN VERIFICADO</text>
     </svg>`;
 
@@ -318,6 +323,7 @@
     // Elementos de Identidad Transformables
     uiPortalLogo: document.getElementById('uiPortalLogo'),
     uiPortalTitle: document.getElementById('uiPortalTitle'),
+    uiPortalSlash: document.getElementById('uiPortalSlash'),
     uiPortalSubcallsign: document.getElementById('uiPortalSubcallsign'),
     uiPortalSubtitle: document.getElementById('uiPortalSubtitle'),
     tagsMatrix: document.querySelector('.tags-matrix'),
@@ -346,9 +352,26 @@
     closeAdminControlBtn: document.getElementById('closeAdminControlBtn'),
     closeAdminModalFooterBtn: document.getElementById('closeAdminModalFooterBtn'),
     adminTabFeedsBtn: document.getElementById('adminTabFeedsBtn'),
+    adminTabMetricsBtn: document.getElementById('adminTabMetricsBtn'),
+    adminTabUsersBtn: document.getElementById('adminTabUsersBtn'),
     adminTabTransformBtn: document.getElementById('adminTabTransformBtn'),
     adminFeedsSection: document.getElementById('adminFeedsSection'),
+    adminMetricsSection: document.getElementById('adminMetricsSection'),
+    adminUsersSection: document.getElementById('adminUsersSection'),
     adminTransformSection: document.getElementById('adminTransformSection'),
+    adminMetricsContent: document.getElementById('adminMetricsContent'),
+    refreshMetricsBtn: document.getElementById('refreshMetricsBtn'),
+    resetMetricsBtn: document.getElementById('resetMetricsBtn'),
+    adminUserSearchInput: document.getElementById('adminUserSearchInput'),
+    toggleAdminCreateUserBtn: document.getElementById('toggleAdminCreateUserBtn'),
+    adminCreateUserForm: document.getElementById('adminCreateUserForm'),
+    cancelAdminCreateUserBtn: document.getElementById('cancelAdminCreateUserBtn'),
+    adminUsersManageList: document.getElementById('adminUsersManageList'),
+    admNewUsername: document.getElementById('admNewUsername'),
+    admNewDisplayName: document.getElementById('admNewDisplayName'),
+    admNewEmail: document.getElementById('admNewEmail'),
+    admNewRole: document.getElementById('admNewRole'),
+    admNewPassword: document.getElementById('admNewPassword'),
     adminAutoSyncToggle: document.getElementById('adminAutoSyncToggle'),
     adminSyncIntervalSelect: document.getElementById('adminSyncIntervalSelect'),
     adminForceSyncBtn: document.getElementById('adminForceSyncBtn'),
@@ -456,6 +479,7 @@
     renderUserWidget();
     renderAll();
     handleUrlSeoParams();
+    trackClientVisit(window.location.pathname + window.location.search);
 
     // Auto-recarga silenciosa de noticias cada 3 minutos para mostrar despachos frescos sin recargar
     setInterval(async () => {
@@ -498,6 +522,14 @@
     }
   }
 
+  function getPortalBrandLabel(includeSubtitle = false) {
+    const title = (state.config.portalTitle || 'CYBERPOLIS').trim();
+    const sub = (state.config.portalSubcallsign || '').trim();
+    const subtitle = (state.config.portalSubtitle || 'TU HACKNOTICIERO').trim();
+    const base = sub ? `${title} // ${sub}` : title;
+    return includeSubtitle && subtitle ? `${base} — ${subtitle}` : base;
+  }
+
   function applySiteTransformation(cfg) {
     if (!cfg) return;
 
@@ -511,9 +543,16 @@
     document.body.classList.add(`layout-${cfg.layoutMode || 'normal'}`);
 
     // 3. Títulos, Logo e Identidad
-    if (DOM.uiPortalTitle && cfg.portalTitle) DOM.uiPortalTitle.textContent = cfg.portalTitle;
-    if (DOM.uiPortalSubcallsign && cfg.portalSubcallsign) DOM.uiPortalSubcallsign.textContent = cfg.portalSubcallsign;
-    if (DOM.uiPortalSubtitle && cfg.portalSubtitle) DOM.uiPortalSubtitle.textContent = cfg.portalSubtitle;
+    const titleVal = (cfg.portalTitle || 'CYBERPOLIS').trim();
+    const subVal = (cfg.portalSubcallsign || '').trim();
+    const subtitleVal = (cfg.portalSubtitle || 'TU HACKNOTICIERO').trim();
+    if (DOM.uiPortalTitle) DOM.uiPortalTitle.textContent = titleVal;
+    if (DOM.uiPortalSlash) DOM.uiPortalSlash.style.display = subVal ? 'inline' : 'none';
+    if (DOM.uiPortalSubcallsign) {
+      DOM.uiPortalSubcallsign.textContent = subVal;
+      DOM.uiPortalSubcallsign.style.display = subVal ? 'inline' : 'none';
+    }
+    if (DOM.uiPortalSubtitle) DOM.uiPortalSubtitle.textContent = subtitleVal;
     const activeLogo = cfg.portalLogoUrl || 'assets/silverbot-unix-logo.png';
     if (DOM.uiPortalLogo) {
       DOM.uiPortalLogo.src = activeLogo;
@@ -530,12 +569,12 @@
       };
     }
     if (DOM.footerCopyrightBrand) {
-      const fullBrand = `${cfg.portalTitle || 'SILVERBOT2'} // ${cfg.portalSubcallsign || 'UNIX'} — ${cfg.portalSubtitle || 'TU HACKNOTICIERO'}`;
-      DOM.footerCopyrightBrand.textContent = fullBrand;
+      DOM.footerCopyrightBrand.textContent = getPortalBrandLabel(true);
     }
     if (state.currentCategory === 'contact') {
       renderContact();
     }
+    updateSeoMeta(state.activeReaderArticle);
 
     // 4. Malla de Polígonos 3D
     if (window.polygonEngine) {
@@ -578,8 +617,8 @@
     renderAdminFeedsList();
 
     // Valores de transformación
-    DOM.adminPortalTitleInput.value = state.config.portalTitle || 'SILVERBOT2';
-    DOM.adminPortalSubcallsignInput.value = state.config.portalSubcallsign || 'UNIX';
+    DOM.adminPortalTitleInput.value = state.config.portalTitle || 'CYBERPOLIS';
+    DOM.adminPortalSubcallsignInput.value = state.config.portalSubcallsign || '';
     DOM.adminPortalSubtitleInput.value = state.config.portalSubtitle || 'TU HACKNOTICIERO';
     if (DOM.adminContactEmailInput) {
       DOM.adminContactEmailInput.value = state.config.contactEmail || '';
@@ -617,17 +656,19 @@
   }
 
   function switchAdminTab(tab) {
-    if (tab === 'feeds') {
-      DOM.adminTabFeedsBtn.classList.add('active');
-      DOM.adminTabTransformBtn.classList.remove('active');
-      DOM.adminFeedsSection.style.display = 'block';
-      DOM.adminTransformSection.style.display = 'none';
-    } else {
-      DOM.adminTabFeedsBtn.classList.remove('active');
-      DOM.adminTabTransformBtn.classList.add('active');
-      DOM.adminFeedsSection.style.display = 'none';
-      DOM.adminTransformSection.style.display = 'block';
+    const panels = {
+      feeds: [DOM.adminTabFeedsBtn, DOM.adminFeedsSection],
+      metrics: [DOM.adminTabMetricsBtn, DOM.adminMetricsSection],
+      users: [DOM.adminTabUsersBtn, DOM.adminUsersSection],
+      transform: [DOM.adminTabTransformBtn, DOM.adminTransformSection]
+    };
+    for (const [key, [btn, sec]] of Object.entries(panels)) {
+      const isActive = key === tab;
+      if (btn) btn.classList.toggle('active', isActive);
+      if (sec) sec.style.display = isActive ? 'block' : 'none';
     }
+    if (tab === 'metrics') loadAdminMetrics();
+    if (tab === 'users') loadAdminUsers();
   }
 
   function renderAdminFeedsList() {
@@ -721,8 +762,8 @@
     const layoutMode = activeLayoutBtn ? activeLayoutBtn.dataset.layout : 'normal';
 
     // 4. Títulos y Logotipo
-    const portalTitle = DOM.adminPortalTitleInput.value.trim() || 'SILVERBOT2';
-    const portalSubcallsign = DOM.adminPortalSubcallsignInput.value.trim() || 'UNIX';
+    const portalTitle = DOM.adminPortalTitleInput.value.trim() || 'CYBERPOLIS';
+    const portalSubcallsign = DOM.adminPortalSubcallsignInput ? DOM.adminPortalSubcallsignInput.value.trim() : '';
     const portalSubtitle = DOM.adminPortalSubtitleInput.value.trim() || 'TU HACKNOTICIERO';
     const rawEmail = DOM.adminContactEmailInput ? DOM.adminContactEmailInput.value.trim() : '';
     if (rawEmail && !/^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]{2,}$/.test(rawEmail)) {
@@ -1880,6 +1921,7 @@
     article.views = (article.views || 0) + 1;
     persistArticles();
     updateSeoMeta(article);
+    trackClientVisit('/?article=' + encodeURIComponent(article.id), article.title);
 
     const isBookmarked = state.bookmarks.has(article.id);
     const catName = getCategoryLabel(article.category);
@@ -2169,6 +2211,9 @@
       btn.classList.toggle('active', btn.dataset.category === category);
     });
     renderFeed();
+    if (category !== 'all') {
+      trackClientVisit('/?cat=' + encodeURIComponent(category));
+    }
   }
 
   function setTagFilter(tag) {
@@ -2216,7 +2261,7 @@
   function exportArticlesJson() {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.articles, null, 2));
     const downloadAnchor = document.createElement('a');
-    const filename = `silverbot2-unix-noticias-${new Date().toISOString().slice(0, 10)}.json`;
+    const filename = `cyberpolis-noticias-${new Date().toISOString().slice(0, 10)}.json`;
     downloadAnchor.setAttribute("href", dataStr);
     downloadAnchor.setAttribute("download", filename);
     document.body.appendChild(downloadAnchor);
@@ -2361,7 +2406,101 @@
     if (DOM.closeAdminControlBtn) DOM.closeAdminControlBtn.addEventListener('click', closeAdminControl);
     if (DOM.closeAdminModalFooterBtn) DOM.closeAdminModalFooterBtn.addEventListener('click', closeAdminControl);
     if (DOM.adminTabFeedsBtn) DOM.adminTabFeedsBtn.addEventListener('click', () => switchAdminTab('feeds'));
+    if (DOM.adminTabMetricsBtn) DOM.adminTabMetricsBtn.addEventListener('click', () => switchAdminTab('metrics'));
+    if (DOM.adminTabUsersBtn) DOM.adminTabUsersBtn.addEventListener('click', () => switchAdminTab('users'));
     if (DOM.adminTabTransformBtn) DOM.adminTabTransformBtn.addEventListener('click', () => switchAdminTab('transform'));
+    if (DOM.refreshMetricsBtn) DOM.refreshMetricsBtn.addEventListener('click', loadAdminMetrics);
+    if (DOM.resetMetricsBtn) DOM.resetMetricsBtn.addEventListener('click', handleResetMetrics);
+
+    if (DOM.adminUserSearchInput) {
+      DOM.adminUserSearchInput.addEventListener('input', e => {
+        state.adminUserSearch = e.target.value || '';
+        renderAdminUsers();
+      });
+    }
+    if (DOM.toggleAdminCreateUserBtn) {
+      DOM.toggleAdminCreateUserBtn.addEventListener('click', () => {
+        if (!DOM.adminCreateUserForm) return;
+        const hidden = DOM.adminCreateUserForm.style.display === 'none';
+        DOM.adminCreateUserForm.style.display = hidden ? 'block' : 'none';
+      });
+    }
+    if (DOM.cancelAdminCreateUserBtn) {
+      DOM.cancelAdminCreateUserBtn.addEventListener('click', () => {
+        if (DOM.adminCreateUserForm) DOM.adminCreateUserForm.style.display = 'none';
+      });
+    }
+    if (DOM.adminCreateUserForm) {
+      DOM.adminCreateUserForm.addEventListener('submit', handleAdminCreateUser);
+    }
+    if (DOM.adminUsersManageList) {
+      DOM.adminUsersManageList.addEventListener('click', e => {
+        const resetToggle = e.target.closest('[data-user-reset-toggle]');
+        if (resetToggle) {
+          const uid = resetToggle.dataset.userResetToggle;
+          state.resetPasswordUserId = state.resetPasswordUserId === uid ? null : uid;
+          state.confirmDeleteUserId = null;
+          renderAdminUsers();
+          return;
+        }
+        const cancelReset = e.target.closest('[data-user-reset-cancel]');
+        if (cancelReset) {
+          state.resetPasswordUserId = null;
+          renderAdminUsers();
+          return;
+        }
+        const genBtn = e.target.closest('[data-user-gen-pass]');
+        if (genBtn) {
+          const card = genBtn.closest('.admin-user-card');
+          const inp = card ? card.querySelector('.admin-reset-pass-input') : null;
+          if (inp) {
+            const rnd = 'Cyp!' + Math.random().toString(36).slice(2, 10);
+            inp.value = rnd;
+          }
+          return;
+        }
+        const statusBtn = e.target.closest('[data-user-status-toggle]');
+        if (statusBtn) {
+          handleAdminToggleStatus(statusBtn.dataset.userStatusToggle, statusBtn.dataset.nextStatus);
+          return;
+        }
+        const deleteAsk = e.target.closest('[data-user-delete-ask]');
+        if (deleteAsk) {
+          const uid = deleteAsk.dataset.userDeleteAsk;
+          state.confirmDeleteUserId = state.confirmDeleteUserId === uid ? null : uid;
+          state.resetPasswordUserId = null;
+          renderAdminUsers();
+          return;
+        }
+        const deleteCancel = e.target.closest('[data-user-delete-cancel]');
+        if (deleteCancel) {
+          state.confirmDeleteUserId = null;
+          renderAdminUsers();
+          return;
+        }
+        const deleteConfirm = e.target.closest('[data-user-delete-confirm]');
+        if (deleteConfirm) {
+          handleAdminDeleteUser(deleteConfirm.dataset.userDeleteConfirm);
+        }
+      });
+
+      DOM.adminUsersManageList.addEventListener('submit', e => {
+        const resetForm = e.target.closest('.admin-reset-inline[data-user-id]');
+        if (resetForm) {
+          e.preventDefault();
+          const uid = resetForm.dataset.userId;
+          const inp = resetForm.querySelector('.admin-reset-pass-input');
+          handleAdminResetPassword(uid, inp ? inp.value.trim() : '');
+        }
+      });
+
+      DOM.adminUsersManageList.addEventListener('change', e => {
+        const roleSelect = e.target.closest('.admin-role-select[data-user-role-id]');
+        if (roleSelect) {
+          handleAdminChangeRole(roleSelect.dataset.userRoleId, roleSelect.value);
+        }
+      });
+    }
     if (DOM.adminForceSyncBtn) DOM.adminForceSyncBtn.addEventListener('click', handleForceSync);
     if (DOM.saveAdminFeedsBtn) DOM.saveAdminFeedsBtn.addEventListener('click', handleSaveFeedsConfig);
     if (DOM.applyTransformBtn) DOM.applyTransformBtn.addEventListener('click', handleApplyTransformation);
@@ -2633,7 +2772,7 @@
   function handleShareArticle() {
     if (!state.activeReaderArticle) return;
     const a = state.activeReaderArticle;
-    const text = `📰 [${a.title}]\nAutor: ${a.author || 'Silverbot2 // Unix'}\nFuente: ${a.sourceName}\n${a.sourceUrl || ''}`;
+    const text = `📰 [${a.title}]\nAutor: ${a.author || getPortalBrandLabel()}\nFuente: ${a.sourceName}\n${a.sourceUrl || ''}`;
 
     if (navigator.share) {
       navigator.share({
@@ -3094,7 +3233,7 @@
     if (!DOM.contactSection) return;
     const email = (state.config.contactEmail || '').trim();
     const isAdmin = state.currentUser && state.currentUser.role === 'admin';
-    const brandName = `${state.config.portalTitle || 'SILVERBOT2'} // ${state.config.portalSubcallsign || 'UNIX'}`;
+    const brandName = getPortalBrandLabel();
 
     DOM.contactSection.innerHTML = `
       <div class="contact-hero-card">
@@ -3138,7 +3277,7 @@
     if (!DOM.legalModal || !DOM.legalModalBody) return;
     const validKeys = ['aviso', 'uso', 'privacidad', 'cookies'];
     const key = validKeys.includes(docKey) ? docKey : 'aviso';
-    const brandName = `${state.config.portalTitle || 'SILVERBOT2'} // ${state.config.portalSubcallsign || 'UNIX'} — ${state.config.portalSubtitle || 'TU HACKNOTICIERO'}`;
+    const brandName = getPortalBrandLabel(true);
     const contactEmail = (state.config.contactEmail || '').trim();
     const contactText = contactEmail
       ? `<a href="mailto:${escapeHtml(contactEmail)}" class="contact-email-link">${escapeHtml(contactEmail)}</a>`
@@ -3208,7 +3347,7 @@
   }
 
   function updateSeoMeta(article = null) {
-    const baseBrand = `${state.config.portalTitle || 'SILVERBOT2'} // ${state.config.portalSubcallsign || 'UNIX'} — ${state.config.portalSubtitle || 'TU HACKNOTICIERO'}`;
+    const baseBrand = getPortalBrandLabel(true);
     const descEl = document.querySelector('meta[name="description"]');
     const canonicalEl = document.getElementById('canonicalLink');
 
@@ -3262,6 +3401,437 @@
         if (exists) openReaderModal(articleParam);
       }
     } catch (e) {}
+  }
+
+  // ==========================================
+  // 16. Analítica de Visitas y Gestión de Usuarios (Admin)
+  // ==========================================
+  function trackClientVisit(page = '/', articleTitle = '') {
+    if (!state.serverMode) return;
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (state.authToken) headers['Authorization'] = `Bearer ${state.authToken}`;
+      fetch('/api/analytics/visit', {
+        method: 'POST',
+        headers,
+        keepalive: true,
+        body: JSON.stringify({
+          page: page || '/',
+          articleTitle: articleTitle || '',
+          referrer: document.referrer || ''
+        })
+      }).catch(() => {});
+    } catch (e) {}
+  }
+
+  async function loadAdminMetrics() {
+    if (!DOM.adminMetricsContent) return;
+    if (!state.serverMode || !state.authToken) {
+      DOM.adminMetricsContent.innerHTML = '<p class="admin-help-text">Inicia sesión con el servidor online para ver las métricas.</p>';
+      return;
+    }
+    DOM.adminMetricsContent.innerHTML = '<p class="admin-help-text">Cargando estadísticas de visitas...</p>';
+    try {
+      const res = await fetch('/api/admin/analytics', {
+        headers: { 'Authorization': `Bearer ${state.authToken}` }
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        DOM.adminMetricsContent.innerHTML = `<p class="admin-help-text">${escapeHtml(err.error || 'No se pudieron cargar las métricas.')}</p>`;
+        return;
+      }
+      state.adminMetrics = await res.json();
+      renderAdminMetrics(state.adminMetrics);
+    } catch (e) {
+      DOM.adminMetricsContent.innerHTML = '<p class="admin-help-text">Error de conexión al consultar las métricas.</p>';
+    }
+  }
+
+  function renderAdminMetrics(m) {
+    if (!DOM.adminMetricsContent || !m) return;
+    const series = Array.isArray(m.dailySeries) ? m.dailySeries : [];
+    const maxViews = Math.max(1, ...series.map(d => d.views || 0));
+
+    const renderMiniList = (items, emptyMsg) => {
+      if (!Array.isArray(items) || items.length === 0) {
+        return `<p class="admin-help-text" style="margin-top:8px;">${escapeHtml(emptyMsg)}</p>`;
+      }
+      return `<div class="admin-mini-list">${items.map(it => `
+        <div class="admin-mini-row">
+          <span class="admin-mini-name">${escapeHtml(it.name || it.title || '—')}</span>
+          <span class="admin-mini-count">${escapeHtml(String(it.count ?? it.views ?? 0))}</span>
+        </div>
+      `).join('')}</div>`;
+    };
+
+    const visitors = Array.isArray(m.recentVisitors) ? m.recentVisitors : [];
+
+    DOM.adminMetricsContent.innerHTML = `
+      <div class="admin-metrics-kpis">
+        <div class="admin-kpi-card">
+          <span class="admin-kpi-label">Visitas Hoy</span>
+          <span class="admin-kpi-val">${m.todayViews || 0}</span>
+          <span class="admin-kpi-sub">+${m.todayBotViews || 0} rastreadores SEO hoy</span>
+        </div>
+        <div class="admin-kpi-card">
+          <span class="admin-kpi-label">Únicos Hoy</span>
+          <span class="admin-kpi-val">${m.uniqueToday || 0}</span>
+          <span class="admin-kpi-sub">${m.uniqueLast7Days || 0} únicos últimos 7 días</span>
+        </div>
+        <div class="admin-kpi-card">
+          <span class="admin-kpi-label">Visitas Totales</span>
+          <span class="admin-kpi-val">${m.totalViews || 0}</span>
+          <span class="admin-kpi-sub">${m.activeSessionsCount || 0} sesiones activas</span>
+        </div>
+        <div class="admin-kpi-card">
+          <span class="admin-kpi-label">Comunidad & Contenido</span>
+          <span class="admin-kpi-val">${m.registeredUsersCount || 0}</span>
+          <span class="admin-kpi-sub">usuarios · ${m.articlesCount || 0} noticias · ${m.forumThreadsCount || 0} hilos</span>
+        </div>
+      </div>
+
+      <div class="admin-chart-card">
+        <h5 class="admin-chart-title">Tráfico humano últimos 7 días</h5>
+        <div class="admin-bars-grid">
+          ${series.map(d => {
+            const pct = Math.round(((d.views || 0) / maxViews) * 100);
+            return `
+              <div class="admin-bar-col" title="${escapeHtml(d.date)}: ${d.views} visitas (${d.unique} únicos)">
+                <span class="admin-bar-value">${d.views}</span>
+                <div class="admin-bar-track">
+                  <div class="admin-bar-fill" style="height: ${Math.max(4, pct)}%;"></div>
+                </div>
+                <span class="admin-bar-label">${escapeHtml(d.label)}</span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+
+      <div class="admin-breakdown-grid">
+        <div class="admin-mini-panel">
+          <h5 class="admin-chart-title">Navegadores</h5>
+          ${renderMiniList(m.topBrowsers, 'Sin datos todavía')}
+        </div>
+        <div class="admin-mini-panel">
+          <h5 class="admin-chart-title">Dispositivos</h5>
+          ${renderMiniList(m.topDevices, 'Sin datos todavía')}
+        </div>
+        <div class="admin-mini-panel">
+          <h5 class="admin-chart-title">Orígenes / Referrers</h5>
+          ${renderMiniList(m.topReferrers, 'Sin datos todavía')}
+        </div>
+      </div>
+
+      <div class="admin-mini-panel" style="margin-bottom: 18px;">
+        <h5 class="admin-chart-title">Noticias más leídas</h5>
+        ${renderMiniList(m.topArticles, 'Aún no hay lecturas registradas')}
+      </div>
+
+      <h5 class="admin-chart-title">Visitantes Recientes (últimos ${visitors.length})</h5>
+      <div class="admin-visitors-table-wrap">
+        <table class="admin-visitors-table">
+          <thead>
+            <tr>
+              <th>Hora</th>
+              <th>IP</th>
+              <th>Usuario / Tipo</th>
+              <th>Navegador / SO</th>
+              <th>Dispositivo</th>
+              <th>Origen</th>
+              <th>Página / Noticia</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${visitors.length === 0
+              ? '<tr><td colspan="7" style="text-align:center;">Sin visitas registradas todavía.</td></tr>'
+              : visitors.map(v => {
+                const timeStr = v.timestamp ? new Date(v.timestamp).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
+                const who = v.displayName
+                  ? `<span class="visitor-user-pill">@${escapeHtml(v.username)}</span>`
+                  : (v.isBot ? '<span class="visitor-user-pill visitor-bot-pill">Bot SEO</span>' : '<span>Visitante</span>');
+                const dest = v.articleTitle ? `📰 ${v.articleTitle}` : (v.page || '/');
+                return `
+                  <tr>
+                    <td style="white-space:nowrap;">${escapeHtml(timeStr)}</td>
+                    <td><code class="visitor-ip-code">${escapeHtml(v.ip || '-')}</code>${v.country ? ` <small>(${escapeHtml(v.country)})</small>` : ''}</td>
+                    <td>${who}</td>
+                    <td>${escapeHtml(v.browser || '-')} · ${escapeHtml(v.os || '-')}</td>
+                    <td>${escapeHtml(v.deviceType || '-')}</td>
+                    <td>${escapeHtml(v.referrer || 'Directo')}</td>
+                    <td style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(dest)}">${escapeHtml(dest)}</td>
+                  </tr>
+                `;
+              }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  async function handleResetMetrics() {
+    if (!DOM.resetMetricsBtn || !state.authToken) return;
+    if (DOM.resetMetricsBtn.dataset.armed !== '1') {
+      DOM.resetMetricsBtn.dataset.armed = '1';
+      DOM.resetMetricsBtn.textContent = '¿Seguro? Pulsa otra vez para limpiar';
+      setTimeout(() => {
+        if (DOM.resetMetricsBtn) {
+          DOM.resetMetricsBtn.dataset.armed = '';
+          DOM.resetMetricsBtn.textContent = '🗑️ Limpiar métricas';
+        }
+      }, 4000);
+      return;
+    }
+    DOM.resetMetricsBtn.dataset.armed = '';
+    DOM.resetMetricsBtn.textContent = '🗑️ Limpiar métricas';
+    try {
+      const res = await fetch('/api/admin/analytics', {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${state.authToken}` }
+      });
+      if (res.ok) {
+        showToast('Métricas reiniciadas correctamente.');
+        loadAdminMetrics();
+      } else {
+        showToast('No se pudieron limpiar las métricas.', 'error');
+      }
+    } catch (e) {
+      showToast('Error al limpiar métricas.', 'error');
+    }
+  }
+
+  async function loadAdminUsers() {
+    if (!DOM.adminUsersManageList) return;
+    if (!state.serverMode || !state.authToken) {
+      DOM.adminUsersManageList.innerHTML = '<p class="admin-help-text">Inicia sesión con el servidor online para administrar usuarios.</p>';
+      return;
+    }
+    DOM.adminUsersManageList.innerHTML = '<p class="admin-help-text">Cargando lista de usuarios...</p>';
+    try {
+      const res = await fetch('/api/admin/users', {
+        headers: { 'Authorization': `Bearer ${state.authToken}` }
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        DOM.adminUsersManageList.innerHTML = `<p class="admin-help-text">${escapeHtml(err.error || 'Error cargando usuarios.')}</p>`;
+        return;
+      }
+      state.adminUsers = await res.json();
+      renderAdminUsers();
+    } catch (e) {
+      DOM.adminUsersManageList.innerHTML = '<p class="admin-help-text">Error de red al cargar los usuarios.</p>';
+    }
+  }
+
+  function renderAdminUsers() {
+    if (!DOM.adminUsersManageList) return;
+    const q = (state.adminUserSearch || '').toLowerCase().trim();
+    const list = (state.adminUsers || []).filter(u =>
+      !q ||
+      (u.username || '').toLowerCase().includes(q) ||
+      (u.displayName || '').toLowerCase().includes(q) ||
+      (u.email || '').toLowerCase().includes(q)
+    );
+
+    if (list.length === 0) {
+      DOM.adminUsersManageList.innerHTML = '<p class="admin-help-text">No hay usuarios que coincidan con el filtro.</p>';
+      return;
+    }
+
+    DOM.adminUsersManageList.innerHTML = list.map(u => {
+      const isSelf = state.currentUser && state.currentUser.id === u.id;
+      const isSuspended = u.status === 'suspended';
+      const lastLogin = u.lastLoginAt
+        ? new Date(u.lastLoginAt).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+        : 'Sin acceso reciente';
+      const created = u.createdAt
+        ? new Date(u.createdAt).toLocaleDateString('es-ES')
+        : '—';
+      const showReset = state.resetPasswordUserId === u.id;
+      const showDelConfirm = state.confirmDeleteUserId === u.id;
+
+      return `
+        <div class="admin-user-card" data-user-card="${escapeHtml(u.id)}">
+          <div class="admin-user-card-top">
+            <div class="admin-user-identity">
+              <div class="admin-user-title-row">
+                <span class="admin-user-name">${escapeHtml(u.displayName || u.username)}</span>
+                <span class="admin-user-handle">@${escapeHtml(u.username)}</span>
+                <span class="user-role-badge ${u.role === 'admin' ? 'admin' : 'analyst'}">${u.role === 'admin' ? 'ADMIN' : 'USUARIO'}</span>
+                <span class="user-status-badge ${isSuspended ? 'suspended' : 'active'}">${isSuspended ? 'SUSPENDIDO' : 'ACTIVO'}</span>
+                ${isSelf ? '<span class="user-status-badge active">TÚ</span>' : ''}
+              </div>
+              <div class="admin-user-meta">
+                ${u.email ? `${escapeHtml(u.email)} · ` : ''}Alta: ${escapeHtml(created)} · Último acceso: ${escapeHtml(lastLogin)} · ${u.articlesCount || 0} noticias · ${u.forumThreadsCount || 0} hilos · ${u.activeSessions || 0} sesiones
+              </div>
+            </div>
+
+            <div class="admin-user-controls">
+              <select class="admin-role-select" data-user-role-id="${escapeHtml(u.id)}" ${isSelf ? 'disabled title="No puedes cambiar tu propio rol"' : ''}>
+                <option value="analyst" ${u.role !== 'admin' ? 'selected' : ''}>Usuario</option>
+                <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+              </select>
+              <button type="button" class="hud-btn hud-btn-outline" data-user-reset-toggle="${escapeHtml(u.id)}">🔑 Resetear clave</button>
+              ${!isSelf ? `
+                <button type="button" class="hud-btn hud-btn-outline" data-user-status-toggle="${escapeHtml(u.id)}" data-next-status="${isSuspended ? 'active' : 'suspended'}">
+                  ${isSuspended ? '▶️ Reactivar' : '⏸️ Suspender'}
+                </button>
+                <button type="button" class="hud-btn hud-btn-danger" data-user-delete-ask="${escapeHtml(u.id)}">🗑️ Eliminar</button>
+              ` : ''}
+            </div>
+          </div>
+
+          ${showReset ? `
+            <form class="admin-reset-inline" data-user-id="${escapeHtml(u.id)}">
+              <input type="text" class="hud-input admin-reset-pass-input" minlength="8" required placeholder="Nueva contraseña (mínimo 8 caracteres)">
+              <button type="button" class="hud-btn hud-btn-outline" data-user-gen-pass="${escapeHtml(u.id)}">🎲 Generar</button>
+              <button type="submit" class="hud-btn hud-btn-action">Guardar clave</button>
+              <button type="button" class="hud-btn hud-btn-outline" data-user-reset-cancel="${escapeHtml(u.id)}">Cancelar</button>
+            </form>
+          ` : ''}
+
+          ${showDelConfirm ? `
+            <div class="admin-reset-inline">
+              <span style="font-size: 0.82rem; color: var(--text-primary); flex: 1;">¿Eliminar definitivamente a <strong>@${escapeHtml(u.username)}</strong> y cerrar sus sesiones?</span>
+              <button type="button" class="hud-btn hud-btn-danger" data-user-delete-confirm="${escapeHtml(u.id)}">Sí, eliminar</button>
+              <button type="button" class="hud-btn hud-btn-outline" data-user-delete-cancel="${escapeHtml(u.id)}">Cancelar</button>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function handleAdminCreateUser(e) {
+    e.preventDefault();
+    if (!state.authToken) return;
+    const username = DOM.admNewUsername ? DOM.admNewUsername.value.trim() : '';
+    const displayName = DOM.admNewDisplayName ? DOM.admNewDisplayName.value.trim() : '';
+    const email = DOM.admNewEmail ? DOM.admNewEmail.value.trim() : '';
+    const role = DOM.admNewRole ? DOM.admNewRole.value : 'analyst';
+    const password = DOM.admNewPassword ? DOM.admNewPassword.value : '';
+
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${state.authToken}`
+        },
+        body: JSON.stringify({ username, displayName, email, role, password })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || 'No se pudo crear el usuario.', 'error');
+        return;
+      }
+      if (DOM.adminCreateUserForm) {
+        DOM.adminCreateUserForm.reset();
+        DOM.adminCreateUserForm.style.display = 'none';
+      }
+      showToast(`Usuario @${data.user.username} creado correctamente.`);
+      loadAdminUsers();
+    } catch (err) {
+      showToast('Error al crear usuario.', 'error');
+    }
+  }
+
+  async function handleAdminResetPassword(userId, newPassword) {
+    if (!state.authToken) return;
+    if (!newPassword || newPassword.length < 8) {
+      showToast('La nueva contraseña debe tener mínimo 8 caracteres.', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/reset-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${state.authToken}`
+        },
+        body: JSON.stringify({ newPassword })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || 'No se pudo restablecer la contraseña.', 'error');
+        return;
+      }
+      state.resetPasswordUserId = null;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(data.tempPassword).catch(() => {});
+      }
+      showToast(`${data.message} (copiada al portapapeles).`);
+      loadAdminUsers();
+    } catch (err) {
+      showToast('Error al restablecer contraseña.', 'error');
+    }
+  }
+
+  async function handleAdminChangeRole(userId, role) {
+    if (!state.authToken) return;
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/role`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${state.authToken}`
+        },
+        body: JSON.stringify({ role })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || 'No se pudo cambiar el rol.', 'error');
+        loadAdminUsers();
+        return;
+      }
+      showToast(`Rol actualizado a ${role === 'admin' ? 'Administrador' : 'Usuario'}.`);
+      loadAdminUsers();
+    } catch (err) {
+      showToast('Error al cambiar rol.', 'error');
+    }
+  }
+
+  async function handleAdminToggleStatus(userId, nextStatus) {
+    if (!state.authToken) return;
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${state.authToken}`
+        },
+        body: JSON.stringify({ status: nextStatus })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || 'No se pudo actualizar el estado.', 'error');
+        return;
+      }
+      showToast(nextStatus === 'suspended' ? 'Cuenta suspendida y sesiones cerradas.' : 'Cuenta reactivada.');
+      loadAdminUsers();
+    } catch (err) {
+      showToast('Error al cambiar estado.', 'error');
+    }
+  }
+
+  async function handleAdminDeleteUser(userId) {
+    if (!state.authToken) return;
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${state.authToken}` }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || 'No se pudo eliminar el usuario.', 'error');
+        return;
+      }
+      state.confirmDeleteUserId = null;
+      showToast('Usuario eliminado correctamente.');
+      loadAdminUsers();
+    } catch (err) {
+      showToast('Error al eliminar usuario.', 'error');
+    }
   }
 
   if (document.readyState === 'loading') {
