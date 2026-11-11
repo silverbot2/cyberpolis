@@ -12,7 +12,6 @@
   const state = {
     articles: [],
     currentUser: null,
-    authToken: localStorage.getItem('silverbot_auth_token') || null,
     config: {
       autoSyncEnabled: true,
       syncIntervalMinutes: 30,
@@ -48,10 +47,42 @@
     pendingLogoDataUrl: null,
     adminMetrics: null,
     adminUsers: [],
+    systemStatus: null,
     adminUserSearch: '',
     resetPasswordUserId: null,
     confirmDeleteUserId: null
   };
+
+  function apiFetch(url, options = {}) {
+    return fetch(url, {
+      credentials: 'same-origin',
+      ...options
+    });
+  }
+
+  function safeHref(rawUrl) {
+    if (!rawUrl || typeof rawUrl !== 'string') return '';
+    const trimmed = rawUrl.trim();
+    if (!trimmed) return '';
+    try {
+      const parsed = new URL(trimmed, window.location.origin);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        return parsed.href;
+      }
+    } catch (e) {}
+    return '';
+  }
+
+  function generateStrongPassword(length = 12) {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+    const buf = new Uint32Array(length);
+    window.crypto.getRandomValues(buf);
+    let out = 'Cy!';
+    for (let i = 0; i < Math.max(8, length - 3); i++) {
+      out += chars[buf[i] % chars.length];
+    }
+    return out + '9';
+  }
 
   const ENTITY_MAP = {
     '&quot;': '"', '&#039;': "'", '&apos;': "'", '&lt;': '<', '&gt;': '>', '&amp;': '&',
@@ -355,10 +386,15 @@
     adminTabMetricsBtn: document.getElementById('adminTabMetricsBtn'),
     adminTabUsersBtn: document.getElementById('adminTabUsersBtn'),
     adminTabTransformBtn: document.getElementById('adminTabTransformBtn'),
+    adminTabSecurityBtn: document.getElementById('adminTabSecurityBtn'),
     adminFeedsSection: document.getElementById('adminFeedsSection'),
     adminMetricsSection: document.getElementById('adminMetricsSection'),
     adminUsersSection: document.getElementById('adminUsersSection'),
     adminTransformSection: document.getElementById('adminTransformSection'),
+    adminSecuritySection: document.getElementById('adminSecuritySection'),
+    adminSystemStatusContent: document.getElementById('adminSystemStatusContent'),
+    refreshSystemStatusBtn: document.getElementById('refreshSystemStatusBtn'),
+    adminOpenChangePassBtn: document.getElementById('adminOpenChangePassBtn'),
     adminMetricsContent: document.getElementById('adminMetricsContent'),
     refreshMetricsBtn: document.getElementById('refreshMetricsBtn'),
     resetMetricsBtn: document.getElementById('resetMetricsBtn'),
@@ -455,15 +491,28 @@
     // Modal Backup
     backupModal: document.getElementById('backupModal'),
     closeBackupModalBtn: document.getElementById('closeBackupModalBtn'),
+    backupPersistenceBanner: document.getElementById('backupPersistenceBanner'),
+    exportFullBackupBtn: document.getElementById('exportFullBackupBtn'),
+    importFullBackupInput: document.getElementById('importFullBackupInput'),
     exportJsonBtn: document.getElementById('exportJsonBtn'),
     importJsonFileInput: document.getElementById('importJsonFileInput'),
-    resetDemoBtn: document.getElementById('resetDemoBtn')
+    resetDemoBtn: document.getElementById('resetDemoBtn'),
+
+    // Modal Cambio de Contraseña
+    changePasswordModal: document.getElementById('changePasswordModal'),
+    closeChangePassBtn: document.getElementById('closeChangePassBtn'),
+    cancelChangePassBtn: document.getElementById('cancelChangePassBtn'),
+    changePasswordForm: document.getElementById('changePasswordForm'),
+    curPassInput: document.getElementById('curPassInput'),
+    newPassInput: document.getElementById('newPassInput'),
+    confirmPassInput: document.getElementById('confirmPassInput')
   };
 
   // ==========================================
   // 3. Inicialización
   // ==========================================
   async function init() {
+    try { localStorage.removeItem('silverbot_auth_token'); } catch (e) {}
     applyTheme(state.theme);
     startLiveClock();
     bindEvents();
@@ -660,7 +709,8 @@
       feeds: [DOM.adminTabFeedsBtn, DOM.adminFeedsSection],
       metrics: [DOM.adminTabMetricsBtn, DOM.adminMetricsSection],
       users: [DOM.adminTabUsersBtn, DOM.adminUsersSection],
-      transform: [DOM.adminTabTransformBtn, DOM.adminTransformSection]
+      transform: [DOM.adminTabTransformBtn, DOM.adminTransformSection],
+      security: [DOM.adminTabSecurityBtn, DOM.adminSecuritySection]
     };
     for (const [key, [btn, sec]] of Object.entries(panels)) {
       const isActive = key === tab;
@@ -669,6 +719,7 @@
     }
     if (tab === 'metrics') loadAdminMetrics();
     if (tab === 'users') loadAdminUsers();
+    if (tab === 'security') loadAdminSystemStatus();
   }
 
   function renderAdminFeedsList() {
@@ -697,11 +748,10 @@
     DOM.adminForceSyncBtn.innerHTML = '<span>⚡ SINCRONIZANDO FUENTES...</span>';
     showToast('Consultando INCIBE, Hispasec, CCN-CERT...', 'info');
 
-    if (state.serverMode && state.authToken) {
+    if (state.serverMode && state.currentUser) {
       try {
-        const res = await fetch('/api/admin/feeds/sync', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${state.authToken}` }
+        const res = await apiFetch('/api/admin/feeds/sync', {
+          method: 'POST'
         });
         const data = await res.json();
         if (res.ok) {
@@ -798,14 +848,11 @@
   async function saveConfigToServer() {
     localStorage.setItem('silverbot_config', JSON.stringify(state.config));
 
-    if (state.serverMode && state.authToken) {
+    if (state.serverMode && state.currentUser) {
       try {
-        await fetch('/api/admin/config', {
+        await apiFetch('/api/admin/config', {
           method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${state.authToken}`
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(state.config)
         });
       } catch (err) {}
@@ -835,34 +882,24 @@
   }
 
   async function checkAuthSession() {
-    if (!state.authToken) {
+    if (!state.serverMode) {
       state.currentUser = null;
       return;
     }
 
-    if (state.serverMode) {
-      try {
-        const res = await fetch('/api/auth/me', {
-          headers: { 'Authorization': `Bearer ${state.authToken}` }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          state.currentUser = data.user;
-          return;
+    try {
+      const res = await apiFetch('/api/auth/me');
+      if (res.ok) {
+        const data = await res.json();
+        state.currentUser = data.user || null;
+        if (state.currentUser) {
+          localStorage.setItem('silverbot_current_user', JSON.stringify(state.currentUser));
         }
-      } catch (err) {}
-    }
-
-    const localUser = localStorage.getItem('silverbot_current_user');
-    if (localUser) {
-      try {
-        state.currentUser = JSON.parse(localUser);
         return;
-      } catch (e) {}
-    }
+      }
+    } catch (err) {}
 
     state.currentUser = null;
-    state.authToken = null;
     localStorage.removeItem('silverbot_auth_token');
     localStorage.removeItem('silverbot_current_user');
   }
@@ -873,17 +910,12 @@
     const isLoggedIn = !!state.currentUser;
     const isAdmin = isLoggedIn && state.currentUser.role === 'admin';
 
-    // 1. Botón Panel Admin: solo visible para el admin
     if (DOM.openAdminControlBtn) {
       DOM.openAdminControlBtn.style.display = isAdmin ? 'inline-flex' : 'none';
     }
-
-    // 2. Botón Respaldo & Gestión de Datos: solo visible para el admin
     if (DOM.backupModalBtn) {
       DOM.backupModalBtn.style.display = isAdmin ? 'inline-flex' : 'none';
     }
-
-    // 3. Botones de Publicar Noticia e Ingestión LinkedIn: SOLO visibles si está autenticado/registrado
     if (DOM.openNewArticleModalBtn) {
       DOM.openNewArticleModalBtn.style.display = isLoggedIn ? 'inline-flex' : 'none';
     }
@@ -932,6 +964,10 @@
             <span>👥</span>
             <span>Directorio de Analistas</span>
           </button>
+          <button class="dropdown-item" id="menuChangePasswordBtn">
+            <span>🔑</span>
+            <span>Cambiar mi contraseña</span>
+          </button>
           <div class="dropdown-divider"></div>
           <button class="dropdown-item danger-item" id="menuLogoutBtn">
             <span>🚪</span>
@@ -948,15 +984,12 @@
         menu.style.display = menu.style.display === 'none' ? 'flex' : 'none';
       };
 
-      document.addEventListener('click', () => {
-        if (menu) menu.style.display = 'none';
-      });
-
       if (document.getElementById('menuOpenAdminBtn')) {
         document.getElementById('menuOpenAdminBtn').onclick = openAdminControl;
       }
       document.getElementById('menuOpenLinkedInBtn').onclick = openLinkedInModal;
       document.getElementById('menuUsersListBtn').onclick = openUsersDirectory;
+      document.getElementById('menuChangePasswordBtn').onclick = openChangePasswordModal;
       document.getElementById('menuLogoutBtn').onclick = handleLogout;
     }
 
@@ -1002,56 +1035,37 @@
       return;
     }
 
-    if (state.serverMode) {
-      try {
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          showToast(data.error || 'Credenciales no autorizadas.', 'error');
-          return;
-        }
-
-        state.authToken = data.token;
-        state.currentUser = data.user;
-        localStorage.setItem('silverbot_auth_token', data.token);
-        localStorage.setItem('silverbot_current_user', JSON.stringify(data.user));
-
-        showToast(`¡Bienvenido de nuevo, ${data.user.displayName}!`);
-        closeAuthModal();
-        renderUserWidget();
-        renderAll();
-        return;
-      } catch (err) {
-        showToast('Error de conexión con el servidor.', 'error');
-        return;
-      }
+    if (!state.serverMode) {
+      showToast('Autenticación no disponible sin servidor backend activo.', 'error');
+      return;
     }
 
-    // Modo local offline
-    if (username.toLowerCase() === 'silverbot2' && password === 'Scaceres2$') {
-      const mockUser = {
-        id: "usr-admin-01",
-        username: "silverbot2",
-        displayName: "Silverbot2 // Unix",
-        role: "admin",
-        linkedInProfile: "https://www.linkedin.com/in/silverbot2",
-        avatar: "assets/silverbot-unix-logo.png"
-      };
-      state.currentUser = mockUser;
-      state.authToken = "local-token-" + Date.now();
-      localStorage.setItem('silverbot_auth_token', state.authToken);
-      localStorage.setItem('silverbot_current_user', JSON.stringify(mockUser));
+    try {
+      const res = await apiFetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || 'Credenciales no autorizadas.', 'error');
+        return;
+      }
 
-      showToast(`¡Sesión iniciada como ${mockUser.displayName}!`);
+      state.currentUser = data.user;
+      localStorage.setItem('silverbot_current_user', JSON.stringify(data.user));
+      DOM.loginPassword.value = '';
+
+      if (data.user.role === 'admin' && !data.user.passwordUpdatedAt) {
+        showToast('Aviso de seguridad: rota la contraseña de administrador en Panel Admin → Seguridad.', 'info');
+      } else {
+        showToast(`¡Bienvenido de nuevo, ${data.user.displayName}!`);
+      }
       closeAuthModal();
       renderUserWidget();
       renderAll();
-    } else {
-      showToast('Credenciales incorrectas.', 'error');
+    } catch (err) {
+      showToast('Error de conexión con el servidor.', 'error');
     }
   }
 
@@ -1067,72 +1081,109 @@
       return;
     }
 
-    if (state.serverMode) {
-      try {
-        const res = await fetch('/api/auth/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password, displayName, linkedInProfile })
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          showToast(data.error || 'Error al registrar analista.', 'error');
-          return;
-        }
-
-        state.authToken = data.token;
-        state.currentUser = data.user;
-        localStorage.setItem('silverbot_auth_token', data.token);
-        localStorage.setItem('silverbot_current_user', JSON.stringify(data.user));
-
-        showToast(`¡Cuenta creada con éxito! Bienvenido, ${data.user.displayName}.`);
-        closeAuthModal();
-        renderUserWidget();
-        renderAll();
-        return;
-      } catch (err) {
-        showToast('Error en el servidor al registrar.', 'error');
-        return;
-      }
+    if (password.length < 10) {
+      showToast('La contraseña debe tener mínimo 10 caracteres.', 'error');
+      return;
     }
 
-    const newUser = {
-      id: "usr-" + Date.now(),
-      username,
-      displayName,
-      role: "analyst",
-      linkedInProfile,
-      avatar: "assets/silverbot-unix-logo.png"
-    };
-    state.currentUser = newUser;
-    state.authToken = "local-token-" + Date.now();
-    localStorage.setItem('silverbot_auth_token', state.authToken);
-    localStorage.setItem('silverbot_current_user', JSON.stringify(newUser));
+    if (!state.serverMode) {
+      showToast('El registro requiere conexión activa con el servidor.', 'error');
+      return;
+    }
 
-    showToast(`¡Cuenta de analista registrada para ${displayName}!`);
-    closeAuthModal();
-    renderUserWidget();
-    renderAll();
+    try {
+      const res = await apiFetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, displayName, linkedInProfile })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || 'Error al registrar analista.', 'error');
+        return;
+      }
+
+      state.currentUser = data.user;
+      localStorage.setItem('silverbot_current_user', JSON.stringify(data.user));
+      DOM.regPassword.value = '';
+
+      showToast(`¡Cuenta creada con éxito! Bienvenido, ${data.user.displayName}.`);
+      closeAuthModal();
+      renderUserWidget();
+      renderAll();
+    } catch (err) {
+      showToast('Error en el servidor al registrar.', 'error');
+    }
   }
 
   async function handleLogout() {
-    if (state.serverMode && state.authToken) {
+    if (state.serverMode) {
       try {
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${state.authToken}` }
-        });
+        await apiFetch('/api/auth/logout', { method: 'POST' });
       } catch (e) {}
     }
 
     state.currentUser = null;
-    state.authToken = null;
     localStorage.removeItem('silverbot_auth_token');
     localStorage.removeItem('silverbot_current_user');
 
     showToast('Sesión cerrada correctamente.', 'info');
     renderUserWidget();
     renderAll();
+  }
+
+  function openChangePasswordModal() {
+    if (!state.currentUser || !DOM.changePasswordModal) {
+      openAuthModal();
+      return;
+    }
+    if (DOM.changePasswordForm) DOM.changePasswordForm.reset();
+    DOM.changePasswordModal.style.display = 'flex';
+    if (DOM.curPassInput) DOM.curPassInput.focus();
+  }
+
+  function closeChangePasswordModal() {
+    if (DOM.changePasswordModal) DOM.changePasswordModal.style.display = 'none';
+  }
+
+  async function handleChangePasswordSubmit(e) {
+    e.preventDefault();
+    if (!state.currentUser || !state.serverMode) return;
+    const currentPassword = DOM.curPassInput ? DOM.curPassInput.value : '';
+    const newPassword = DOM.newPassInput ? DOM.newPassInput.value : '';
+    const confirmPassword = DOM.confirmPassInput ? DOM.confirmPassInput.value : '';
+
+    if (newPassword !== confirmPassword) {
+      showToast('Las dos contraseñas nuevas no coinciden.', 'error');
+      return;
+    }
+    if (newPassword.length < 10) {
+      showToast('La nueva contraseña debe tener mínimo 10 caracteres.', 'error');
+      return;
+    }
+
+    try {
+      const res = await apiFetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || 'No se pudo cambiar la contraseña.', 'error');
+        return;
+      }
+      if (data.user) {
+        state.currentUser = data.user;
+        localStorage.setItem('silverbot_current_user', JSON.stringify(data.user));
+      }
+      if (DOM.changePasswordForm) DOM.changePasswordForm.reset();
+      closeChangePasswordModal();
+      showToast(data.message || 'Contraseña actualizada correctamente.');
+      loadAdminSystemStatus();
+    } catch (err) {
+      showToast('Error al actualizar la contraseña.', 'error');
+    }
   }
 
   // ==========================================
@@ -1169,12 +1220,9 @@
 
     if (state.serverMode) {
       try {
-        const res = await fetch('/api/linkedin/sync', {
+        const res = await apiFetch('/api/linkedin/sync', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${state.authToken}`
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ rawUrl, postText, customTitle, categoryHint, isBreaking })
         });
         const data = await res.json();
@@ -1241,12 +1289,16 @@
   // 8. Directorio de Analistas
   // ==========================================
   async function openUsersDirectory() {
+    if (!state.currentUser) {
+      openAuthModal();
+      return;
+    }
     DOM.usersDirectoryModal.style.display = 'flex';
     DOM.usersDirectoryList.innerHTML = '<div style="font-family: var(--font-mono); color: var(--text-muted);">Cargando directorio de analistas...</div>';
 
     if (state.serverMode) {
       try {
-        const res = await fetch('/api/users');
+        const res = await apiFetch('/api/users');
         if (res.ok) {
           const users = await res.json();
           renderUsersList(users);
@@ -1255,44 +1307,39 @@
       } catch (e) {}
     }
 
-    renderUsersList([
-      {
-        id: "usr-admin-01",
-        username: "silverbot2",
-        displayName: "Silverbot2 // Unix",
-        role: "admin",
-        linkedInProfile: "https://www.linkedin.com/in/silverbot2",
-        avatar: "assets/silverbot-unix-logo.png",
-        createdAt: "2026-11-10T10:00:00.000Z"
-      }
-    ]);
+    renderUsersList([]);
   }
 
   function renderUsersList(users) {
     if (!users || users.length === 0) {
-      DOM.usersDirectoryList.innerHTML = '<div>Sin analistas registrados.</div>';
+      DOM.usersDirectoryList.innerHTML = '<div>Sin analistas registrados disponibles.</div>';
       return;
     }
 
-    DOM.usersDirectoryList.innerHTML = users.map(u => `
+    DOM.usersDirectoryList.innerHTML = users.map(u => {
+      const safeLinkedIn = safeHref(u.linkedInProfile);
+      const roleClass = u.role === 'admin' ? 'admin' : 'analyst';
+      const roleLabel = escapeHtml(String(u.role || 'analyst').toUpperCase());
+      return `
       <div class="user-card-item">
         <div class="user-card-head">
           <img src="${escapeHtml(u.avatar || 'assets/silverbot-unix-logo.png')}" alt="Avatar" class="user-avatar-mini">
           <div>
             <div class="user-card-name">${escapeHtml(u.displayName)}</div>
-            <div class="user-card-handle">@${escapeHtml(u.username)} • <span class="user-role-badge ${u.role === 'admin' ? 'admin' : 'analyst'}">[${u.role.toUpperCase()}]</span></div>
+            <div class="user-card-handle">@${escapeHtml(u.username)} • <span class="user-role-badge ${roleClass}">[${roleLabel}]</span></div>
           </div>
         </div>
-        ${u.linkedInProfile ? `
+        ${safeLinkedIn ? `
           <div style="font-family: var(--font-mono); font-size: 0.72rem; margin-top: 6px;">
-            <a href="${escapeHtml(u.linkedInProfile)}" target="_blank" rel="noopener noreferrer" class="verified-linkedin-badge">
+            <a href="${escapeHtml(safeLinkedIn)}" target="_blank" rel="noopener noreferrer" class="verified-linkedin-badge">
               <span>in</span>
-              <span>${escapeHtml(u.linkedInProfile.replace(/https?:\/\/(www\.)?linkedin\.com\//, ''))}</span>
+              <span>${escapeHtml(safeLinkedIn.replace(/https?:\/\/(www\.)?linkedin\.com\//, ''))}</span>
             </a>
           </div>
         ` : '<div style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted);">Sin cuenta de LinkedIn vinculada</div>'}
       </div>
-    `).join('');
+    `;
+    }).join('');
   }
 
   function closeUsersDirectory() {
@@ -1729,17 +1776,18 @@
 
   function createFeaturedCardHtml(a) {
     const isBookmarked = state.bookmarks.has(a.id);
-    const catClass = a.category;
+    const catClass = escapeHtml(a.category || 'hacking');
     const catName = getCategoryLabel(a.category);
     const relativeTime = getRelativeTime(a.date);
     const readTime = a.readTime || calculateReadTime(a.content);
     const canEdit = canManageArticle(a);
     const sourceShort = cleanSourceDisplay(a.sourceName);
+    const safeSrcUrl = safeHref(a.sourceUrl);
 
     return `
-      <article class="hero-dispatch-card" data-id="${a.id}">
+      <article class="hero-dispatch-card" data-id="${escapeHtml(a.id)}">
         <div class="hero-image-chamber" data-action="read" style="cursor: pointer;">
-          <img src="${escapeHtml(resolveArticleImage(a.imageUrl, a.category, a.sourceName, a.title))}" alt="${escapeHtml(a.title)}" class="hero-image" loading="lazy" referrerpolicy="no-referrer" onerror="window.handleImgError(this)">
+          <img src="${escapeHtml(resolveArticleImage(a.imageUrl, a.category, a.sourceName, a.title))}" alt="${escapeHtml(a.title)}" class="hero-image" loading="lazy" referrerpolicy="no-referrer">
           <span class="hero-portada-ribbon">PORTADA</span>
           <div class="hero-image-overlay"></div>
         </div>
@@ -1756,8 +1804,8 @@
 
           <div class="hero-dispatch-meta">
             <span class="meta-token">
-              ${a.sourceUrl ? `
-                <a href="${escapeHtml(a.sourceUrl)}" target="_blank" rel="noopener noreferrer" class="source-token-link">
+              ${safeSrcUrl ? `
+                <a href="${escapeHtml(safeSrcUrl)}" target="_blank" rel="noopener noreferrer" class="source-token-link">
                   ${escapeHtml(sourceShort)} ↗
                 </a>
               ` : `
@@ -1787,7 +1835,7 @@
 
   function createArticleCardHtml(a) {
     const isBookmarked = state.bookmarks.has(a.id);
-    const catClass = a.category;
+    const catClass = escapeHtml(a.category || 'hacking');
     const catName = getCategoryLabel(a.category);
     const relativeTime = getRelativeTime(a.date);
     const readTime = a.readTime || calculateReadTime(a.content);
@@ -1799,9 +1847,9 @@
       : '';
 
     return `
-      <article class="dispatch-card" data-id="${a.id}">
+      <article class="dispatch-card" data-id="${escapeHtml(a.id)}">
         <div class="dispatch-image-box" data-action="read" style="cursor: pointer;">
-          <img src="${escapeHtml(resolveArticleImage(a.imageUrl, a.category, a.sourceName, a.title))}" alt="${escapeHtml(a.title)}" class="dispatch-img" loading="lazy" referrerpolicy="no-referrer" onerror="window.handleImgError(this)">
+          <img src="${escapeHtml(resolveArticleImage(a.imageUrl, a.category, a.sourceName, a.title))}" alt="${escapeHtml(a.title)}" class="dispatch-img" loading="lazy" referrerpolicy="no-referrer">
           <div class="dispatch-card-badges">
             <span class="intel-badge ${catClass}">${catName}</span>
             <button class="bookmark-toggle-btn ${isBookmarked ? 'bookmarked' : ''}" data-action="bookmark" title="Guardar noticia">
@@ -1838,7 +1886,7 @@
 
   function createHorizontalPressCardHtml(a) {
     const isBookmarked = state.bookmarks.has(a.id);
-    const catClass = a.category;
+    const catClass = escapeHtml(a.category || 'hacking');
     const catName = getCategoryLabel(a.category);
     const relativeTime = getRelativeTime(a.date);
     const readTime = a.readTime || calculateReadTime(a.content);
@@ -1846,9 +1894,9 @@
     const sourceShort = cleanSourceDisplay(a.sourceName);
 
     return `
-      <article class="press-horizontal-card" data-id="${a.id}">
+      <article class="press-horizontal-card" data-id="${escapeHtml(a.id)}">
         <div class="press-thumb-box" data-action="read" style="cursor: pointer;">
-          <img src="${escapeHtml(resolveArticleImage(a.imageUrl, a.category, a.sourceName, a.title))}" alt="${escapeHtml(a.title)}" class="press-thumb-img" loading="lazy" referrerpolicy="no-referrer" onerror="window.handleImgError(this)">
+          <img src="${escapeHtml(resolveArticleImage(a.imageUrl, a.category, a.sourceName, a.title))}" alt="${escapeHtml(a.title)}" class="press-thumb-img" loading="lazy" referrerpolicy="no-referrer">
         </div>
         <div class="press-card-body">
           <div>
@@ -1934,7 +1982,7 @@
     });
 
     DOM.readerBadges.innerHTML = `
-      <span class="intel-badge ${article.category}">${catName}</span>
+      <span class="intel-badge ${escapeHtml(String(article.category || 'hacking').replace(/[^a-z0-9_-]/gi, ''))}">${escapeHtml(catName)}</span>
       ${article.isBreaking ? '<span class="breaking-flag">ÚLTIMA HORA</span>' : ''}
       ${article.verifiedLinkedIn ? '<span class="verified-linkedin-badge"><span>in</span> LINKEDIN</span>' : ''}
     `;
@@ -1944,16 +1992,18 @@
 
     const formattedBody = formatArticleBody(article.content);
     const sourceDisplay = cleanSourceDisplay(article.sourceName);
+    const safeOriginUrl = safeHref(article.sourceUrl);
+    const imgSrc = resolveArticleImage(article.imageUrl, article.category, article.sourceName, article.title);
 
     DOM.readerContentArea.innerHTML = `
-      ${article.imageUrl ? `<img src="${escapeHtml(resolveArticleImage(article.imageUrl, article.category, article.sourceName, article.title))}" alt="${escapeHtml(article.title)}" class="reader-cover-img" loading="lazy" referrerpolicy="no-referrer" onerror="window.handleImgError(this)">` : ''}
+      ${article.imageUrl ? `<img src="${escapeHtml(imgSrc)}" alt="${escapeHtml(article.title)}" class="reader-cover-img" loading="lazy" referrerpolicy="no-referrer" data-fallback-cat="${escapeHtml(article.category || 'hacking')}">` : ''}
 
       <h1 class="reader-headline">${escapeHtml(article.title)}</h1>
 
       <div class="reader-telemetry-strip">
         <span>📅 ${dateFormatted}</span>
-        <span>⏱️ ${article.readTime || calculateReadTime(article.content)}</span>
-        <span>👁️ ${article.views} lecturas</span>
+        <span>⏱️ ${escapeHtml(article.readTime || calculateReadTime(article.content))}</span>
+        <span>👁️ ${Number(article.views || 0)} lecturas</span>
         <span>📰 Fuente: <strong>${escapeHtml(sourceDisplay)}</strong></span>
       </div>
 
@@ -1970,8 +2020,8 @@
           <span class="source-pill-label">Publicado originalmente en</span>
           <span class="source-pill-name">${escapeHtml(article.sourceName || 'Fuente de Información')}</span>
         </div>
-        ${article.sourceUrl ? `
-          <a href="${escapeHtml(article.sourceUrl)}" target="_blank" rel="noopener noreferrer" class="hud-btn hud-btn-action">
+        ${safeOriginUrl ? `
+          <a href="${escapeHtml(safeOriginUrl)}" target="_blank" rel="noopener noreferrer" class="hud-btn hud-btn-action">
             <span>Leer artículo original ↗</span>
           </a>
         ` : ''}
@@ -2068,17 +2118,14 @@
       return;
     }
 
-    if (state.serverMode && state.authToken) {
-      const endpoint = editId ? `/api/articles/${editId}` : '/api/articles';
+    if (state.serverMode && state.currentUser) {
+      const endpoint = editId ? `/api/articles/${encodeURIComponent(editId)}` : '/api/articles';
       const method = editId ? 'PUT' : 'POST';
 
       try {
-        const res = await fetch(endpoint, {
+        const res = await apiFetch(endpoint, {
           method,
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${state.authToken}`
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             title, category, sourceName, sourceUrl, imageUrl, summary, content, tags, readTime, isBreaking, isFeatured
           })
@@ -2147,11 +2194,10 @@
     }
 
     if (confirm(`¿Eliminar despacho permanentemente:\n"${article.title}"?`)) {
-      if (state.serverMode && state.authToken) {
+      if (state.serverMode && state.currentUser) {
         try {
-          const res = await fetch(`/api/articles/${articleId}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${state.authToken}` }
+          const res = await apiFetch(`/api/articles/${encodeURIComponent(articleId)}`, {
+            method: 'DELETE'
           });
           if (!res.ok) {
             const data = await res.json();
@@ -2187,11 +2233,15 @@
     if (state.currentCategory === 'bookmarks') {
       renderFeed();
     } else {
-      document.querySelectorAll(`article[data-id="${articleId}"] [data-action="bookmark"]`).forEach(btn => {
-        const isB = state.bookmarks.has(articleId);
-        btn.classList.toggle('bookmarked', isB);
-        btn.innerHTML = `<span>${isB ? '⭐' : '☆'}</span>`;
-      });
+      Array.from(document.querySelectorAll('article[data-id]'))
+        .filter(el => el.getAttribute('data-id') === articleId)
+        .forEach(card => {
+          const btn = card.querySelector('[data-action="bookmark"]');
+          if (!btn) return;
+          const isB = state.bookmarks.has(articleId);
+          btn.classList.toggle('bookmarked', isB);
+          btn.innerHTML = `<span>${isB ? '⭐' : '☆'}</span>`;
+        });
     }
 
     if (state.activeReaderArticle && state.activeReaderArticle.id === articleId) {
@@ -2256,18 +2306,105 @@
   }
 
   // ==========================================
-  // 14. Copias de Seguridad (JSON)
+  // 14. Copias de Seguridad (JSON e Integral)
   // ==========================================
+  function downloadJsonFile(obj, filename) {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function exportFullBackupJson() {
+    if (!state.currentUser || state.currentUser.role !== 'admin') {
+      showToast('Acceso restringido al Administrador.', 'error');
+      return;
+    }
+    if (!state.serverMode) {
+      downloadJsonFile({
+        version: 7,
+        exportedAt: new Date().toISOString(),
+        config: state.config,
+        articles: state.articles,
+        forum: state.forumThreads
+      }, `cyberpolis-respaldo-local-${new Date().toISOString().slice(0, 10)}.json`);
+      showToast('Respaldo local descargado.');
+      return;
+    }
+    try {
+      const res = await apiFetch('/api/admin/backup/full');
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast(err.error || 'No se pudo exportar el respaldo integral.', 'error');
+        return;
+      }
+      const snapshot = await res.json();
+      downloadJsonFile(snapshot, `cyberpolis-respaldo-completo-${new Date().toISOString().slice(0, 10)}.json`);
+      showToast('Respaldo completo del portal descargado.');
+    } catch (e) {
+      showToast('Error de red al exportar el respaldo integral.', 'error');
+    }
+  }
+
+  function importFullBackupJson(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!state.currentUser || state.currentUser.role !== 'admin') {
+      showToast('Solo un Administrador puede restaurar el respaldo completo.', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async function (event) {
+      try {
+        const snapshot = JSON.parse(event.target.result);
+        if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+          throw new Error('Formato inválido de respaldo integral');
+        }
+        const hasAnySection = snapshot.config || Array.isArray(snapshot.users) || Array.isArray(snapshot.articles) || Array.isArray(snapshot.forum) || snapshot.analytics;
+        if (!hasAnySection) throw new Error('El archivo no contiene secciones válidas');
+
+        if (!confirm('¿Restaurar respaldo integral completo (configuración, usuarios, métricas, foro y noticias)? Se sobrescribirán los datos actuales del servidor.')) {
+          return;
+        }
+
+        if (state.serverMode) {
+          const res = await apiFetch('/api/admin/backup/full', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(snapshot)
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showToast(data.error || 'Error al restaurar el respaldo integral.', 'error');
+            return;
+          }
+          await checkAuthSession();
+          await loadConfig();
+          await loadArticles();
+          await loadForum();
+          renderAll();
+          closeBackupModal();
+          showToast(data.message || 'Respaldo integral restaurado correctamente.');
+        }
+      } catch (err) {
+        showToast('Error al leer o restaurar el archivo de respaldo integral.', 'error');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }
+
   function exportArticlesJson() {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.articles, null, 2));
-    const downloadAnchor = document.createElement('a');
     const filename = `cyberpolis-noticias-${new Date().toISOString().slice(0, 10)}.json`;
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", filename);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-    showToast('Copia JSON descargada.');
+    downloadJsonFile(state.articles, filename);
+    showToast('Copia JSON de noticias descargada.');
   }
 
   function importArticlesJson(e) {
@@ -2286,18 +2423,22 @@
         if (!Array.isArray(imported)) throw new Error('Formato inválido');
 
         if (confirm(`Se cargarán ${imported.length} despachos. ¿Deseas reemplazar tu base de datos actual?`)) {
-          state.articles = imported;
-          if (state.serverMode && state.authToken) {
-            await fetch('/api/articles/import', {
+          if (state.serverMode && state.currentUser) {
+            const res = await apiFetch('/api/articles/import', {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${state.authToken}`
-              },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(imported)
             });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              showToast(err.error || 'Error al importar noticias en el servidor.', 'error');
+              return;
+            }
+            await loadArticles();
+          } else {
+            state.articles = imported;
+            persistArticles();
           }
-          persistArticles();
           renderAll();
           closeBackupModal();
           showToast(`¡Importación exitosa! ${imported.length} despachos cargados.`);
@@ -2311,6 +2452,10 @@
   }
 
   async function resetDemoData() {
+    if (!state.currentUser || state.currentUser.role !== 'admin') {
+      showToast('Acceso restringido al Administrador.', 'error');
+      return;
+    }
     if (confirm('¿Restablecer las noticias al paquete de demostración inicial?')) {
       state.articles = [...DEFAULT_SEED_ARTICLES];
       persistArticles();
@@ -2320,12 +2465,27 @@
     }
   }
 
-  function openBackupModal() {
+  async function openBackupModal() {
     if (!state.currentUser || state.currentUser.role !== 'admin') {
       showToast('Acceso restringido: Solo el Administrador puede gestionar respaldos.', 'error');
       return;
     }
     DOM.backupModal.style.display = 'flex';
+    if (DOM.backupPersistenceBanner && state.serverMode) {
+      DOM.backupPersistenceBanner.className = 'admin-storage-banner';
+      DOM.backupPersistenceBanner.textContent = 'Comprobando modo de persistencia del servidor...';
+      try {
+        const res = await apiFetch('/api/admin/system-status');
+        if (res.ok) {
+          const st = await res.json();
+          const isPerm = st.storage && st.storage.persistent;
+          DOM.backupPersistenceBanner.className = `admin-storage-banner ${isPerm ? 'banner-ok' : 'banner-warn'}`;
+          DOM.backupPersistenceBanner.innerHTML = isPerm
+            ? `<strong>✅ Almacenamiento persistente activo (${escapeHtml(st.storage.label)}).</strong> Tus usuarios, métricas y ajustes perduran entre actualizaciones.`
+            : `<strong>⚠️ Almacenamiento efímero activo:</strong> Si actualizas o reinicias en Render Free sin DB externa, las métricas y usuarios vuelven al estado inicial. Descarga el <strong>Respaldo Integral</strong> antes de cada cambio o configura <code>DATABASE_URL</code> en la pestaña <strong>🛡️ SEGURIDAD Y BD</strong>.`;
+        }
+      } catch (e) {}
+    }
   }
 
   function closeBackupModal() {
@@ -2359,6 +2519,7 @@
         closeLinkedInModal();
         closeUsersDirectory();
         closeAdminControl();
+        closeChangePasswordModal();
         return;
       }
 
@@ -2375,6 +2536,28 @@
   }
 
   function bindEvents() {
+    // Manejador global en fase de captura para imágenes externas rotas (compatible con CSP sin inline onerror)
+    document.addEventListener('error', e => {
+      const img = e.target;
+      if (!img || img.tagName !== 'IMG' || img.dataset.imgFallbackApplied === '1') return;
+      img.dataset.imgFallbackApplied = '1';
+      if (img.id === 'uiPortalLogo' || img.id === 'adminLogoPreview' || img.classList.contains('user-logo-img') || img.classList.contains('user-avatar-mini')) {
+        if (!img.src.endsWith('assets/silverbot-unix-logo.png')) {
+          img.src = 'assets/silverbot-unix-logo.png';
+        }
+        return;
+      }
+      if (typeof window.handleImgError === 'function') {
+        window.handleImgError(img);
+      }
+    }, true);
+
+    // Único listener global para cerrar el menú de usuario al hacer clic fuera
+    document.addEventListener('click', () => {
+      const menu = document.getElementById('userDropdownMenu');
+      if (menu) menu.style.display = 'none';
+    });
+
     DOM.searchInput.addEventListener('input', handleSearchInput);
     DOM.clearSearchBtn.addEventListener('click', clearSearch);
 
@@ -2409,6 +2592,9 @@
     if (DOM.adminTabMetricsBtn) DOM.adminTabMetricsBtn.addEventListener('click', () => switchAdminTab('metrics'));
     if (DOM.adminTabUsersBtn) DOM.adminTabUsersBtn.addEventListener('click', () => switchAdminTab('users'));
     if (DOM.adminTabTransformBtn) DOM.adminTabTransformBtn.addEventListener('click', () => switchAdminTab('transform'));
+    if (DOM.adminTabSecurityBtn) DOM.adminTabSecurityBtn.addEventListener('click', () => switchAdminTab('security'));
+    if (DOM.refreshSystemStatusBtn) DOM.refreshSystemStatusBtn.addEventListener('click', loadAdminSystemStatus);
+    if (DOM.adminOpenChangePassBtn) DOM.adminOpenChangePassBtn.addEventListener('click', openChangePasswordModal);
     if (DOM.refreshMetricsBtn) DOM.refreshMetricsBtn.addEventListener('click', loadAdminMetrics);
     if (DOM.resetMetricsBtn) DOM.resetMetricsBtn.addEventListener('click', handleResetMetrics);
 
@@ -2454,8 +2640,7 @@
           const card = genBtn.closest('.admin-user-card');
           const inp = card ? card.querySelector('.admin-reset-pass-input') : null;
           if (inp) {
-            const rnd = 'Cyp!' + Math.random().toString(36).slice(2, 10);
-            inp.value = rnd;
+            inp.value = generateStrongPassword(14);
           }
           return;
         }
@@ -2745,8 +2930,16 @@
 
     DOM.previewImgBtn.addEventListener('click', () => {
       const url = DOM.formImageUrl.value.trim();
-      if (url) window.open(url, '_blank');
-      else showToast('Especifica una URL de imagen.', 'error');
+      if (!url) {
+        showToast('Especifica una URL de imagen.', 'error');
+        return;
+      }
+      const allowedUrl = safeHref(url) || (url.startsWith('assets/') ? url : '');
+      if (!allowedUrl) {
+        showToast('URL de imagen no válida (usa http/https o assets/).', 'error');
+        return;
+      }
+      window.open(allowedUrl, '_blank', 'noopener,noreferrer');
     });
 
     DOM.closeReaderModalBtn.addEventListener('click', closeReaderModal);
@@ -2756,11 +2949,18 @@
     DOM.readerShareBtn.addEventListener('click', handleShareArticle);
 
     DOM.closeBackupModalBtn.addEventListener('click', closeBackupModal);
+    if (DOM.exportFullBackupBtn) DOM.exportFullBackupBtn.addEventListener('click', exportFullBackupJson);
+    if (DOM.importFullBackupInput) DOM.importFullBackupInput.addEventListener('change', importFullBackupJson);
     DOM.exportJsonBtn.addEventListener('click', exportArticlesJson);
     DOM.importJsonFileInput.addEventListener('change', importArticlesJson);
     DOM.resetDemoBtn.addEventListener('click', resetDemoData);
 
-    [DOM.articleFormModal, DOM.readerModal, DOM.backupModal, DOM.authModal, DOM.linkedInModal, DOM.usersDirectoryModal, DOM.adminControlModal].forEach(modal => {
+    // Modal Cambio de Contraseña
+    if (DOM.closeChangePassBtn) DOM.closeChangePassBtn.addEventListener('click', closeChangePasswordModal);
+    if (DOM.cancelChangePassBtn) DOM.cancelChangePassBtn.addEventListener('click', closeChangePasswordModal);
+    if (DOM.changePasswordForm) DOM.changePasswordForm.addEventListener('submit', handleChangePasswordSubmit);
+
+    [DOM.articleFormModal, DOM.readerModal, DOM.backupModal, DOM.authModal, DOM.linkedInModal, DOM.usersDirectoryModal, DOM.adminControlModal, DOM.changePasswordModal].forEach(modal => {
       if (modal) {
         modal.addEventListener('click', e => {
           if (e.target === modal) modal.style.display = 'none';
@@ -3108,14 +3308,11 @@
       return;
     }
 
-    if (state.serverMode && state.authToken) {
+    if (state.serverMode && state.currentUser) {
       try {
-        const res = await fetch('/api/forum', {
+        const res = await apiFetch('/api/forum', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${state.authToken}`
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ title, category, body })
         });
         const data = await res.json().catch(() => ({}));
@@ -3163,14 +3360,11 @@
     const text = textEl ? textEl.value.trim() : '';
     if (!text) return;
 
-    if (state.serverMode && state.authToken) {
+    if (state.serverMode && state.currentUser) {
       try {
-        const res = await fetch(`/api/forum/${encodeURIComponent(threadId)}/reply`, {
+        const res = await apiFetch(`/api/forum/${encodeURIComponent(threadId)}/reply`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${state.authToken}`
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text })
         });
         const data = await res.json().catch(() => ({}));
@@ -3206,11 +3400,10 @@
 
   async function handleDeleteForumThread(threadId) {
     if (!state.currentUser) return;
-    if (state.serverMode && state.authToken) {
+    if (state.serverMode && state.currentUser) {
       try {
-        const res = await fetch(`/api/forum/${encodeURIComponent(threadId)}`, {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${state.authToken}` }
+        const res = await apiFetch(`/api/forum/${encodeURIComponent(threadId)}`, {
+          method: 'DELETE'
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -3409,11 +3602,9 @@
   function trackClientVisit(page = '/', articleTitle = '') {
     if (!state.serverMode) return;
     try {
-      const headers = { 'Content-Type': 'application/json' };
-      if (state.authToken) headers['Authorization'] = `Bearer ${state.authToken}`;
-      fetch('/api/analytics/visit', {
+      apiFetch('/api/analytics/visit', {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         keepalive: true,
         body: JSON.stringify({
           page: page || '/',
@@ -3426,15 +3617,13 @@
 
   async function loadAdminMetrics() {
     if (!DOM.adminMetricsContent) return;
-    if (!state.serverMode || !state.authToken) {
-      DOM.adminMetricsContent.innerHTML = '<p class="admin-help-text">Inicia sesión con el servidor online para ver las métricas.</p>';
+    if (!state.serverMode || !state.currentUser || state.currentUser.role !== 'admin') {
+      DOM.adminMetricsContent.innerHTML = '<p class="admin-help-text">Inicia sesión como Administrador con el servidor online para ver las métricas.</p>';
       return;
     }
     DOM.adminMetricsContent.innerHTML = '<p class="admin-help-text">Cargando estadísticas de visitas...</p>';
     try {
-      const res = await fetch('/api/admin/analytics', {
-        headers: { 'Authorization': `Bearer ${state.authToken}` }
-      });
+      const res = await apiFetch('/api/admin/analytics');
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         DOM.adminMetricsContent.innerHTML = `<p class="admin-help-text">${escapeHtml(err.error || 'No se pudieron cargar las métricas.')}</p>`;
@@ -3570,7 +3759,7 @@
   }
 
   async function handleResetMetrics() {
-    if (!DOM.resetMetricsBtn || !state.authToken) return;
+    if (!DOM.resetMetricsBtn || !state.currentUser) return;
     if (DOM.resetMetricsBtn.dataset.armed !== '1') {
       DOM.resetMetricsBtn.dataset.armed = '1';
       DOM.resetMetricsBtn.textContent = '¿Seguro? Pulsa otra vez para limpiar';
@@ -3585,9 +3774,8 @@
     DOM.resetMetricsBtn.dataset.armed = '';
     DOM.resetMetricsBtn.textContent = '🗑️ Limpiar métricas';
     try {
-      const res = await fetch('/api/admin/analytics', {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${state.authToken}` }
+      const res = await apiFetch('/api/admin/analytics', {
+        method: 'DELETE'
       });
       if (res.ok) {
         showToast('Métricas reiniciadas correctamente.');
@@ -3602,15 +3790,13 @@
 
   async function loadAdminUsers() {
     if (!DOM.adminUsersManageList) return;
-    if (!state.serverMode || !state.authToken) {
-      DOM.adminUsersManageList.innerHTML = '<p class="admin-help-text">Inicia sesión con el servidor online para administrar usuarios.</p>';
+    if (!state.serverMode || !state.currentUser || state.currentUser.role !== 'admin') {
+      DOM.adminUsersManageList.innerHTML = '<p class="admin-help-text">Inicia sesión como Administrador con el servidor online para administrar usuarios.</p>';
       return;
     }
     DOM.adminUsersManageList.innerHTML = '<p class="admin-help-text">Cargando lista de usuarios...</p>';
     try {
-      const res = await fetch('/api/admin/users', {
-        headers: { 'Authorization': `Bearer ${state.authToken}` }
-      });
+      const res = await apiFetch('/api/admin/users');
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         DOM.adminUsersManageList.innerHTML = `<p class="admin-help-text">${escapeHtml(err.error || 'Error cargando usuarios.')}</p>`;
@@ -3683,7 +3869,7 @@
 
           ${showReset ? `
             <form class="admin-reset-inline" data-user-id="${escapeHtml(u.id)}">
-              <input type="text" class="hud-input admin-reset-pass-input" minlength="8" required placeholder="Nueva contraseña (mínimo 8 caracteres)">
+              <input type="text" class="hud-input admin-reset-pass-input" minlength="10" required placeholder="Mínimo 10 car. (mayús, minús, número, símbolo)">
               <button type="button" class="hud-btn hud-btn-outline" data-user-gen-pass="${escapeHtml(u.id)}">🎲 Generar</button>
               <button type="submit" class="hud-btn hud-btn-action">Guardar clave</button>
               <button type="button" class="hud-btn hud-btn-outline" data-user-reset-cancel="${escapeHtml(u.id)}">Cancelar</button>
@@ -3704,7 +3890,7 @@
 
   async function handleAdminCreateUser(e) {
     e.preventDefault();
-    if (!state.authToken) return;
+    if (!state.currentUser || state.currentUser.role !== 'admin') return;
     const username = DOM.admNewUsername ? DOM.admNewUsername.value.trim() : '';
     const displayName = DOM.admNewDisplayName ? DOM.admNewDisplayName.value.trim() : '';
     const email = DOM.admNewEmail ? DOM.admNewEmail.value.trim() : '';
@@ -3712,12 +3898,9 @@
     const password = DOM.admNewPassword ? DOM.admNewPassword.value : '';
 
     try {
-      const res = await fetch('/api/admin/users', {
+      const res = await apiFetch('/api/admin/users', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${state.authToken}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, displayName, email, role, password })
       });
       const data = await res.json().catch(() => ({}));
@@ -3737,18 +3920,15 @@
   }
 
   async function handleAdminResetPassword(userId, newPassword) {
-    if (!state.authToken) return;
-    if (!newPassword || newPassword.length < 8) {
-      showToast('La nueva contraseña debe tener mínimo 8 caracteres.', 'error');
+    if (!state.currentUser || state.currentUser.role !== 'admin') return;
+    if (!newPassword || newPassword.length < 10) {
+      showToast('La nueva contraseña debe tener mínimo 10 caracteres.', 'error');
       return;
     }
     try {
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/reset-password`, {
+      const res = await apiFetch(`/api/admin/users/${encodeURIComponent(userId)}/reset-password`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${state.authToken}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ newPassword })
       });
       const data = await res.json().catch(() => ({}));
@@ -3757,8 +3937,9 @@
         return;
       }
       state.resetPasswordUserId = null;
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(data.tempPassword).catch(() => {});
+      const toCopy = data.tempPassword || newPassword;
+      if (navigator.clipboard && navigator.clipboard.writeText && toCopy) {
+        navigator.clipboard.writeText(toCopy).catch(() => {});
       }
       showToast(`${data.message} (copiada al portapapeles).`);
       loadAdminUsers();
@@ -3768,14 +3949,11 @@
   }
 
   async function handleAdminChangeRole(userId, role) {
-    if (!state.authToken) return;
+    if (!state.currentUser || state.currentUser.role !== 'admin') return;
     try {
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/role`, {
+      const res = await apiFetch(`/api/admin/users/${encodeURIComponent(userId)}/role`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${state.authToken}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role })
       });
       const data = await res.json().catch(() => ({}));
@@ -3792,14 +3970,11 @@
   }
 
   async function handleAdminToggleStatus(userId, nextStatus) {
-    if (!state.authToken) return;
+    if (!state.currentUser || state.currentUser.role !== 'admin') return;
     try {
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/status`, {
+      const res = await apiFetch(`/api/admin/users/${encodeURIComponent(userId)}/status`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${state.authToken}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: nextStatus })
       });
       const data = await res.json().catch(() => ({}));
@@ -3815,11 +3990,10 @@
   }
 
   async function handleAdminDeleteUser(userId) {
-    if (!state.authToken) return;
+    if (!state.currentUser || state.currentUser.role !== 'admin') return;
     try {
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${state.authToken}` }
+      const res = await apiFetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: 'DELETE'
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -3832,6 +4006,124 @@
     } catch (err) {
       showToast('Error al eliminar usuario.', 'error');
     }
+  }
+
+  // ==========================================
+  // 17. Diagnóstico de Persistencia y Seguridad (Admin v7)
+  // ==========================================
+  async function loadAdminSystemStatus() {
+    if (!DOM.adminSystemStatusContent) return;
+    if (!state.serverMode || !state.currentUser || state.currentUser.role !== 'admin') {
+      DOM.adminSystemStatusContent.innerHTML = '<p class="admin-help-text">Inicia sesión como Administrador con el servidor online para revisar la persistencia y seguridad.</p>';
+      return;
+    }
+    DOM.adminSystemStatusContent.innerHTML = '<p class="admin-help-text">Analizando almacenamiento y controles de seguridad...</p>';
+    try {
+      const res = await apiFetch('/api/admin/system-status');
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        DOM.adminSystemStatusContent.innerHTML = `<p class="admin-help-text">${escapeHtml(err.error || 'No se pudo obtener el diagnóstico.')}</p>`;
+        return;
+      }
+      const status = await res.json();
+      renderAdminSystemStatus(status);
+    } catch (e) {
+      DOM.adminSystemStatusContent.innerHTML = '<p class="admin-help-text">Error de red al consultar el estado del sistema.</p>';
+    }
+  }
+
+  function renderAdminSystemStatus(st) {
+    if (!DOM.adminSystemStatusContent || !st) return;
+    const storage = st.storage || {};
+    const sec = st.security || {};
+    const isPerm = !!storage.persistent;
+    const syncTime = storage.lastRemoteSyncAt
+      ? new Date(storage.lastRemoteSyncAt).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+      : '—';
+    const passRotatedText = sec.passwordUpdatedAt
+      ? `Actualizada el ${new Date(sec.passwordUpdatedAt).toLocaleString('es-ES')}`
+      : 'Pendiente de rotación tras la versión inicial';
+
+    const secRow = (label, enabled) => `
+      <div class="admin-security-item">
+        <span>${escapeHtml(label)}</span>
+        <span class="admin-security-badge ${enabled ? 'ok' : 'warn'}">${enabled ? 'ACTIVO' : 'REVISAR'}</span>
+      </div>
+    `;
+
+    DOM.adminSystemStatusContent.innerHTML = `
+      <div class="admin-storage-banner ${isPerm ? 'banner-ok' : 'banner-warn'}">
+        ${isPerm ? `
+          <strong>✅ Almacenamiento Persistente Activo: ${escapeHtml(storage.label || storage.mode)}</strong><br>
+          Tus usuarios, métricas de visitas, foro y diseño del portal se conservan automáticamente tras cada actualización o reinicio del servidor.
+        ` : `
+          <strong>⚠️ Modo Efímero Detectado (Sin base de datos externa)</strong><br>
+          Render Free borra los archivos locales del contenedor en cada despliegue o suspensión. Para que <strong>visitas, usuarios y configuración perduren para siempre</strong> sin pagar plan, añade una de estas variables de entorno en Render → <em>Environment</em>:
+          <div class="admin-code-box">
+            <strong>Opción 1 (Recomendada - PostgreSQL gratuito sin caducidad, ej. Neon.tech / Supabase):</strong><br>
+            DATABASE_URL=postgres://usuario:clave@host/neondb?sslmode=require<br><br>
+            <strong>Opción 2 (Respaldo automático cifrado en GitHub Gist privado):</strong><br>
+            PERSIST_GIST_ID=id_de_tu_gist_privado<br>
+            PERSIST_GH_TOKEN=github_pat_con_permiso_gist<br>
+            PERSIST_SECRET=clave_aes_256_opcional
+          </div>
+          Mientras lo conectas, puedes descargar y restaurar todo con un clic desde <strong>💾 Backup → Respaldo Integral</strong>.
+        `}
+      </div>
+
+      ${sec.recommendPasswordRotation ? `
+        <div class="admin-storage-banner banner-warn">
+          <strong>🔐 Acción de Seguridad Urgente: Cambia tu contraseña de Administrador</strong><br>
+          La cuenta <code>admin</code> nunca ha rotado su contraseña en servidor desde el despliegue inicial. Usa el botón <strong>"🔑 Cambiar mi contraseña Admin"</strong> justo encima o desde tu menú de perfil.
+        </div>
+      ` : ''}
+
+      <div class="admin-system-grid">
+        <div class="admin-system-card">
+          <h5>Base de Datos & Estado</h5>
+          <div class="admin-security-list">
+            <div class="admin-security-item">
+              <span>Motor de almacenamiento</span>
+              <strong>${escapeHtml(storage.label || 'efímero')}</strong>
+            </div>
+            <div class="admin-security-item">
+              <span>Supervivencia ante deploys</span>
+              <span class="admin-security-badge ${isPerm ? 'ok' : 'warn'}">${isPerm ? 'PERMANENTE' : 'EFÍMERO'}</span>
+            </div>
+            <div class="admin-security-item">
+              <span>Última sincronización remota</span>
+              <span>${escapeHtml(syncTime)}</span>
+            </div>
+            <div class="admin-security-item">
+              <span>Sesiones activas en memoria/BD</span>
+              <strong>${Number(st.activeSessionsCount || 0)}</strong>
+            </div>
+            ${storage.lastError ? `
+              <div class="admin-security-item">
+                <span style="color:#dc2626;">Último error de sync</span>
+                <span style="color:#dc2626;">${escapeHtml(storage.lastError)}</span>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+
+        <div class="admin-system-card">
+          <h5>Controles de Seguridad Activos</h5>
+          <div class="admin-security-list">
+            ${secRow('Sesiones en Cookie HttpOnly + SameSite=Lax', sec.httpOnlyCookie)}
+            ${secRow('Tokens hasheados con SHA-256 en servidor', sec.hashedSessionTokens)}
+            ${secRow('Cabeceras CSP strict (script-src self) + HSTS', sec.strictCsp)}
+            ${secRow('Protección anti-SSRF en proxy e ingesta RSS', sec.ssrfProtection)}
+            ${secRow('Bloqueo de /data/*.json, dotfiles y código', sec.staticDataBlocked)}
+            ${secRow('Anti fuerza bruta (bloqueo tras 6 fallos)', sec.bruteForceLockout)}
+            <div class="admin-security-item">
+              <span>Rotación clave Admin</span>
+              <span class="admin-security-badge ${sec.passwordUpdatedAt ? 'ok' : 'warn'}">${escapeHtml(passRotatedText)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   if (document.readyState === 'loading') {

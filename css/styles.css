@@ -3370,3 +3370,116 @@ body.theme-accent-indigo { --accent-cyan: #4f46e5; --accent-cyan-glow: rgba(79, 
     grid-template-columns: 1fr;
   }
 }
+
+/* ==========================================
+   V7 SECURITY, PERSISTENCE & FULL BACKUP UI
+   ========================================== */
+.admin-storage-banner {
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border-hairline);
+  margin-bottom: 16px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.admin-storage-banner.banner-ok {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: var(--text-primary);
+}
+
+.admin-storage-banner.banner-warn {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: var(--text-primary);
+}
+
+.admin-system-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.admin-system-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.admin-system-card h5 {
+  margin: 0 0 10px 0;
+  font-size: 0.86rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+
+.admin-security-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.82rem;
+}
+
+.admin-security-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--border-hairline);
+}
+
+.admin-security-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.admin-security-badge {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.admin-security-badge.ok {
+  background: rgba(16, 185, 129, 0.14);
+  color: #059669;
+}
+
+.admin-security-badge.warn {
+  background: rgba(245, 158, 11, 0.16);
+  color: #b45309;
+}
+
+.admin-code-box {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-hairline);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--text-primary);
+  overflow-x: auto;
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+.backup-persistence-banner {
+  margin-bottom: 14px;
+}
+
+.backup-divider {
+  border: none;
+  border-top: 1px solid var(--border-hairline);
+  margin: 14px 0;
+}
+
+.full-width {
+  width: 100%;
+  justify-content: center;
+}

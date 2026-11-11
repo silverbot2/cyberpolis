@@ -1,12 +1,18 @@
 {
   "name": "cyberpolis-intel-terminal",
-  "version": "2.5.0",
-  "description": "Terminal de inteligencia en ciberseguridad y geopolítica con auto-sync de fuentes en castellano",
+  "version": "3.0.0",
+  "description": "CYBERPOLIS — Portal informativo de ciberseguridad, vulnerabilidades y tecnopolítica en castellano",
   "main": "server.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
     "build": "node -e \"console.log('Build completed successfully.')\""
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
   },
   "keywords": [
     "cybersecurity",
@@ -14,8 +20,8 @@
     "hacking",
     "intel",
     "rss-feeds",
-    "silverbot2"
+    "cyberpolis"
   ],
-  "author": "Silverbot2 // Unix",
+  "author": "CYBERPOLIS",
   "license": "MIT"
 }
