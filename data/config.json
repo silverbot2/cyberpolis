@@ -2,12 +2,12 @@
   "autoSyncEnabled": true,
   "syncIntervalMinutes": 30,
   "lastSync": "2026-11-10T10:45:00.000Z",
-  "themeAccent": "crimson",
-  "polygonDensity": "dense",
+  "themeAccent": "cyan",
+  "polygonDensity": "paused",
   "portalTitle": "SILVERBOT2",
   "portalSubcallsign": "UNIX",
   "portalSubtitle": "TU HACKNOTICIERO",
-  "layoutMode": "normal",
+  "layoutMode": "editorial",
   "feeds": [
     {
       "id": "feed-incibe",

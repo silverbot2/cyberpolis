@@ -83,10 +83,109 @@ function ensureFiles() {
   if (!fs.existsSync(SESSIONS_FILE)) fs.writeFileSync(SESSIONS_FILE, '[]', 'utf-8');
 }
 
+function isValidArticleImageUrl(imgUrl) {
+  if (!imgUrl || typeof imgUrl !== 'string') return false;
+  const trimmed = imgUrl.trim();
+  if (!trimmed || trimmed.startsWith('data:')) return false;
+  if (!/^https?:\/\//i.test(trimmed)) return false;
+  const lower = trimmed.toLowerCase();
+  const blacklist = [
+    'unsplash.com',
+    's.w.org/images/core/emoji',
+    'gravatar.com',
+    'feedburner.com',
+    'doubleclick.net',
+    'pixel.',
+    '1x1.',
+    'spacer.',
+    'blank.gif',
+    'favicon.',
+    'apple-touch-icon'
+  ];
+  if (blacklist.some(b => lower.includes(b))) return false;
+  if (lower.endsWith('.ico')) return false;
+  return true;
+}
+
+function upgradeImageUrl(imgUrl) {
+  if (!imgUrl || typeof imgUrl !== 'string') return '';
+  let upgraded = imgUrl.trim().replace(/&amp;/g, '&');
+  // Mejorar resolución de miniaturas de Blogger / Blogspot (ej: s72-w640-h426-c -> s1200)
+  if (upgraded.includes('blogger.googleusercontent.com') || upgraded.includes('bp.blogspot.com') || upgraded.includes('ggpht.com')) {
+    upgraded = upgraded
+      .replace(/\/(?:s(?:72|[1-8]\d\d)|w\d+-h\d+)(?:-[a-z0-9]+)*\//i, '/s1200/')
+      .replace(/=(?:s(?:72|[1-8]\d\d)|w\d+-h\d+)(?:-[a-z0-9]+)*$/i, '=s1200');
+  }
+  // Mejorar miniaturas pequeñas de YouTube (default.jpg / mqdefault.jpg -> hqdefault.jpg)
+  if (upgraded.includes('img.youtube.com/vi/')) {
+    upgraded = upgraded.replace(/\/(?:default|mqdefault)\.jpg(\?.*)?$/i, '/hqdefault.jpg');
+  }
+  return upgraded;
+}
+
+async function fetchOgImage(articleUrl) {
+  if (!articleUrl || !/^https?:\/\//i.test(articleUrl)) return '';
+  try {
+    const res = await fetch(articleUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+      },
+      signal: AbortSignal.timeout(4500)
+    });
+    if (!res.ok) return '';
+    const html = await res.text();
+    const headChunk = html.slice(0, 60000);
+
+    const patterns = [
+      /<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]+content=["']([^"']+)["']/i,
+      /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image(?::secure_url)?["']/i,
+      /<meta[^>]+name=["']twitter:image(?::src)?["'][^>]+content=["']([^"']+)["']/i,
+      /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image(?::src)?["']/i,
+      /<link[^>]+rel=["']image_src["'][^>]+href=["']([^"']+)["']/i
+    ];
+
+    let candidate = '';
+    for (const pat of patterns) {
+      const m = headChunk.match(pat);
+      if (m && m[1]) {
+        candidate = m[1].trim();
+        break;
+      }
+    }
+
+    if (!candidate) {
+      const articleArea = html.match(/<(?:article|main)[\s\S]*?<\/(?:article|main)>/i);
+      const areaHtml = articleArea ? articleArea[0] : html;
+      const imgMatches = [...areaHtml.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)];
+      for (const im of imgMatches) {
+        const tag = im[0].toLowerCase();
+        const src = im[1].trim();
+        if (tag.includes('logo') || tag.includes('avatar') || tag.includes('icon')) continue;
+        try {
+          const abs = new URL(src, articleUrl).href;
+          if (isValidArticleImageUrl(abs)) {
+            candidate = abs;
+            break;
+          }
+        } catch (e) {}
+      }
+    }
+
+    if (!candidate) return '';
+    const resolved = upgradeImageUrl(new URL(candidate, articleUrl).href);
+    return isValidArticleImageUrl(resolved) ? resolved : '';
+  } catch (e) {
+    return '';
+  }
+}
+
 function sanitizeStoredArticles() {
   try {
     const articles = readJSON(ARTICLES_FILE, []);
     let modified = false;
+    const hasFreshFeeds = articles.length > 7;
+
     for (const a of articles) {
       const cleanSum = cleanHtmlContent(a.summary);
       const cleanCnt = cleanHtmlContent(a.content);
@@ -98,14 +197,26 @@ function sanitizeStoredArticles() {
         modified = true;
       }
 
-      // Saneamiento de imágenes rotas o desactualizadas
+      // Desanclar demos antiguos como portada permanente si existen noticias reales
+      if (hasFreshFeeds && a.isFeatured && /^(art-00\d|svb-00\d)$/.test(String(a.id || ''))) {
+        a.isFeatured = false;
+        modified = true;
+      }
+
+      // Mejorar calidad de imágenes reales o regenerar fallback limpio editorial
       if (!a.imageUrl || a.imageUrl.includes('unsplash.com')) {
         a.imageUrl = createIntelSVG(a.sourceName, a.category, a.title);
         modified = true;
       } else if (a.imageUrl.startsWith('data:image/svg+xml')) {
         const decoded = decodeURIComponent(a.imageUrl.replace('data:image/svg+xml;charset=utf-8,', ''));
-        if (decoded.includes('&') || a.imageUrl.includes('%26') || decoded.includes('POLÍTICA DIGITAL') || decoded.includes('THREAT INTEL')) {
+        if (decoded.includes('&') || a.imageUrl.includes('%26') || decoded.includes('#04070d') || decoded.includes('POLÍTICA DIGITAL')) {
           a.imageUrl = createIntelSVG(a.sourceName, a.category, a.title);
+          modified = true;
+        }
+      } else if (/^https?:\/\//i.test(a.imageUrl)) {
+        const upgraded = upgradeImageUrl(a.imageUrl);
+        if (upgraded !== a.imageUrl) {
+          a.imageUrl = upgraded;
           modified = true;
         }
       }
@@ -113,6 +224,42 @@ function sanitizeStoredArticles() {
     if (modified) writeJSON(ARTICLES_FILE, articles);
   } catch (e) {
     console.error('Error al sanitizar artículos almacenados:', e);
+  }
+}
+
+async function enrichStoredArticlesImages() {
+  try {
+    const articles = readJSON(ARTICLES_FILE, []);
+    const candidates = articles
+      .filter(a =>
+        !/^(art-00\d|svb-00\d)$/.test(String(a.id || '')) &&
+        (!a.imageUrl || a.imageUrl.startsWith('data:image/svg+xml')) &&
+        a.sourceUrl &&
+        /^https?:\/\/[^/]+\/.+/i.test(a.sourceUrl)
+      )
+      .slice(0, 16);
+
+    if (candidates.length === 0) return;
+
+    let updated = 0;
+    const batchSize = 4;
+    for (let i = 0; i < candidates.length; i += batchSize) {
+      const batch = candidates.slice(i, i + batchSize);
+      await Promise.all(batch.map(async (art) => {
+        const og = await fetchOgImage(art.sourceUrl);
+        if (og) {
+          art.imageUrl = og;
+          updated++;
+        }
+      }));
+    }
+
+    if (updated > 0) {
+      writeJSON(ARTICLES_FILE, articles);
+      console.log(`🖼️ Enriquecidas ${updated} noticias con imágenes reales de sus fuentes.`);
+    }
+  } catch (e) {
+    console.error('Error enriqueciendo imágenes:', e);
   }
 }
 
@@ -195,63 +342,45 @@ function cleanHtmlContent(raw) {
   return str.replace(/[ \t]+/g, ' ').replace(/\n\s*\n\s*\n+/g, '\n\n').trim();
 }
 
-// Generador de insignias de inteligencia vectoriales (evita fotos genéricas de stock cuando una fuente técnica no incluye imagen)
+// Generador de portadas editoriales vectoriales limpias cuando una alerta oficial carece de fotografía propia
 function createIntelSVG(sourceName, category, title = '') {
   const isPol = category === 'politica' || category === 'tecnopolitica';
-  const accent = isPol ? '#f59e0b' : '#38bdf8';
-  const badge = String(sourceName || 'CYBERPOLIS INTEL').toUpperCase().replace(/[<>"'&]/g, '');
-  const subCategory = isPol ? 'GEOPOLITICA // POLITICA DIGITAL' : 'CIBERSEGURIDAD // THREAT INTEL';
-  const safeTitle = String(title || 'DESPACHO DE INTELIGENCIA TÉCNICA').slice(0, 48).toUpperCase().replace(/[<>"'&]/g, '');
+  const accent = isPol ? '#d97706' : '#0284c7';
+  const softTint = isPol ? '#fef3c7' : '#e0f2fe';
+  const badge = String(sourceName || 'SILVERBOT2 // UNIX').split('—')[0].trim().toUpperCase().replace(/[<>"'&]/g, '');
+  const subCategory = isPol ? 'GEOPOLITICA // NORMATIVA DIGITAL' : 'ACTUALIDAD // CIBERSEGURIDAD';
+  const rawTitle = String(title || 'INFORME DE ACTUALIDAD Y SEGURIDAD').toUpperCase().replace(/[<>"'&]/g, '');
+  const line1 = rawTitle.slice(0, 34);
+  const line2 = rawTitle.length > 34 ? rawTitle.slice(34, 68) : '';
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450">
     <defs>
-      <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#04070d"/>
-        <stop offset="50%" stop-color="#070e1a"/>
-        <stop offset="100%" stop-color="#0a1526"/>
+      <linearGradient id="paperBg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#f8fafc"/>
+        <stop offset="100%" stop-color="#e2e8f0"/>
       </linearGradient>
-      <pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse">
-        <path d="M 36 0 L 0 0 0 36" fill="none" stroke="${accent}" stroke-opacity="0.08" stroke-width="1"/>
-      </pattern>
     </defs>
-    <rect width="800" height="450" fill="url(#bg)"/>
-    <rect width="800" height="450" fill="url(#grid)"/>
-    <rect x="0" y="0" width="800" height="4" fill="${accent}"/>
-    
-    <!-- Esquinas HUD -->
-    <path d="M 28 42 L 28 28 L 42 28" fill="none" stroke="${accent}" stroke-width="2"/>
-    <path d="M 772 42 L 772 28 L 758 28" fill="none" stroke="${accent}" stroke-width="2"/>
-    <path d="M 28 408 L 28 422 L 42 422" fill="none" stroke="${accent}" stroke-width="2"/>
-    <path d="M 772 408 L 772 422 L 758 422" fill="none" stroke="${accent}" stroke-width="2"/>
-    
-    <!-- Header -->
-    <text x="50" y="58" font-family="monospace" font-size="14" font-weight="700" fill="${accent}" letter-spacing="2">// ${badge}</text>
-    <circle cx="730" cy="54" r="4" fill="${accent}"/>
-    <text x="742" y="58" font-family="monospace" font-size="11" fill="#94a3b8" letter-spacing="1">OFICIAL</text>
-    
-    <!-- Centro Visual Gráfico -->
-    <circle cx="400" cy="210" r="110" fill="none" stroke="${accent}" stroke-opacity="0.12" stroke-width="1" stroke-dasharray="6 6"/>
-    <circle cx="400" cy="210" r="75" fill="none" stroke="${accent}" stroke-opacity="0.25" stroke-width="1.5"/>
-    <path d="M 400 155 L 440 180 L 440 230 L 400 265 L 360 230 L 360 180 Z" fill="none" stroke="${accent}" stroke-width="2.5"/>
-    <line x1="400" y1="180" x2="400" y2="240" stroke="${accent}" stroke-width="2"/>
-    <line x1="375" y1="210" x2="425" y2="210" stroke="${accent}" stroke-width="2"/>
-    <circle cx="400" cy="210" r="5" fill="${accent}"/>
-    
-    <!-- Subtítulo e Indicador -->
-    <text x="400" y="315" text-anchor="middle" font-family="monospace" font-size="13" font-weight="700" fill="#f8fafc" letter-spacing="3">${safeTitle}</text>
-    <text x="400" y="340" text-anchor="middle" font-family="monospace" font-size="11" fill="${accent}" letter-spacing="2">${subCategory}</text>
-    
-    <!-- Telemetría Inferior -->
-    <line x1="50" y1="390" x2="750" y2="390" stroke="${accent}" stroke-opacity="0.2" stroke-width="1"/>
-    <text x="50" y="415" font-family="monospace" font-size="10" fill="#64748b" letter-spacing="1">CYBERPOLIS INTEL NETWORK // ES</text>
-    <text x="750" y="415" text-anchor="end" font-family="monospace" font-size="10" fill="#94a3b8" letter-spacing="1">SIGINT // AVISO TÉCNICO</text>
+    <rect width="800" height="450" fill="url(#paperBg)"/>
+    <rect x="0" y="0" width="800" height="8" fill="${accent}"/>
+    <circle cx="710" cy="90" r="140" fill="${softTint}" opacity="0.65"/>
+    <circle cx="110" cy="390" r="110" fill="${softTint}" opacity="0.5"/>
+    <rect x="48" y="48" width="704" height="354" rx="14" fill="#ffffff" fill-opacity="0.88" stroke="#cbd5e1" stroke-width="1.5"/>
+    <rect x="82" y="84" width="12" height="12" rx="3" fill="${accent}"/>
+    <text x="106" y="95" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="14" font-weight="800" fill="${accent}" letter-spacing="1.5">${badge}</text>
+    <text x="716" y="95" text-anchor="end" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#64748b" letter-spacing="1">${subCategory}</text>
+    <line x1="82" y1="120" x2="718" y2="120" stroke="#e2e8f0" stroke-width="1"/>
+    <text x="82" y="210" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="25" font-weight="800" fill="#0f172a" letter-spacing="-0.3">${line1}</text>
+    ${line2 ? `<text x="82" y="248" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="25" font-weight="800" fill="#0f172a" letter-spacing="-0.3">${line2}</text>` : ''}
+    <line x1="82" y1="322" x2="718" y2="322" stroke="#e2e8f0" stroke-width="1"/>
+    <text x="82" y="362" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="13" font-weight="700" fill="#475569" letter-spacing="0.5">SILVERBOT2 // UNIX — TU HACKNOTICIERO</text>
+    <text x="718" y="362" text-anchor="end" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="${accent}">BOLETÍN VERIFICADO</text>
   </svg>`;
 
   return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
 
 // Parseador nativo de XML para RSS y Atom con extracción de imágenes reales y limpieza de HTML
-function parseXMLFeed(xmlText) {
+function parseXMLFeed(xmlText, feedUrl = '') {
   const items = [];
   const cleanXml = xmlText.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
 
@@ -259,32 +388,63 @@ function parseXMLFeed(xmlText) {
   const itemMatches = cleanXml.match(/<(?:item|entry)[\s\S]*?<\/(?:item|entry)>/gi) || [];
 
   for (const block of itemMatches) {
-    const titleMatch = block.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    const summaryMatch = block.match(/<(?:description|summary)[^>]*>([\s\S]*?)<\/(?:description|summary)>/i);
+    const contentEncMatch = block.match(/<(?:content:encoded|content)[^>]*>([\s\S]*?)<\/(?:content:encoded|content)>/i);
     const linkMatch = block.match(/<link[^>]*href=["']([^"']+)["']/i) || block.match(/<link[^>]*>([\s\S]*?)<\/link>/i);
-    const descMatch = block.match(/<(?:description|summary|content|content:encoded)[^>]*>([\s\S]*?)<\/(?:description|summary|content|content:encoded)>/i);
+    const titleMatch = block.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
     const dateMatch = block.match(/<(?:pubDate|published|updated|dc:date)[^>]*>([\s\S]*?)<\/(?:pubDate|published|updated|dc:date)>/i);
-
-    // Extracción de imagen real de la noticia si existe en la fuente
-    const mediaMatch = block.match(/<media:(?:content|thumbnail)[^>]+url=["']([^"']+)["']/i);
-    const encMatch = block.match(/<enclosure[^>]+url=["']([^"']+)["']/i);
-    const imgMatch = (descMatch ? descMatch[1] : block).match(/<img[^>]+src=["']([^"']+)["']/i);
-
-    let imageUrl = '';
-    if (mediaMatch && mediaMatch[1]) {
-      imageUrl = mediaMatch[1].replace(/&amp;/g, '&');
-    } else if (encMatch && encMatch[1]) {
-      imageUrl = encMatch[1].replace(/&amp;/g, '&');
-    } else if (imgMatch && imgMatch[1]) {
-      imageUrl = imgMatch[1].replace(/&amp;/g, '&');
-    }
 
     const title = cleanHtmlContent(titleMatch ? titleMatch[1] : '');
     const link = linkMatch ? linkMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-    const description = cleanHtmlContent(descMatch ? descMatch[1] : '');
-    const pubDate = dateMatch ? new Date(dateMatch[1].trim()).toISOString() : new Date().toISOString();
+    const rawBestBody = (contentEncMatch && contentEncMatch[1]) || (summaryMatch && summaryMatch[1]) || '';
+    const rawShortSummary = (summaryMatch && summaryMatch[1]) || rawBestBody;
+    const summaryClean = cleanHtmlContent(rawShortSummary);
+    const description = cleanHtmlContent(rawBestBody) || summaryClean;
+
+    let pubDate = new Date().toISOString();
+    if (dateMatch && dateMatch[1]) {
+      const parsed = new Date(dateMatch[1].trim());
+      if (!Number.isNaN(parsed.getTime())) pubDate = parsed.toISOString();
+    }
+
+    // Decodificar entidades HTML en el bloque para detectar imágenes incluso dentro de contenido escapado
+    const searchableBlock = block
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#039;|&apos;/g, "'")
+      .replace(/&amp;/g, '&');
+
+    // Extracción de imagen real de la noticia si existe en la fuente
+    const mediaMatches = [...searchableBlock.matchAll(/<media:(?:content|thumbnail)[^>]+url=["']([^"']+)["'][^>]*>/gi)];
+    const encMatch = searchableBlock.match(/<enclosure[^>]+type=["']image\/[^"']+["'][^>]+url=["']([^"']+)["']/i) || searchableBlock.match(/<enclosure[^>]+url=["']([^"']+)["'][^>]+type=["']image\//i);
+    const imgMatches = [...searchableBlock.matchAll(/<img[^>]+(?:data-lazy-src|data-src|src)=["']([^"']+)["'][^>]*>/gi)];
+
+    let imageUrl = '';
+    const rawCandidates = [];
+    for (const mm of mediaMatches) {
+      if (mm[1]) rawCandidates.push(mm[1]);
+    }
+    if (encMatch && encMatch[1]) rawCandidates.push(encMatch[1]);
+    for (const im of imgMatches) {
+      const fullTag = im[0].toLowerCase();
+      if (fullTag.includes('avatar') || fullTag.includes('emoji') || fullTag.includes('width="1"') || fullTag.includes("width='1'")) continue;
+      if (im[1]) rawCandidates.push(im[1]);
+    }
+
+    for (const cand of rawCandidates) {
+      try {
+        const baseRef = link || feedUrl || 'https://cyberpolis.onrender.com';
+        const resolved = upgradeImageUrl(new URL(cand.trim(), baseRef).href);
+        if (isValidArticleImageUrl(resolved)) {
+          imageUrl = resolved;
+          break;
+        }
+      } catch (e) {}
+    }
 
     if (title && (link || description)) {
-      items.push({ title, link, description, pubDate, imageUrl });
+      items.push({ title, link, description, summaryClean, pubDate, imageUrl });
     }
   }
 
@@ -335,7 +495,7 @@ const FALLBACK_SPANISH_INTEL = [
 async function syncSpanishFeeds() {
   const config = readJSON(CONFIG_FILE, {});
   const feeds = config.feeds || [];
-  const articles = readJSON(ARTICLES_FILE, []);
+  let articles = readJSON(ARTICLES_FILE, []);
   let newArticlesAdded = 0;
 
   for (const feed of feeds) {
@@ -345,12 +505,12 @@ async function syncSpanishFeeds() {
     try {
       // Intentar descargar feed online con timeout de 6 segundos
       const res = await fetch(feed.url, {
-        headers: { 'User-Agent': 'CyberPolis-IntelBot/2.5 (+https://cyberpolis.local)' },
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CyberPolis-NewsBot/3.0)' },
         signal: AbortSignal.timeout(6000)
       });
       if (res.ok) {
         const xml = await res.text();
-        items = parseXMLFeed(xml);
+        items = parseXMLFeed(xml, feed.url).slice(0, 6);
       }
     } catch (err) {
       // Si la red externa no responde o está en sandbox, recurrir al pool de respaldo
@@ -389,13 +549,16 @@ async function syncSpanishFeeds() {
         if (lower.includes('nis2')) tags.push('nis2');
         if (lower.includes('linux')) tags.push('linux');
 
-        // Imagen real de la fuente o insignia oficial de inteligencia
-        const articleImg = (item.imageUrl && item.imageUrl.trim())
-          ? item.imageUrl.trim()
-          : createIntelSVG(feed.name, category, item.title);
+        // Imagen real de la fuente (o scraping de og:image si el RSS no incluía foto)
+        let resolvedImg = (item.imageUrl && isValidArticleImageUrl(item.imageUrl)) ? item.imageUrl.trim() : '';
+        if (!resolvedImg && item.link && /^https?:\/\//i.test(item.link)) {
+          resolvedImg = await fetchOgImage(item.link);
+        }
+        const articleImg = resolvedImg || createIntelSVG(feed.name, category, item.title);
 
         const cleanTitle = cleanHtmlContent(item.title);
         const cleanDesc = cleanHtmlContent(item.description);
+        const cleanSum = cleanHtmlContent(item.summaryClean || cleanDesc);
 
         const newArticle = {
           id: 'auto-es-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
@@ -404,13 +567,13 @@ async function syncSpanishFeeds() {
           sourceName: sanitizeInput(feed.name),
           sourceUrl: sanitizeInput(item.link || feed.url),
           imageUrl: sanitizeInput(articleImg),
-          summary: sanitizeInput(cleanDesc.slice(0, 240) + '...'),
-          content: sanitizeInput(cleanDesc + `\n\nFuente de inteligencia oficial en castellano: ${feed.name}.\nConsulta el informe completo y avisos de mitigación a través del enlace de procedencia verificado.`),
+          summary: sanitizeInput(cleanSum.slice(0, 260) + (cleanSum.length > 260 ? '...' : '')),
+          content: sanitizeInput(cleanDesc + `\n\nFuente oficial en castellano: ${feed.name}.\nConsulta el artículo íntegro y detalles técnicos en el enlace de procedencia original.`),
           tags,
           readTime: `${Math.max(2, Math.ceil(cleanDesc.split(/\s+/).length / 140))} min`,
-          isBreaking: lower.includes('crítica') || lower.includes('urgente') || lower.includes('alerta'),
+          isBreaking: lower.includes('crítica') || lower.includes('urgente') || lower.includes('alerta') || lower.includes('0-day'),
           isFeatured: false,
-          author: `${feed.name.split(' ')[0]} (Auto-Feed)`,
+          author: `${feed.name.split('—')[0].trim()}`,
           authorRole: 'feed',
           verifiedLinkedIn: false,
           isAutoFeed: true,
@@ -425,6 +588,25 @@ async function syncSpanishFeeds() {
   }
 
   if (newArticlesAdded > 0) {
+    // Mantener representación equilibrada por fuente (máximo 8 por fuente auto-feed) + publicaciones manuales
+    articles.sort((a, b) => new Date(b.date) - new Date(a.date));
+    const perSourceCount = new Map();
+    const balanced = [];
+    const autoCount = articles.filter(a => a.isAutoFeed).length;
+
+    for (const art of articles) {
+      if (autoCount >= 6 && /^(art-00\d|svb-00\d)$/.test(String(art.id || ''))) {
+        continue;
+      }
+      const key = String(art.sourceName || art.author || 'manual').split('—')[0].trim().toLowerCase();
+      const count = perSourceCount.get(key) || 0;
+      if (art.isAutoFeed && count >= 8) continue;
+      perSourceCount.set(key, count + 1);
+      balanced.push(art);
+      if (balanced.length >= 40) break;
+    }
+
+    articles = balanced;
     writeJSON(ARTICLES_FILE, articles);
   }
 
@@ -441,17 +623,26 @@ function initBackgroundSync() {
   if (syncIntervalTimer) clearInterval(syncIntervalTimer);
   const config = readJSON(CONFIG_FILE, {});
   if (config.autoSyncEnabled) {
-    // Sincronización inmediata al arrancar el servidor (2 segundos tras inicio)
-    setTimeout(() => {
+    // Sincronización inmediata al arrancar el servidor + enriquecimiento de imágenes reales
+    setTimeout(async () => {
       console.log('📡 Ejecutando sincronización inicial de fuentes en castellano...');
-      syncSpanishFeeds().then(res => {
+      try {
+        const res = await syncSpanishFeeds();
         console.log(`✅ Sincronización inicial completada: ${res.newArticlesAdded} nuevos despachos.`);
-      }).catch(err => console.error('Error en sync inicial:', err));
+        await enrichStoredArticlesImages();
+      } catch (err) {
+        console.error('Error en sync inicial:', err);
+      }
     }, 2000);
 
     const minutes = Math.max(5, config.syncIntervalMinutes || 30);
-    syncIntervalTimer = setInterval(() => {
-      syncSpanishFeeds().catch(err => console.error('Error en sync automático:', err));
+    syncIntervalTimer = setInterval(async () => {
+      try {
+        await syncSpanishFeeds();
+        await enrichStoredArticlesImages();
+      } catch (err) {
+        console.error('Error en sync automático:', err);
+      }
     }, minutes * 60 * 1000);
   }
 }
@@ -592,6 +783,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       const result = await syncSpanishFeeds();
+      await enrichStoredArticlesImages();
       sendJSON(res, 200, {
         success: true,
         message: `Sincronización completada. ${result.newArticlesAdded} nuevos despachos importados.`,
@@ -820,7 +1012,9 @@ const server = http.createServer(async (req, res) => {
         const intervalMs = Math.max(5, config.syncIntervalMinutes || 30) * 60 * 1000;
         if (Date.now() - lastSyncTime > intervalMs) {
           // Ejecución en segundo plano sin retrasar la respuesta al usuario
-          syncSpanishFeeds().catch(e => console.error('Error en sync bajo demanda:', e));
+          syncSpanishFeeds()
+            .then(() => enrichStoredArticlesImages())
+            .catch(e => console.error('Error en sync bajo demanda:', e));
         }
       }
       const articles = readJSON(ARTICLES_FILE, []);
@@ -981,33 +1175,50 @@ const server = http.createServer(async (req, res) => {
 
     // Proxy de imágenes de fuentes externas para eludir bloqueos de hotlinking, tracking y CORS
     if (pathname === '/api/proxy/image' && method === 'GET') {
-      const targetUrl = (parsedUrl.query && parsedUrl.query.url) || (new URL(req.url, 'http://localhost')).searchParams.get('url');
-      if (!targetUrl || !targetUrl.startsWith('http')) {
+      const rawUrl = (parsedUrl.query && parsedUrl.query.url) || (new URL(req.url, 'http://localhost')).searchParams.get('url');
+      if (!rawUrl || !rawUrl.startsWith('http')) {
         sendJSON(res, 400, { error: 'URL requerida' });
         return;
       }
 
+      const targetUrl = upgradeImageUrl(rawUrl);
+
+      const sendSvgFallback = () => {
+        res.writeHead(200, {
+          'Content-Type': 'image/svg+xml; charset=utf-8',
+          'Cache-Control': 'public, max-age=3600'
+        });
+        const fallback = decodeURIComponent(createIntelSVG('REDACCIÓN', 'hacking', 'INFORME DE CIBERSEGURIDAD').replace('data:image/svg+xml;charset=utf-8,', ''));
+        res.end(fallback);
+      };
+
       try {
         const upstream = await fetch(targetUrl, {
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
           },
-          signal: AbortSignal.timeout(6000)
+          signal: AbortSignal.timeout(6500)
         });
 
-        if (!upstream.ok) {
-          res.writeHead(200, {
-            'Content-Type': 'image/svg+xml; charset=utf-8',
-            'Cache-Control': 'public, max-age=86400'
-          });
-          const fallback = decodeURIComponent(createIntelSVG('FUENTE EXTERNA', 'hacking', 'DESPACHO DE INTELIGENCIA').replace('data:image/svg+xml;charset=utf-8,', ''));
-          res.end(fallback);
+        let contentType = (upstream.headers.get('content-type') || '').toLowerCase();
+        const buffer = Buffer.from(await upstream.arrayBuffer());
+        if (!upstream.ok || buffer.length < 100) {
+          sendSvgFallback();
           return;
         }
 
-        const contentType = upstream.headers.get('content-type') || 'image/jpeg';
-        const buffer = Buffer.from(await upstream.arrayBuffer());
+        // Detección por magic bytes si el servidor origen envía application/octet-stream
+        if (!contentType.startsWith('image/')) {
+          if (buffer[0] === 0xff && buffer[1] === 0xd8) contentType = 'image/jpeg';
+          else if (buffer[0] === 0x89 && buffer[1] === 0x50) contentType = 'image/png';
+          else if (buffer.slice(0, 4).toString('ascii') === 'GIF8') contentType = 'image/gif';
+          else if (buffer.slice(0, 4).toString('ascii') === 'RIFF' && buffer.slice(8, 12).toString('ascii') === 'WEBP') contentType = 'image/webp';
+          else {
+            sendSvgFallback();
+            return;
+          }
+        }
 
         res.writeHead(200, {
           'Content-Type': contentType,
@@ -1016,12 +1227,7 @@ const server = http.createServer(async (req, res) => {
         });
         res.end(buffer);
       } catch (err) {
-        res.writeHead(200, {
-          'Content-Type': 'image/svg+xml; charset=utf-8',
-          'Cache-Control': 'public, max-age=86400'
-        });
-        const fallback = decodeURIComponent(createIntelSVG('FUENTE EXTERNA', 'hacking', 'DESPACHO DE INTELIGENCIA').replace('data:image/svg+xml;charset=utf-8,', ''));
-        res.end(fallback);
+        sendSvgFallback();
       }
       return;
     }
