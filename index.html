@@ -59,7 +59,7 @@
 
   <link rel="icon" type="image/png" href="assets/silverbot-unix-logo.png">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
-  <link rel="stylesheet" href="css/styles.css?v=7.9.0">
+  <link rel="stylesheet" href="css/styles.css?v=8.0.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
@@ -118,6 +118,9 @@
 
       <!-- Controles de Tema y Acceso Discreto al Chat IRC -->
       <div class="control-actions">
+        <button id="openTransferModalBtn" class="hud-btn hud-btn-outline transfer-top-btn" style="display: none;" title="CYBERPOLIS Transfer · Nube Cifrada OneDrive (Enviar / Recibir / Link)" aria-label="Abrir CYBERPOLIS Transfer">
+          <span>📦 Transfer</span>
+        </button>
         <button id="ircHeaderToggleBtn" class="hud-btn hud-btn-icon irc-header-toggle" title="Abrir / ocultar Chat IRC (#cyberpolis)" aria-label="Abrir chat IRC">
           <span class="icon-glyph">💬</span>
           <span id="ircHeaderBadge" class="irc-header-badge" style="display: none;">0</span>
@@ -411,6 +414,10 @@
             <button type="button" class="auth-tab-btn azure-nav-item" id="adminTabSecurityBtn" data-search="seguridad base datos persistence correo smtp backup">
               <span class="azure-nav-ico">🛡️</span>
               <span class="azure-nav-txt">Seguridad y BD</span>
+            </button>
+            <button type="button" class="auth-tab-btn azure-nav-item" id="adminTabCloudBtn" data-search="onedrive nube 5tb backup azure tenant entra wetransfer restore">
+              <span class="azure-nav-ico">☁️</span>
+              <span class="azure-nav-txt">OneDrive 5TB y Azure</span>
             </button>
           </div>
         </nav>
@@ -1017,6 +1024,115 @@
         </div>
       </div>
 
+      <!-- Blade Cloud: OneDrive 5TB Backup/Auto-Restore + Multi-Tenant Azure Entra ID + Auditoría Transfer -->
+      <div id="adminCloudSection" class="hud-modal-body azure-blade-body" style="display: none;">
+        <div class="admin-panel-toolbar" style="margin-bottom: 14px;">
+          <div>
+            <h4 class="admin-panel-heading">☁️ Bóveda OneDrive 5 TB · Auto-Respaldo & Restauración en Arranque</h4>
+            <p class="admin-help-text">Cifrado AES-256-GCM en tu nube Microsoft OneDrive para no perder nunca usuarios, foro, noticias, métricas ni chats en cada compilación/despliegue en Render.</p>
+          </div>
+          <div class="admin-toolbar-btns">
+            <button type="button" class="hud-btn hud-btn-outline" id="cloudTestBtn">🔌 Probar OneDrive</button>
+            <button type="button" class="hud-btn hud-btn-action" id="cloudBackupNowBtn">☁️ Backup Ahora</button>
+            <button type="button" class="hud-btn hud-btn-outline" id="cloudRestoreNowBtn">📥 Restaurar desde OneDrive</button>
+          </div>
+        </div>
+
+        <div id="adminCloudStatusBox" class="admin-storage-banner banner-warn" style="margin-bottom: 14px;">
+          Cargando estado de conexión Microsoft OneDrive / Azure Entra ID...
+        </div>
+
+        <div class="admin-config-card" style="margin-bottom: 14px;">
+          <h4 class="admin-sub-heading">🏢 Integración Multi-Tenant Azure Entra ID (Microsoft 365 Empresas)</h4>
+          <p class="admin-help-text">Registra uno o varios Tenants de Azure AD de tu organización o empresas clientes. Las credenciales y tokens se almacenan cifrados AES-256-GCM. Si además añades las variables en <strong>Render → Environment</strong>, cada compilación restaurará todo automáticamente antes de abrir tráfico.</p>
+
+          <form id="cloudTenantForm" style="margin-top: 10px;">
+            <input type="hidden" id="ctRecordId">
+            <div class="form-grid-2">
+              <div class="form-field">
+                <label for="ctName" class="hud-label required">NOMBRE EMPRESA / TENANT</label>
+                <input type="text" id="ctName" class="hud-input" placeholder="Ej: Cyberpolis Principal 5TB / Empresa Cliente" required>
+              </div>
+              <div class="form-field">
+                <label for="ctCompanyDomain" class="hud-label">DOMINIO CORPORATIVO</label>
+                <input type="text" id="ctCompanyDomain" class="hud-input" placeholder="ej: midominio.onmicrosoft.com">
+              </div>
+            </div>
+
+            <div class="form-grid-3">
+              <div class="form-field">
+                <label for="ctTenantId" class="hud-label required">AZURE TENANT ID (GUID / DOMINIO)</label>
+                <input type="text" id="ctTenantId" class="hud-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" required>
+              </div>
+              <div class="form-field">
+                <label for="ctClientId" class="hud-label required">APPLICATION (CLIENT) ID</label>
+                <input type="text" id="ctClientId" class="hud-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" required>
+              </div>
+              <div class="form-field">
+                <label for="ctClientSecret" class="hud-label">CLIENT SECRET (VALUE)</label>
+                <input type="password" id="ctClientSecret" class="hud-input" placeholder="Secreto cifrado en bóveda" autocomplete="new-password">
+              </div>
+            </div>
+
+            <div class="form-grid-3">
+              <div class="form-field">
+                <label for="ctAuthMode" class="hud-label">MODO DE AUTENTICACIÓN</label>
+                <select id="ctAuthMode" class="hud-select-full">
+                  <option value="client_credentials">App-Only Daemon (Files.ReadWrite.All / Mail.Send)</option>
+                  <option value="delegated_oauth2">OAuth2 Delegado M365 (/api/cloud/oauth/start)</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label for="ctDriveUpn" class="hud-label">UPN / EMAIL CUENTA ONEDRIVE 5TB</label>
+                <input type="email" id="ctDriveUpn" class="hud-input" placeholder="admin@tuempresa.com">
+              </div>
+              <div class="form-field">
+                <label for="ctBaseFolder" class="hud-label">CARPETA BÓVEDA EN ONEDRIVE</label>
+                <input type="text" id="ctBaseFolder" class="hud-input" value="CYBERPOLIS_VAULT">
+              </div>
+            </div>
+
+            <div class="admin-users-row" style="gap: 14px; flex-wrap: wrap; margin: 10px 0;">
+              <label class="hud-checkbox-label">
+                <input type="checkbox" id="ctDefaultBackup" checked>
+                <span>⭐ Tenant principal para Backup BD</span>
+              </label>
+              <label class="hud-checkbox-label">
+                <input type="checkbox" id="ctAutoBackup" checked>
+                <span>🔄 Auto-Sync en cada cambio</span>
+              </label>
+              <label class="hud-checkbox-label">
+                <input type="checkbox" id="ctSendMail" checked>
+                <span>✉️ Enviar avisos Email vía Graph Mail.Send</span>
+              </label>
+              <button type="submit" class="hud-btn hud-btn-action" id="ctSaveBtn">💾 Guardar Tenant Azure</button>
+              <button type="button" class="hud-btn hud-btn-outline" id="ctResetFormBtn">Limpiar formulario</button>
+            </div>
+          </form>
+
+          <div id="cloudTenantsList" class="cloud-tenants-list" style="margin-top: 12px;">
+            <p class="admin-help-text">Sin tenants configurados aún.</p>
+          </div>
+        </div>
+
+        <div class="admin-system-grid">
+          <div class="admin-config-card">
+            <h4 class="admin-sub-heading">📚 Historial de Copias en OneDrive</h4>
+            <div id="cloudBackupHistoryList" class="audit-log-list">
+              <p class="admin-help-text">Sin respaldos registrados todavía.</p>
+            </div>
+          </div>
+
+          <div class="admin-config-card">
+            <h4 class="admin-sub-heading">🔐 Auditoría Forense de Transferencias (Solo Metadatos · Zero-Knowledge)</h4>
+            <p class="admin-help-text">Por privacidad, administración únicamente ve quién envía/recibe, IP, hash SHA-256 y ruta OneDrive (nunca el contenido ni el archivo cifrado de otros usuarios).</p>
+            <div id="cloudAdminTransfersAuditList" class="audit-log-list">
+              <p class="admin-help-text">Sin transferencias registradas.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
         </div>
       </div>
     </div>
@@ -1461,8 +1577,161 @@
   <!-- Contenedor Toast -->
   <div class="hud-toast-container" id="toastContainer"></div>
 
+  <!-- Modal Transfer: CYBERPOLIS Transfer · Espacio Cifrado Tipo WeTransfer en OneDrive -->
+  <div class="hud-modal-overlay" id="transferModal" style="display: none;">
+    <div class="hud-modal-window modal-wide">
+      <div class="hud-modal-head">
+        <div class="modal-head-title">
+          <span class="modal-glyph">📦</span>
+          <h3>CYBERPOLIS TRANSFER · BÓVEDA CIFRADA ONEDRIVE</h3>
+        </div>
+        <button class="modal-x-btn" id="closeTransferModalBtn">&times;</button>
+      </div>
+
+      <div class="auth-tabs-bar" id="transferTabsBar">
+        <button type="button" class="auth-tab-btn active" id="transferTabSendBtn" data-transfer-tab="send">📤 Enviar Archivo</button>
+        <button type="button" class="auth-tab-btn" id="transferTabReceiveBtn" data-transfer-tab="receive">📥 Recibir / Bandeja</button>
+        <button type="button" class="auth-tab-btn" id="transferTabLinksBtn" data-transfer-tab="links">🔗 Links Creados</button>
+        <button type="button" class="auth-tab-btn" id="transferTabEmailBtn" data-transfer-tab="email">✉️ Mi Correo de Avisos</button>
+      </div>
+
+      <div class="hud-modal-body">
+        <div class="security-banner" style="margin-bottom: 14px;">
+          <span class="sec-icon">🔐</span>
+          <span>Cifrado AES-256-GCM en tu nube OneDrive con aislamiento estricto por usuario, trazabilidad legal (SHA-256 + IP) y respuesta bidireccional.</span>
+        </div>
+
+        <!-- Tab 1: Enviar / Crear Link -->
+        <div id="transferPaneSend" class="transfer-pane">
+          <form id="transferCreateForm">
+            <div class="form-grid-3">
+              <div class="form-field">
+                <label for="tfModeSelect" class="hud-label required">ACCIÓN / MODO</label>
+                <select id="tfModeSelect" class="hud-select-full">
+                  <option value="send">📤 Enviar a usuario / correo</option>
+                  <option value="receive">📥 Solicitar recepción / entrega</option>
+                  <option value="link">🔗 Generar Link seguro WeTransfer</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label for="tfTenantSelect" class="hud-label">TENANT AZURE / NUBE DESTINO</label>
+                <select id="tfTenantSelect" class="hud-select-full">
+                  <option value="">Bóveda por defecto (Auto)</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label for="tfExpiresDays" class="hud-label">CADUCIDAD</label>
+                <select id="tfExpiresDays" class="hud-select-full">
+                  <option value="1">24 horas</option>
+                  <option value="7" selected>7 días</option>
+                  <option value="30">30 días</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-grid-2" id="tfRecipientRow">
+              <div class="form-field">
+                <label for="tfRecipientUsername" class="hud-label">USUARIO DEL PORTAL (@NICK)</label>
+                <input type="text" id="tfRecipientUsername" class="hud-input" placeholder="Ej: analista02 (opcional si usas email o Link)">
+              </div>
+              <div class="form-field">
+                <label for="tfRecipientEmail" class="hud-label">EMAIL DESTINATARIO (PARA ENVÍO Y AVISO)</label>
+                <input type="email" id="tfRecipientEmail" class="hud-input" placeholder="destinatario@empresa.com">
+              </div>
+            </div>
+
+            <div class="form-grid-2">
+              <div class="form-field">
+                <label for="tfTitle" class="hud-label required">TÍTULO DEL ENVÍO / ASUNTO</label>
+                <input type="text" id="tfTitle" class="hud-input" maxlength="160" placeholder="Ej: Informe forense Q4 cifrado" required>
+              </div>
+              <div class="form-field">
+                <label for="tfAccessPassword" class="hud-label">CLAVE PIN DE ACCESO (OPCIONAL)</label>
+                <input type="password" id="tfAccessPassword" class="hud-input" placeholder="Opcional · Protege descarga y link" autocomplete="new-password">
+              </div>
+            </div>
+
+            <div class="form-field">
+              <label for="tfMessage" class="hud-label">MENSAJE / INSTRUCCIONES PARA EL RECEPTOR</label>
+              <textarea id="tfMessage" class="hud-textarea" rows="3" maxlength="4000" placeholder="Texto incluido dentro del envío para que el receptor sepa qué revisar o qué información devolver..."></textarea>
+            </div>
+
+            <div class="form-field">
+              <label for="tfFileInput" class="hud-label">ARCHIVO ADJUNTO (CIFRADO AES-256 EN ONEDRIVE · MÁX. 18 MB VÍA WEB)</label>
+              <input type="file" id="tfFileInput" class="hud-input">
+              <div id="tfFilePreview" class="admin-help-text" style="margin-top: 6px;">Sin archivo seleccionado (puedes enviar solo texto o adjuntar un archivo).</div>
+            </div>
+
+            <div class="admin-users-row" style="gap: 14px; flex-wrap: wrap; margin: 10px 0;">
+              <label class="hud-checkbox-label">
+                <input type="checkbox" id="tfAllowReply" checked>
+                <span>💬 Permitir al receptor añadir información / archivo de respuesta</span>
+              </label>
+              <label class="hud-checkbox-label">
+                <input type="checkbox" id="tfNotifyEmail" checked>
+                <span>✉️ Notificar por correo electrónico</span>
+              </label>
+              <button type="submit" class="hud-btn hud-btn-action" id="tfSubmitBtn">🔐 Cifrar y Enviar a OneDrive →</button>
+            </div>
+          </form>
+
+          <div id="tfCreatedLinkResult" class="admin-storage-banner banner-ok" style="display: none; margin-top: 12px;"></div>
+        </div>
+
+        <!-- Tab 2: Recibir / Bandeja -->
+        <div id="transferPaneReceive" class="transfer-pane" style="display: none;">
+          <div class="admin-panel-toolbar" style="margin-bottom: 10px;">
+            <h4 class="admin-sub-heading" style="margin: 0;">📥 Envíos Privados Recibidos y Enviados</h4>
+            <button type="button" class="hud-btn hud-btn-outline" id="tfRefreshMineBtn">🔄 Actualizar Bandeja</button>
+          </div>
+          <div id="tfReceivedList" class="transfer-cards-list">
+            <p class="admin-help-text">Cargando transferencias privadas...</p>
+          </div>
+          <h4 class="admin-sub-heading" style="margin-top: 16px;">📤 Mis Envíos Salientes</h4>
+          <div id="tfSentList" class="transfer-cards-list"></div>
+        </div>
+
+        <!-- Tab 3: Links Creados -->
+        <div id="transferPaneLinks" class="transfer-pane" style="display: none;">
+          <h4 class="admin-sub-heading">🔗 Enlaces de Transferencia & Recolección Activos</h4>
+          <p class="admin-help-text">Comparte el enlace con cualquier destinatario para que descargue tu archivo cifrado o te devuelva documentación y notas.</p>
+          <div id="tfLinksList" class="transfer-cards-list"></div>
+        </div>
+
+        <!-- Tab 4: Configurar Mi Correo de Notificaciones -->
+        <div id="transferPaneEmail" class="transfer-pane" style="display: none;">
+          <form id="tfEmailConfigForm" class="admin-config-card">
+            <h4 class="admin-sub-heading">✉️ Correo de Notificaciones Transfer & Bóveda</h4>
+            <p class="admin-help-text">Cada vez que recibas un envío cifrado, generen un enlace dirigido a ti o un destinatario responda agregando información, enviaremos la notificación a este correo.</p>
+            <div class="form-field" style="margin-top: 10px;">
+              <label for="tfUserNotificationEmail" class="hud-label required">MI EMAIL PARA NOTIFICACIONES DE ENVÍO / RECEPCIÓN</label>
+              <input type="email" id="tfUserNotificationEmail" class="hud-input" placeholder="tu.correo@empresa.com" required>
+            </div>
+            <button type="submit" class="hud-btn hud-btn-action" style="margin-top: 8px;">💾 Guardar Mi Correo de Avisos</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Landing de Link WeTransfer Compartido (?transfer=...) -->
+  <div class="hud-modal-overlay" id="transferLinkModal" style="display: none;">
+    <div class="hud-modal-window modal-wide">
+      <div class="hud-modal-head">
+        <div class="modal-head-title">
+          <span class="modal-glyph">🔗</span>
+          <h3>TRANSFERENCIA CIFRADA CYBERPOLIS · ONEDRIVE</h3>
+        </div>
+        <button class="modal-x-btn" id="closeTransferLinkModalBtn">&times;</button>
+      </div>
+      <div class="hud-modal-body" id="transferLinkModalBody">
+        <p class="admin-help-text">Descifrando metadatos del envío...</p>
+      </div>
+    </div>
+  </div>
+
   <!-- Scripts -->
   <script src="js/polygons.js?v=7.0.0"></script>
-  <script src="js/app.js?v=7.9.0"></script>
+  <script src="js/app.js?v=8.0.0"></script>
 </body>
 </html>

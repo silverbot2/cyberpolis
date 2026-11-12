@@ -11,6 +11,7 @@ const dns = require('dns').promises;
 const net = require('net');
 const { exec } = require('child_process');
 const { CyberpolisStore } = require('./dbStore');
+const cloudOneDrive = require('./cloudOneDrive');
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const DATA_DIR = path.join(__dirname, 'data');
@@ -22,6 +23,9 @@ const FORUM_FILE = path.join(DATA_DIR, 'forum.json');
 const ANALYTICS_FILE = path.join(DATA_DIR, 'analytics.json');
 const CHAT_FILE = path.join(DATA_DIR, 'chat.json');
 const AUDIT_FILE = path.join(DATA_DIR, 'audit.json');
+const TRANSFERS_FILE = path.join(DATA_DIR, 'transfers.json');
+const CLOUD_FILE = path.join(DATA_DIR, 'cloud.json');
+const VAULT_DIR = path.join(DATA_DIR, 'vault');
 
 const FILE_TO_STORE_KEY = new Map([
   [ARTICLES_FILE, 'articles'],
@@ -31,7 +35,9 @@ const FILE_TO_STORE_KEY = new Map([
   [FORUM_FILE, 'forum'],
   [ANALYTICS_FILE, 'analytics'],
   [CHAT_FILE, 'chat'],
-  [AUDIT_FILE, 'audit']
+  [AUDIT_FILE, 'audit'],
+  [TRANSFERS_FILE, 'transfers'],
+  [CLOUD_FILE, 'cloud']
 ]);
 
 const store = new CyberpolisStore();
@@ -1559,12 +1565,12 @@ function applySameOriginCorsAndCheckCsrf(req, res, pathname, method) {
   return true;
 }
 
-function parseBody(req) {
+function parseBody(req, maxBytes = 2 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let body = '';
     req.on('data', chunk => {
       body += chunk;
-      if (body.length > 2 * 1024 * 1024) {
+      if (body.length > maxBytes) {
         req.destroy();
         reject(new Error('Payload demasiado grande'));
       }
@@ -2665,6 +2671,201 @@ function handleCyberBotTrigger(chat, chObj, rawText) {
   }
 }
 
+// ==========================================
+// 2B. Motor Cloud OneDrive Multi-Tenant & WeTransfer Cifrado
+// ==========================================
+const cloudOAuthStates = new Map();
+
+function readCloudStore() {
+  const raw = readJSON(CLOUD_FILE, { tenants: [], backupHistory: [] });
+  return {
+    tenants: Array.isArray(raw.tenants) ? raw.tenants : [],
+    backupHistory: Array.isArray(raw.backupHistory) ? raw.backupHistory.slice(-40) : []
+  };
+}
+
+function writeCloudStore(next) {
+  const normalized = {
+    tenants: Array.isArray(next.tenants) ? next.tenants.slice(0, 25) : [],
+    backupHistory: Array.isArray(next.backupHistory) ? next.backupHistory.slice(-40) : []
+  };
+  writeJSON(CLOUD_FILE, normalized, { critical: true });
+  return normalized;
+}
+
+function sanitizeTenantPublic(t, isAdmin = false) {
+  if (!t || typeof t !== 'object') return null;
+  const base = {
+    id: t.id,
+    name: t.name,
+    companyDomain: t.companyDomain || '',
+    isDefaultForBackup: !!t.isDefaultForBackup,
+    connected: !!(t.clientId && (t.clientSecretSealed || t.refreshTokenSealed)),
+    fromEnv: !!t.fromEnv
+  };
+  if (!isAdmin) return base;
+  return {
+    ...base,
+    tenantId: t.tenantId || 'common',
+    clientId: t.clientId || '',
+    authMode: t.authMode || 'client_credentials',
+    driveUserUpn: t.driveUserUpn || '',
+    driveId: t.driveId || '',
+    baseFolder: t.baseFolder || '/CYBERPOLIS_VAULT',
+    autoBackupEnabled: t.autoBackupEnabled !== false,
+    sendMailEnabled: t.sendMailEnabled !== false,
+    hasClientSecret: !!t.clientSecretSealed,
+    hasRefreshToken: !!t.refreshTokenSealed,
+    lastTestedAt: t.lastTestedAt || null,
+    quotaTotalBytes: Number(t.quotaTotalBytes) || 0,
+    quotaUsedBytes: Number(t.quotaUsedBytes) || 0
+  };
+}
+
+function hashTransferPassword(rawPass, salt) {
+  return crypto.scryptSync(String(rawPass || ''), String(salt || 'cp-tr'), 32).toString('hex');
+}
+
+function resolveUserNotificationEmail(userObj) {
+  if (!userObj) return '';
+  if (userObj.notificationEmail && String(userObj.notificationEmail).includes('@')) {
+    return String(userObj.notificationEmail).trim();
+  }
+  if (userObj.email && String(userObj.email).includes('@') && !String(userObj.email).endsWith('.local')) {
+    return String(userObj.email).trim();
+  }
+  return '';
+}
+
+function canUserAccessTransfer(t, user, suppliedToken = '') {
+  if (!t) return false;
+  if (suppliedToken && t.shareToken && suppliedToken === t.shareToken) return true;
+  if (!user) return false;
+  if (t.senderId && t.senderId === user.id) return true;
+  if (t.recipientId && t.recipientId === user.id) return true;
+  if (t.recipientUsername && user.username && t.recipientUsername.toLowerCase() === user.username.toLowerCase()) return true;
+  const userEmails = [user.email, user.notificationEmail]
+    .filter(e => e && String(e).includes('@') && !String(e).endsWith('.local'))
+    .map(e => String(e).toLowerCase());
+  if (t.recipientEmail && userEmails.includes(String(t.recipientEmail).toLowerCase())) return true;
+  return false;
+}
+
+function sanitizeTransferForViewer(t, includeSecretLink = true) {
+  return {
+    id: t.id,
+    mode: t.mode || 'send',
+    title: t.title || 'Envío cifrado',
+    message: t.message || '',
+    senderId: t.senderId || '',
+    senderUserId: t.senderId || '',
+    senderUsername: t.senderUsername || '',
+    senderDisplayName: t.senderDisplayName || '',
+    recipientId: t.recipientId || '',
+    recipientUsername: t.recipientUsername || '',
+    recipientEmail: t.recipientEmail || '',
+    tenantId: t.tenantId || '',
+    tenantName: t.tenantName || 'CYBERPOLIS Vault',
+    requiresPassword: !!t.accessPasswordHash,
+    hasPassword: !!t.accessPasswordHash,
+    allowRecipientReply: t.allowRecipientReply !== false,
+    allowRecipientUpload: t.allowRecipientUpload !== false,
+    hasFile: !!(t.file && t.file.fileName),
+    file: t.file ? {
+      name: t.file.fileName,
+      fileName: t.file.fileName,
+      mimeType: t.file.mimeType,
+      size: t.file.size,
+      sha256: t.file.sha256,
+      storageLocation: t.file.storageLocation || 'vault-local',
+      oneDrivePath: t.file.oneDrivePath || ''
+    } : null,
+    responses: Array.isArray(t.responses) ? t.responses.map(r => ({
+      id: r.id,
+      authorName: r.authorName,
+      authorEmail: r.authorEmail || '',
+      text: r.text || '',
+      hasFile: !!(r.file && r.file.fileName),
+      file: r.file ? {
+        name: r.file.fileName,
+        fileName: r.file.fileName,
+        mimeType: r.file.mimeType,
+        size: r.file.size,
+        sha256: r.file.sha256,
+        storageLocation: r.file.storageLocation || 'vault-local'
+      } : null,
+      createdAt: r.createdAt,
+      ip: r.ip || ''
+    })) : [],
+    emailNotifications: Array.isArray(t.emailNotifications) ? t.emailNotifications : [],
+    events: Array.isArray(t.events) ? t.events : [],
+    shareToken: includeSecretLink ? t.shareToken : undefined,
+    createdAt: t.createdAt,
+    expiresAt: t.expiresAt
+  };
+}
+
+async function storeEncryptedTransferFile(blobId, rawBuffer, fileName, mimeType, tenantCfg, keySalt) {
+  const sha256 = crypto.createHash('sha256').update(rawBuffer).digest('hex');
+  const encryptedBuf = cloudOneDrive.encryptBinaryBuffer(rawBuffer, keySalt);
+  const cleanName = sanitizeInput(String(fileName || 'archivo.bin').replace(/[/\\:*?"<>|]+/g, '_'), 120) || 'archivo.bin';
+  const safeMime = sanitizeInput(String(mimeType || 'application/octet-stream'), 100) || 'application/octet-stream';
+
+  let storageLocation = 'vault-local';
+  let oneDrivePath = '';
+  let oneDriveItemId = '';
+  let oneDriveError = '';
+
+  if (tenantCfg) {
+    try {
+      const up = await cloudOneDrive.uploadBufferToOneDrive(
+        tenantCfg,
+        `transfers/${blobId}.enc`,
+        encryptedBuf,
+        'application/octet-stream'
+      );
+      storageLocation = 'onedrive';
+      oneDrivePath = up.remotePath;
+      oneDriveItemId = up.itemId || '';
+    } catch (err) {
+      oneDriveError = err.message;
+    }
+  }
+
+  if (storageLocation !== 'onedrive') {
+    if (!fs.existsSync(VAULT_DIR)) fs.mkdirSync(VAULT_DIR, { recursive: true });
+    fs.writeFileSync(path.join(VAULT_DIR, `${blobId}.enc`), encryptedBuf);
+  }
+
+  return {
+    blobId,
+    fileName: cleanName,
+    mimeType: safeMime,
+    size: rawBuffer.length,
+    sha256,
+    storageLocation,
+    oneDrivePath,
+    oneDriveItemId,
+    oneDriveError: oneDriveError || undefined
+  };
+}
+
+async function loadDecryptedTransferFile(fileMeta, tenantCfg, keySalt) {
+  if (!fileMeta || !fileMeta.blobId) return null;
+  let cipherBuf = null;
+  if (fileMeta.storageLocation === 'onedrive' && fileMeta.oneDrivePath && tenantCfg) {
+    cipherBuf = await cloudOneDrive.downloadBufferFromOneDrive(tenantCfg, fileMeta.oneDrivePath);
+  }
+  if (!cipherBuf) {
+    const localPath = path.join(VAULT_DIR, `${path.basename(fileMeta.blobId)}.enc`);
+    if (fs.existsSync(localPath)) {
+      cipherBuf = fs.readFileSync(localPath);
+    }
+  }
+  if (!cipherBuf) return null;
+  return cloudOneDrive.decryptBinaryBuffer(cipherBuf, keySalt);
+}
+
 const server = http.createServer(async (req, res) => {
   const parsedUrl = url.parse(req.url, true);
   const pathname = parsedUrl.pathname || '/';
@@ -2845,6 +3046,7 @@ const server = http.createServer(async (req, res) => {
             username: sanitizeInput(u.username.toLowerCase(), 24),
             displayName: sanitizeInput(u.displayName || u.username, 64),
             email: sanitizeEmail(u.email || '') || `${sanitizeInput(u.username.toLowerCase(), 24)}@cyberpolis.local`,
+            notificationEmail: sanitizeEmail(u.notificationEmail || ''),
             role: u.role === 'admin' ? 'admin' : 'analyst',
             status: u.status === 'suspended' ? 'suspended' : 'active',
             linkedInProfile: sanitizeExternalUrl(u.linkedInProfile || ''),
@@ -2908,6 +3110,11 @@ const server = http.createServer(async (req, res) => {
       if (body.chat && typeof body.chat === 'object') {
         writeChatState(body.chat);
         restoredSections.push('chat');
+      }
+
+      if (Array.isArray(body.transfers)) {
+        writeJSON(TRANSFERS_FILE, body.transfers.slice(0, 500), { critical: true });
+        restoredSections.push('transfers');
       }
 
       if (body.analytics && typeof body.analytics === 'object') {
@@ -3288,6 +3495,7 @@ const server = http.createServer(async (req, res) => {
           username: u.username,
           displayName: u.displayName,
           email: u.email || '',
+          notificationEmail: u.notificationEmail || (u.email && !String(u.email).endsWith('.local') ? u.email : ''),
           role: u.role || 'analyst',
           status: u.status || 'active',
           tokens: trust.tokens,
@@ -3397,6 +3605,9 @@ const server = http.createServer(async (req, res) => {
 
       if (body.trustedPublisher !== undefined) {
         users[idx].trustedPublisher = !!body.trustedPublisher;
+      }
+      if (body.notificationEmail !== undefined) {
+        users[idx].notificationEmail = sanitizeEmail(body.notificationEmail || '');
       }
       users[idx].updatedAt = new Date().toISOString();
       writeJSON(USERS_FILE, users, { critical: true });
@@ -5186,6 +5397,816 @@ const server = http.createServer(async (req, res) => {
         bannedEntries: out.bannedEntries || chat.bannedEntries,
         chat: out.chatPayload
       } : { error: out.error }, {}, { noStore: true });
+      return;
+    }
+
+    // ----------------------------------------------------
+    // API PERFIL, MULTI-TENANT AZURE ONEDRIVE & WETRANSFER CIFRADO
+    // ----------------------------------------------------
+
+    if (pathname === '/api/profile/notification-email' && method === 'PUT') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser) {
+        sendJSON(req, res, 401, { error: 'Inicia sesión para configurar tu correo de notificaciones.' }, {}, { noStore: true });
+        return;
+      }
+      const body = await parseBody(req);
+      const nextEmail = sanitizeEmail(body.notificationEmail || '');
+      if (body.notificationEmail && !nextEmail) {
+        sendJSON(req, res, 400, { error: 'Formato de correo electrónico inválido.' }, {}, { noStore: true });
+        return;
+      }
+      const users = readJSON(USERS_FILE, []);
+      const idx = users.findIndex(u => u.id === currentUser.id);
+      if (idx === -1) {
+        sendJSON(req, res, 404, { error: 'Usuario no encontrado' }, {}, { noStore: true });
+        return;
+      }
+      users[idx].notificationEmail = nextEmail;
+      users[idx].updatedAt = new Date().toISOString();
+      writeJSON(USERS_FILE, users, { critical: true });
+      sendJSON(req, res, 200, { success: true, notificationEmail: nextEmail }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname === '/api/cloud/tenants/public' && method === 'GET') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser) {
+        sendJSON(req, res, 401, { error: 'Autenticación requerida' }, {}, { noStore: true });
+        return;
+      }
+      const cloud = readCloudStore();
+      const envT = cloudOneDrive.resolveEnvPrimaryTenant();
+      const list = [...(envT ? [envT] : []), ...cloud.tenants].map(t => sanitizeTenantPublic(t, false)).filter(Boolean);
+      sendJSON(req, res, 200, { tenants: list }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname === '/api/admin/cloud/status' && method === 'GET') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Acceso restringido al Administrador' }, {}, { noStore: true });
+        return;
+      }
+      const cloud = readCloudStore();
+      const envT = cloudOneDrive.resolveEnvPrimaryTenant();
+      const all = [...(envT ? [envT] : []), ...cloud.tenants].map(t => sanitizeTenantPublic(t, true)).filter(Boolean);
+      const storageStatus = store.getStatus();
+      sendJSON(req, res, 200, {
+        storage: storageStatus,
+        tenants: all,
+        backupHistory: cloud.backupHistory || []
+      }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname === '/api/admin/cloud/tenants' && method === 'POST') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Solo el Administrador puede gestionar tenants Azure/OneDrive' }, {}, { noStore: true });
+        return;
+      }
+      const body = await parseBody(req);
+      const name = sanitizeInput(body.name || 'Empresa Azure M365', 80);
+      const tenantId = sanitizeInput(body.tenantId || 'common', 96) || 'common';
+      const clientId = sanitizeInput(body.clientId || '', 96);
+      const rawSecret = String(body.clientSecret || '').trim();
+      const driveUserUpn = sanitizeInput(body.driveUserUpn || '', 140);
+      const driveId = sanitizeInput(body.driveId || '', 140);
+      const baseFolder = sanitizeInput(body.baseFolder || '/CYBERPOLIS_VAULT', 120) || '/CYBERPOLIS_VAULT';
+      const companyDomain = sanitizeInput(body.companyDomain || (driveUserUpn.includes('@') ? driveUserUpn.split('@')[1] : 'microsoft365'), 80);
+      const authMode = body.authMode === 'delegated_oauth2' ? 'delegated_oauth2' : 'client_credentials';
+
+      if (!clientId) {
+        sendJSON(req, res, 400, { error: 'El Client ID (Application ID) de Azure Entra ID es obligatorio.' }, {}, { noStore: true });
+        return;
+      }
+
+      const cloud = readCloudStore();
+      const existingIdx = body.id ? cloud.tenants.findIndex(t => t.id === body.id) : -1;
+      const existing = existingIdx >= 0 ? cloud.tenants[existingIdx] : null;
+      const secretSealed = rawSecret
+        ? cloudOneDrive.sealCloudSecret(rawSecret)
+        : (existing ? existing.clientSecretSealed : '');
+
+      if (authMode === 'client_credentials' && !secretSealed) {
+        sendJSON(req, res, 400, { error: 'En modo App-Only Daemon debes indicar el Client Secret de Azure AD.' }, {}, { noStore: true });
+        return;
+      }
+
+      const record = {
+        id: existing ? existing.id : ('ten-' + Date.now() + '-' + crypto.randomBytes(2).toString('hex')),
+        name,
+        companyDomain,
+        tenantId,
+        clientId,
+        clientSecretSealed: secretSealed,
+        refreshTokenSealed: existing ? (existing.refreshTokenSealed || '') : '',
+        authMode,
+        driveUserUpn,
+        driveId,
+        baseFolder,
+        isDefaultForBackup: body.isDefaultForBackup !== undefined ? !!body.isDefaultForBackup : (cloud.tenants.length === 0),
+        autoBackupEnabled: body.autoBackupEnabled !== undefined ? !!body.autoBackupEnabled : true,
+        sendMailEnabled: body.sendMailEnabled !== undefined ? !!body.sendMailEnabled : true,
+        lastTestedAt: existing ? existing.lastTestedAt : null,
+        quotaTotalBytes: existing ? (existing.quotaTotalBytes || 0) : 0,
+        quotaUsedBytes: existing ? (existing.quotaUsedBytes || 0) : 0,
+        updatedAt: new Date().toISOString()
+      };
+
+      if (record.isDefaultForBackup) {
+        cloud.tenants.forEach(t => { if (t.id !== record.id) t.isDefaultForBackup = false; });
+      }
+      if (existingIdx >= 0) {
+        cloud.tenants[existingIdx] = record;
+      } else {
+        cloud.tenants.push(record);
+      }
+      writeCloudStore(cloud);
+
+      recordLegalAudit({
+        action: 'cloud_tenant_upsert',
+        targetType: 'cloud_tenant',
+        targetId: record.id,
+        summary: `Tenant Azure/OneDrive configurado: ${record.name} (${record.tenantId})`,
+        currentUser,
+        ip,
+        req
+      });
+
+      sendJSON(req, res, 200, { success: true, tenant: sanitizeTenantPublic(record, true) }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname.startsWith('/api/admin/cloud/tenants/') && method === 'DELETE') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Acceso restringido al Administrador' }, {}, { noStore: true });
+        return;
+      }
+      const id = decodeURIComponent(pathname.replace('/api/admin/cloud/tenants/', ''));
+      if (id === 'env-primary') {
+        sendJSON(req, res, 400, { error: 'El tenant principal definido por variables de entorno se gestiona desde Render.' }, {}, { noStore: true });
+        return;
+      }
+      const cloud = readCloudStore();
+      cloud.tenants = cloud.tenants.filter(t => t.id !== id);
+      writeCloudStore(cloud);
+      sendJSON(req, res, 200, { success: true }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname === '/api/cloud/oauth/start' && method === 'GET') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Solo el Administrador puede vincular cuentas Microsoft 365 OAuth2.' }, {}, { noStore: true });
+        return;
+      }
+      const cloud = readCloudStore();
+      const targetId = (parsedUrl.query && parsedUrl.query.tenantRecordId) || '';
+      const tCfg = cloudOneDrive.resolveActiveTenantConfig(cloud, targetId);
+      if (!tCfg || !tCfg.clientId) {
+        sendJSON(req, res, 400, { error: 'Primero registra el Tenant (Client ID) antes de autorizar por Microsoft OAuth2.' }, {}, { noStore: true });
+        return;
+      }
+      const stateNonce = crypto.randomBytes(24).toString('hex');
+      const proto = isSecureRequest(req) ? 'https' : 'http';
+      const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'cyberpolis.onrender.com').split(',')[0].trim();
+      const redirectUri = `${proto}://${host}/api/cloud/oauth/callback`;
+      cloudOAuthStates.set(stateNonce, { tenantRecordId: tCfg.id, redirectUri, createdAt: Date.now(), adminId: currentUser.id });
+      const authUrl = `https://login.microsoftonline.com/${encodeURIComponent(tCfg.tenantId || 'common')}/oauth2/v2.0/authorize?` + new URLSearchParams({
+        client_id: tCfg.clientId,
+        response_type: 'code',
+        redirect_uri: redirectUri,
+        response_mode: 'query',
+        scope: 'offline_access Files.ReadWrite.All User.Read Mail.Send',
+        state: stateNonce
+      }).toString();
+      sendJSON(req, res, 200, { authorizeUrl: authUrl, redirectUri }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname === '/api/cloud/oauth/callback' && method === 'GET') {
+      const code = (parsedUrl.query && parsedUrl.query.code) || '';
+      const stateNonce = (parsedUrl.query && parsedUrl.query.state) || '';
+      const oauthErr = (parsedUrl.query && (parsedUrl.query.error_description || parsedUrl.query.error)) || '';
+      const st = cloudOAuthStates.get(stateNonce);
+      cloudOAuthStates.delete(stateNonce);
+
+      if (oauthErr || !st || !code || (Date.now() - st.createdAt > 10 * 60 * 1000)) {
+        res.writeHead(400, { 'Content-Type': 'text/html; charset=UTF-8' });
+        res.end(`<h3>Error vinculando Microsoft 365 / OneDrive</h3><p>${escapeHtmlSsr(oauthErr || 'Estado OAuth expirado o inválido.')}</p>`);
+        return;
+      }
+      const cloud = readCloudStore();
+      const idx = cloud.tenants.findIndex(t => t.id === st.tenantRecordId);
+      if (idx === -1) {
+        res.writeHead(404, { 'Content-Type': 'text/html; charset=UTF-8' });
+        res.end('<h3>Tenant no encontrado.</h3>');
+        return;
+      }
+      const tCfg = cloud.tenants[idx];
+      const clientSecret = cloudOneDrive.unsealCloudSecret(tCfg.clientSecretSealed);
+      const params = new URLSearchParams({
+        client_id: tCfg.clientId,
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: st.redirectUri,
+        scope: 'offline_access Files.ReadWrite.All User.Read Mail.Send'
+      });
+      if (clientSecret) params.set('client_secret', clientSecret);
+
+      const tokRes = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tCfg.tenantId || 'common')}/oauth2/v2.0/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+        signal: AbortSignal.timeout(15000)
+      });
+      const tokData = await tokRes.json().catch(() => ({}));
+      if (!tokRes.ok || !tokData.refresh_token) {
+        res.writeHead(400, { 'Content-Type': 'text/html; charset=UTF-8' });
+        res.end(`<h3>Error intercambiando token OAuth2</h3><p>${escapeHtmlSsr(tokData.error_description || tokData.error || 'Falta offline_access refresh_token')}</p>`);
+        return;
+      }
+      cloud.tenants[idx].refreshTokenSealed = cloudOneDrive.sealCloudSecret(tokData.refresh_token);
+      cloud.tenants[idx].authMode = 'delegated_oauth2';
+      cloud.tenants[idx].updatedAt = new Date().toISOString();
+      writeCloudStore(cloud);
+      res.writeHead(302, { 'Location': '/?cloudLinked=1' });
+      res.end();
+      return;
+    }
+
+    if (pathname === '/api/admin/cloud/test' && method === 'POST') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Acceso restringido al Administrador' }, {}, { noStore: true });
+        return;
+      }
+      const body = await parseBody(req).catch(() => ({}));
+      const cloud = readCloudStore();
+      const tCfg = cloudOneDrive.resolveActiveTenantConfig(cloud, body.tenantId || '');
+      if (!tCfg) {
+        sendJSON(req, res, 400, { error: 'No hay ningún Tenant Azure/OneDrive configurado todavía.' }, {}, { noStore: true });
+        return;
+      }
+      try {
+        const info = await cloudOneDrive.testOneDriveConnection(tCfg);
+        const idx = cloud.tenants.findIndex(t => t.id === tCfg.id);
+        if (idx >= 0) {
+          cloud.tenants[idx].lastTestedAt = new Date().toISOString();
+          cloud.tenants[idx].quotaTotalBytes = info.quotaTotalBytes;
+          cloud.tenants[idx].quotaUsedBytes = info.quotaUsedBytes;
+          writeCloudStore(cloud);
+        }
+        sendJSON(req, res, 200, { success: true, ...info, tenantName: tCfg.name }, {}, { noStore: true });
+      } catch (err) {
+        sendJSON(req, res, 502, { error: `Error conectando con Microsoft Graph / OneDrive: ${err.message}` }, {}, { noStore: true });
+      }
+      return;
+    }
+
+    if (pathname === '/api/admin/cloud/backup' && method === 'POST') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Acceso restringido al Administrador' }, {}, { noStore: true });
+        return;
+      }
+      const body = await parseBody(req).catch(() => ({}));
+      const cloud = readCloudStore();
+      const tCfg = cloudOneDrive.resolveActiveTenantConfig(cloud, body.tenantId || '');
+      if (!tCfg) {
+        sendJSON(req, res, 400, { error: 'Configura primero tus credenciales de Azure AD / OneDrive.' }, {}, { noStore: true });
+        return;
+      }
+      try {
+        const up = await store.pushOneDriveSnapshot(tCfg);
+        cloud.backupHistory.unshift({
+          id: 'bkp-' + Date.now(),
+          action: 'backup',
+          tenantName: tCfg.name,
+          remotePath: up.remotePath,
+          size: up.size,
+          actor: currentUser.username,
+          ts: new Date().toISOString()
+        });
+        writeCloudStore(cloud);
+        sendJSON(req, res, 200, { success: true, ...up }, {}, { noStore: true });
+      } catch (err) {
+        sendJSON(req, res, 502, { error: `No se pudo subir el backup a OneDrive: ${err.message}` }, {}, { noStore: true });
+      }
+      return;
+    }
+
+    if (pathname === '/api/admin/cloud/restore' && method === 'POST') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Acceso restringido al Administrador' }, {}, { noStore: true });
+        return;
+      }
+      const body = await parseBody(req).catch(() => ({}));
+      const cloud = readCloudStore();
+      const tCfg = cloudOneDrive.resolveActiveTenantConfig(cloud, body.tenantId || '');
+      if (!tCfg) {
+        sendJSON(req, res, 400, { error: 'Configura primero tus credenciales de Azure AD / OneDrive.' }, {}, { noStore: true });
+        return;
+      }
+      try {
+        const resRestore = await store.restoreFromOneDriveSnapshot(tCfg);
+        if (!resRestore.restored) {
+          sendJSON(req, res, 404, { error: 'No existe todavía ningún backup previo en OneDrive (/backups/cyberpolis-latest.enc.json).' }, {}, { noStore: true });
+          return;
+        }
+        cloud.backupHistory.unshift({
+          id: 'rst-' + Date.now(),
+          action: 'restore',
+          tenantName: tCfg.name,
+          remotePath: '/backups/cyberpolis-latest.enc.json',
+          actor: currentUser.username,
+          ts: new Date().toISOString()
+        });
+        writeCloudStore(cloud);
+        sendJSON(req, res, 200, { success: true, ...resRestore }, {}, { noStore: true });
+      } catch (err) {
+        sendJSON(req, res, 502, { error: `Error restaurando backup de OneDrive: ${err.message}` }, {}, { noStore: true });
+      }
+      return;
+    }
+
+    if (pathname === '/api/admin/transfers/audit' && method === 'GET') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Acceso restringido al Administrador' }, {}, { noStore: true });
+        return;
+      }
+      const list = readJSON(TRANSFERS_FILE, []);
+      const auditRows = (Array.isArray(list) ? list : []).slice(0, 200).map(t => ({
+        id: t.id,
+        mode: t.mode,
+        title: t.title,
+        senderUsername: t.senderUsername,
+        recipientUsername: t.recipientUsername || '',
+        recipientEmail: t.recipientEmail || '',
+        tenantName: t.tenantName || 'CYBERPOLIS Vault',
+        fileName: t.file ? t.file.fileName : '',
+        fileSize: t.file ? t.file.size : 0,
+        fileSha256: t.file ? t.file.sha256 : '',
+        storageLocation: t.file ? t.file.storageLocation : 'none',
+        oneDrivePath: t.file ? (t.file.oneDrivePath || '') : '',
+        responseCount: Array.isArray(t.responses) ? t.responses.length : 0,
+        eventsCount: Array.isArray(t.events) ? t.events.length : 0,
+        emailNotifications: Array.isArray(t.emailNotifications) ? t.emailNotifications : [],
+        createdAt: t.createdAt,
+        expiresAt: t.expiresAt
+      }));
+      sendJSON(req, res, 200, { transfers: auditRows }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname === '/api/transfers/mine' && method === 'GET') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser) {
+        sendJSON(req, res, 401, { error: 'Debes iniciar sesión para acceder a tu espacio CYBERPOLIS Transfer.' }, {}, { noStore: true });
+        return;
+      }
+      const all = readJSON(TRANSFERS_FILE, []);
+      const users = readJSON(USERS_FILE, []);
+      const fullUser = users.find(u => u.id === currentUser.id) || currentUser;
+      const myEmails = [fullUser.email, fullUser.notificationEmail]
+        .filter(e => e && String(e).includes('@') && !String(e).endsWith('.local'))
+        .map(e => String(e).toLowerCase());
+
+      const sent = [];
+      const received = [];
+      const links = [];
+
+      for (const t of (Array.isArray(all) ? all : [])) {
+        const isSender = t.senderId === currentUser.id;
+        const isRecip = t.recipientId === currentUser.id ||
+          (t.recipientUsername && t.recipientUsername.toLowerCase() === currentUser.username.toLowerCase()) ||
+          (t.recipientEmail && myEmails.includes(String(t.recipientEmail).toLowerCase()));
+        if (!isSender && !isRecip) continue;
+        const view = sanitizeTransferForViewer(t, true);
+        if (isSender && t.mode === 'link') links.push(view);
+        else if (isSender) sent.push(view);
+        if (isRecip && !isSender) received.push(view);
+      }
+
+      sendJSON(req, res, 200, {
+        notificationEmail: resolveUserNotificationEmail(fullUser),
+        sent,
+        received,
+        links
+      }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname === '/api/transfers' && method === 'POST') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser) {
+        sendJSON(req, res, 401, { error: 'Debes iniciar sesión para enviar o crear enlaces cifrados.' }, {}, { noStore: true });
+        return;
+      }
+      if (!checkRateLimit(`transfer:${currentUser.id}`, 20, 60000)) {
+        sendJSON(req, res, 429, { error: 'Demasiados envíos en poco tiempo.' }, {}, { noStore: true });
+        return;
+      }
+      const body = await parseBody(req, 26 * 1024 * 1024);
+      const mode = ['send', 'receive', 'link'].includes(body.mode) ? body.mode : 'send';
+      const title = sanitizeInput(body.title || (mode === 'link' ? 'Enlace de intercambio cifrado' : 'Envío cifrado WeTransfer'), 120);
+      const message = sanitizeInput(body.message || '', 2000);
+      const expiresDays = Math.max(1, Math.min(90, parseInt(body.expiresDays, 10) || 14));
+      const accessPassword = String(body.accessPassword || '').trim();
+
+      const users = readJSON(USERS_FILE, []);
+      let recipientUser = null;
+      if (body.recipientUsername) {
+        const ruLower = String(body.recipientUsername).trim().toLowerCase();
+        recipientUser = users.find(u => u.username && u.username.toLowerCase() === ruLower) || null;
+      }
+      let recipientEmail = sanitizeEmail(body.recipientEmail || '');
+      if (!recipientEmail && recipientUser) {
+        recipientEmail = resolveUserNotificationEmail(recipientUser);
+      }
+      if (mode === 'send' && !recipientUser && !recipientEmail) {
+        sendJSON(req, res, 400, { error: 'Elige un usuario destinatario o indica su correo electrónico.' }, {}, { noStore: true });
+        return;
+      }
+
+      let rawBuf = null;
+      if (body.file && body.file.base64Data) {
+        const cleanB64 = String(body.file.base64Data).replace(/^data:[^;]+;base64,/, '');
+        rawBuf = Buffer.from(cleanB64, 'base64');
+        if (rawBuf.length === 0 || rawBuf.length > 18 * 1024 * 1024) {
+          sendJSON(req, res, 400, { error: 'Archivo vacío o superior al límite de 18 MB por transferencia web.' }, {}, { noStore: true });
+          return;
+        }
+      } else if (mode === 'send' && !message) {
+        sendJSON(req, res, 400, { error: 'Adjunta un archivo o escribe un mensaje para enviar.' }, {}, { noStore: true });
+        return;
+      }
+
+      const cloud = readCloudStore();
+      const tenantCfg = cloudOneDrive.resolveActiveTenantConfig(cloud, body.tenantId || '');
+      const transferId = 'tr-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex');
+      const shareToken = crypto.randomBytes(24).toString('hex');
+      const keySalt = crypto.randomBytes(16).toString('hex');
+
+      let fileMeta = null;
+      if (rawBuf) {
+        fileMeta = await storeEncryptedTransferFile(
+          transferId + '-main',
+          rawBuf,
+          body.file.name,
+          body.file.mimeType,
+          tenantCfg,
+          keySalt
+        );
+      }
+
+      const nowIso = new Date().toISOString();
+      const expiresAt = new Date(Date.now() + expiresDays * 86400000).toISOString();
+      const proto = isSecureRequest(req) ? 'https' : 'http';
+      const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'cyberpolis.onrender.com').split(',')[0].trim();
+      const shareUrl = `${proto}://${host}/?transfer=${encodeURIComponent(shareToken)}`;
+
+      const emailNotifications = [];
+      if (recipientEmail && body.notifyByEmail !== false) {
+        const notif = await cloudOneDrive.sendTransferNotificationEmail(tenantCfg, {
+          to: recipientEmail,
+          subject: `[CYBERPOLIS Transfer] ${currentUser.displayName || currentUser.username} te ha enviado: ${title}`,
+          textBody: `${currentUser.displayName || currentUser.username} (@${currentUser.username}) te ha compartido un enlace cifrado en CYBERPOLIS.\n\nMensaje:\n${message || '(Sin texto adicional)'}\n\nAccede y agrega tu respuesta o archivos aquí:\n${shareUrl}\n\nCaduca: ${expiresAt}`,
+          htmlBody: `<p><strong>${escapeHtmlSsr(currentUser.displayName || currentUser.username)}</strong> (@${escapeHtmlSsr(currentUser.username)}) ha creado una transferencia cifrada para ti en <strong>CYBERPOLIS</strong>.</p><p><strong>Asunto:</strong> ${escapeHtmlSsr(title)}</p>${message ? `<blockquote style="border-left:3px solid #0078d4;padding-left:10px;">${escapeHtmlSsr(message)}</blockquote>` : ''}<p><a href="${shareUrl}">Abrir transferencia cifrada y responder →</a></p><p><small>Caducidad: ${expiresAt}</small></p>`
+        });
+        emailNotifications.push({ ...notif, trigger: 'created' });
+      }
+
+      const transferRecord = {
+        id: transferId,
+        mode,
+        title,
+        message,
+        senderId: currentUser.id,
+        senderUsername: currentUser.username,
+        senderDisplayName: currentUser.displayName || currentUser.username,
+        senderEmail: resolveUserNotificationEmail(users.find(u => u.id === currentUser.id) || currentUser),
+        recipientId: recipientUser ? recipientUser.id : '',
+        recipientUsername: recipientUser ? recipientUser.username : '',
+        recipientEmail,
+        tenantId: tenantCfg ? tenantCfg.id : '',
+        tenantName: tenantCfg ? tenantCfg.name : 'Bóveda Local Cifrada',
+        encryptionKeySalt: keySalt,
+        accessPasswordHash: accessPassword ? hashTransferPassword(accessPassword, keySalt) : '',
+        allowRecipientReply: body.allowRecipientReply !== false,
+        allowRecipientUpload: body.allowRecipientUpload !== false,
+        shareToken,
+        file: fileMeta,
+        responses: [],
+        emailNotifications,
+        events: [{
+          type: 'created',
+          actor: currentUser.username,
+          ip,
+          sha256: fileMeta ? fileMeta.sha256 : '',
+          storageLocation: fileMeta ? fileMeta.storageLocation : 'none',
+          ts: nowIso
+        }],
+        createdAt: nowIso,
+        expiresAt
+      };
+
+      const allTransfers = readJSON(TRANSFERS_FILE, []);
+      allTransfers.unshift(transferRecord);
+      writeJSON(TRANSFERS_FILE, allTransfers.slice(0, 500), { critical: true });
+
+      recordLegalAudit({
+        action: 'create_encrypted_transfer',
+        targetType: 'transfer',
+        targetId: transferId,
+        summary: `Transferencia cifrada (${mode}) "${title}" -> ${recipientEmail || recipientUser?.username || 'Link compartido'}`,
+        currentUser,
+        ip,
+        req
+      });
+
+      sendJSON(req, res, 201, {
+        success: true,
+        shareUrl,
+        transfer: sanitizeTransferForViewer(transferRecord, true)
+      }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname.startsWith('/api/transfers/link/') && pathname.endsWith('/unlock') && method === 'POST') {
+      const shareToken = decodeURIComponent(pathname.slice('/api/transfers/link/'.length, -'/unlock'.length));
+      const all = readJSON(TRANSFERS_FILE, []);
+      const idx = all.findIndex(x => x.shareToken === shareToken);
+      if (idx === -1) {
+        sendJSON(req, res, 404, { error: 'Enlace de transferencia no encontrado o revocado.' }, {}, { noStore: true });
+        return;
+      }
+      const t = all[idx];
+      if (t.expiresAt && new Date(t.expiresAt).getTime() < Date.now()) {
+        sendJSON(req, res, 410, { error: 'Este enlace cifrado ha caducado.' }, {}, { noStore: true });
+        return;
+      }
+      const body = await parseBody(req).catch(() => ({}));
+      const pwd = String(body.password || '');
+      if (t.accessPasswordHash && hashTransferPassword(pwd, t.encryptionKeySalt) !== t.accessPasswordHash) {
+        sendJSON(req, res, 403, { error: 'Clave de acceso incorrecta.' }, {}, { noStore: true });
+        return;
+      }
+      sendJSON(req, res, 200, { unlocked: true, transfer: sanitizeTransferForViewer(t, true) }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname.startsWith('/api/transfers/link/') && method === 'GET') {
+      const shareToken = decodeURIComponent(pathname.replace('/api/transfers/link/', ''));
+      const all = readJSON(TRANSFERS_FILE, []);
+      const t = all.find(x => x.shareToken === shareToken);
+      if (!t) {
+        sendJSON(req, res, 404, { error: 'Enlace de transferencia no encontrado o revocado.' }, {}, { noStore: true });
+        return;
+      }
+      if (t.expiresAt && new Date(t.expiresAt).getTime() < Date.now()) {
+        sendJSON(req, res, 410, { error: 'Este enlace cifrado ha caducado.' }, {}, { noStore: true });
+        return;
+      }
+      const suppliedPass = (parsedUrl.query && parsedUrl.query.password) || '';
+      const locked = !!(t.accessPasswordHash && hashTransferPassword(suppliedPass, t.encryptionKeySalt) !== t.accessPasswordHash);
+      if (locked) {
+        sendJSON(req, res, 200, {
+          locked: true,
+          transfer: {
+            id: t.id,
+            mode: t.mode,
+            title: t.title,
+            senderDisplayName: t.senderDisplayName,
+            requiresPassword: true,
+            expiresAt: t.expiresAt
+          }
+        }, {}, { noStore: true });
+        return;
+      }
+      sendJSON(req, res, 200, { locked: false, transfer: sanitizeTransferForViewer(t, true) }, {}, { noStore: true });
+      return;
+    }
+
+    if (/^\/api\/transfers\/[^/]+\/download$/.test(pathname) && method === 'GET') {
+      const transferId = decodeURIComponent(pathname.split('/')[3]);
+      const currentUser = getSessionUser(req);
+      const shareToken = (parsedUrl.query && parsedUrl.query.token) || '';
+      const suppliedPass = (parsedUrl.query && parsedUrl.query.password) || '';
+      const responseId = (parsedUrl.query && parsedUrl.query.responseId) || '';
+
+      const all = readJSON(TRANSFERS_FILE, []);
+      const idx = all.findIndex(x => x.id === transferId);
+      if (idx === -1) {
+        sendJSON(req, res, 404, { error: 'Transferencia no encontrada.' }, {}, { noStore: true });
+        return;
+      }
+      const t = all[idx];
+      if (!canUserAccessTransfer(t, currentUser, shareToken)) {
+        sendJSON(req, res, 403, { error: 'Acceso denegado: este archivo cifrado pertenece únicamente a su emisor/destinatario.' }, {}, { noStore: true });
+        return;
+      }
+      if (t.expiresAt && new Date(t.expiresAt).getTime() < Date.now()) {
+        sendJSON(req, res, 410, { error: 'Este archivo cifrado ha caducado.' }, {}, { noStore: true });
+        return;
+      }
+      if (t.accessPasswordHash && (!currentUser || currentUser.id !== t.senderId)) {
+        if (hashTransferPassword(suppliedPass, t.encryptionKeySalt) !== t.accessPasswordHash) {
+          sendJSON(req, res, 403, { error: 'Clave de transferencia requerida o incorrecta.' }, {}, { noStore: true });
+          return;
+        }
+      }
+
+      let fileMeta = t.file;
+      if (responseId) {
+        const respEntry = (t.responses || []).find(r => r.id === responseId);
+        fileMeta = respEntry ? respEntry.file : null;
+      }
+      if (!fileMeta) {
+        sendJSON(req, res, 404, { error: 'No hay ningún archivo adjunto en esta transferencia.' }, {}, { noStore: true });
+        return;
+      }
+
+      const cloud = readCloudStore();
+      const tenantCfg = cloudOneDrive.resolveActiveTenantConfig(cloud, t.tenantId);
+      const plainBuf = await loadDecryptedTransferFile(fileMeta, tenantCfg, t.encryptionKeySalt);
+      if (!plainBuf) {
+        sendJSON(req, res, 404, { error: 'No se pudo recuperar el blob cifrado desde la nube.' }, {}, { noStore: true });
+        return;
+      }
+
+      t.events = Array.isArray(t.events) ? t.events : [];
+      t.events.push({
+        type: 'download',
+        actor: currentUser ? currentUser.username : 'link-recipient',
+        ip,
+        fileName: fileMeta.fileName,
+        sha256: fileMeta.sha256,
+        ts: new Date().toISOString()
+      });
+      writeJSON(TRANSFERS_FILE, all, { critical: true });
+
+      const headers = {
+        ...buildSecurityHeaders(req, {
+          isHtml: false,
+          contentType: fileMeta.mimeType || 'application/octet-stream',
+          cacheControl: 'no-store'
+        }),
+        'Content-Length': String(plainBuf.length),
+        'Content-Disposition': `attachment; filename="${String(fileMeta.fileName || 'archivo.bin').replace(/"/g, '')}"`
+      };
+      res.writeHead(200, headers);
+      res.end(plainBuf);
+      return;
+    }
+
+    if (/^\/api\/transfers\/[^/]+\/respond$/.test(pathname) && method === 'POST') {
+      const transferId = decodeURIComponent(pathname.split('/')[3]);
+      const currentUser = getSessionUser(req);
+      const body = await parseBody(req, 26 * 1024 * 1024);
+      const shareToken = body.token || (parsedUrl.query && parsedUrl.query.token) || '';
+
+      const all = readJSON(TRANSFERS_FILE, []);
+      const idx = all.findIndex(x => x.id === transferId);
+      if (idx === -1) {
+        sendJSON(req, res, 404, { error: 'Transferencia no encontrada.' }, {}, { noStore: true });
+        return;
+      }
+      const t = all[idx];
+      if (!canUserAccessTransfer(t, currentUser, shareToken)) {
+        sendJSON(req, res, 403, { error: 'No autorizado para agregar información en esta transferencia.' }, {}, { noStore: true });
+        return;
+      }
+      if (t.allowRecipientReply === false) {
+        sendJSON(req, res, 403, { error: 'El emisor deshabilitó respuestas en esta transferencia.' }, {}, { noStore: true });
+        return;
+      }
+      if (t.accessPasswordHash && !currentUser) {
+        if (hashTransferPassword(String(body.password || ''), t.encryptionKeySalt) !== t.accessPasswordHash) {
+          sendJSON(req, res, 403, { error: 'Clave de acceso requerida para responder.' }, {}, { noStore: true });
+          return;
+        }
+      }
+
+      const replyText = sanitizeInput(body.text || '', 2000);
+      const authorName = sanitizeInput(
+        (currentUser && (currentUser.displayName || currentUser.username)) || body.authorName || 'Destinatario Externo',
+        64
+      );
+      const authorEmail = sanitizeEmail((currentUser && currentUser.email) || body.authorEmail || '');
+
+      let respFileMeta = null;
+      if (body.file && body.file.base64Data) {
+        if (t.allowRecipientUpload === false) {
+          sendJSON(req, res, 403, { error: 'El emisor no permite adjuntar archivos en este enlace.' }, {}, { noStore: true });
+          return;
+        }
+        const cleanB64 = String(body.file.base64Data).replace(/^data:[^;]+;base64,/, '');
+        const rawBuf = Buffer.from(cleanB64, 'base64');
+        if (rawBuf.length === 0 || rawBuf.length > 18 * 1024 * 1024) {
+          sendJSON(req, res, 400, { error: 'Archivo adjunto inválido o mayor de 18 MB.' }, {}, { noStore: true });
+          return;
+        }
+        const cloud = readCloudStore();
+        const tenantCfg = cloudOneDrive.resolveActiveTenantConfig(cloud, t.tenantId);
+        respFileMeta = await storeEncryptedTransferFile(
+          `${t.id}-resp-${Date.now()}`,
+          rawBuf,
+          body.file.name,
+          body.file.mimeType,
+          tenantCfg,
+          t.encryptionKeySalt
+        );
+      }
+
+      if (!replyText && !respFileMeta) {
+        sendJSON(req, res, 400, { error: 'Escribe información o adjunta un archivo de respuesta.' }, {}, { noStore: true });
+        return;
+      }
+
+      const nowIso = new Date().toISOString();
+      const respObj = {
+        id: 'resp-' + Date.now() + '-' + crypto.randomBytes(2).toString('hex'),
+        authorName,
+        authorEmail,
+        text: replyText,
+        file: respFileMeta,
+        ip,
+        createdAt: nowIso
+      };
+      t.responses = Array.isArray(t.responses) ? t.responses : [];
+      t.responses.push(respObj);
+      t.events = Array.isArray(t.events) ? t.events : [];
+      t.events.push({
+        type: 'recipient_response',
+        actor: authorName,
+        ip,
+        sha256: respFileMeta ? respFileMeta.sha256 : '',
+        ts: nowIso
+      });
+
+      if (t.senderEmail) {
+        const cloud = readCloudStore();
+        const tenantCfg = cloudOneDrive.resolveActiveTenantConfig(cloud, t.tenantId);
+        const notif = await cloudOneDrive.sendTransferNotificationEmail(tenantCfg, {
+          to: t.senderEmail,
+          subject: `[CYBERPOLIS Transfer] Nueva información recibida en: ${t.title}`,
+          textBody: `${authorName} ha agregado información${respFileMeta ? ` y adjuntado "${respFileMeta.fileName}"` : ''} en tu transferencia "${t.title}".\n\nTexto:\n${replyText || '(Sin texto)'}`,
+          htmlBody: `<p><strong>${escapeHtmlSsr(authorName)}</strong> ha añadido información en tu transferencia <strong>${escapeHtmlSsr(t.title)}</strong>.</p>${replyText ? `<blockquote style="border-left:3px solid #16a34a;padding-left:10px;">${escapeHtmlSsr(replyText)}</blockquote>` : ''}${respFileMeta ? `<p>📎 Archivo adjunto cifrado: <strong>${escapeHtmlSsr(respFileMeta.fileName)}</strong></p>` : ''}`
+        });
+        t.emailNotifications = Array.isArray(t.emailNotifications) ? t.emailNotifications : [];
+        t.emailNotifications.push({ ...notif, trigger: 'recipient_response' });
+      }
+
+      writeJSON(TRANSFERS_FILE, all, { critical: true });
+      sendJSON(req, res, 201, { success: true, transfer: sanitizeTransferForViewer(t, true) }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname.startsWith('/api/transfers/') && method === 'DELETE') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser) {
+        sendJSON(req, res, 401, { error: 'Autenticación requerida.' }, {}, { noStore: true });
+        return;
+      }
+      const transferId = decodeURIComponent(pathname.replace('/api/transfers/', ''));
+      const all = readJSON(TRANSFERS_FILE, []);
+      const idx = all.findIndex(x => x.id === transferId);
+      if (idx === -1) {
+        sendJSON(req, res, 404, { error: 'Transferencia no encontrada.' }, {}, { noStore: true });
+        return;
+      }
+      const t = all[idx];
+      if (currentUser.role !== 'admin' && t.senderId !== currentUser.id) {
+        sendJSON(req, res, 403, { error: 'Solo el emisor o el Administrador puede revocar esta transferencia.' }, {}, { noStore: true });
+        return;
+      }
+
+      const cloud = readCloudStore();
+      const tenantCfg = cloudOneDrive.resolveActiveTenantConfig(cloud, t.tenantId);
+      if (t.file && t.file.oneDrivePath && tenantCfg) {
+        cloudOneDrive.deleteItemFromOneDrive(tenantCfg, t.file.oneDrivePath);
+      }
+      if (t.file && t.file.blobId) {
+        try { fs.unlinkSync(path.join(VAULT_DIR, `${path.basename(t.file.blobId)}.enc`)); } catch (e) {}
+      }
+      for (const r of (t.responses || [])) {
+        if (r.file && r.file.oneDrivePath && tenantCfg) {
+          cloudOneDrive.deleteItemFromOneDrive(tenantCfg, r.file.oneDrivePath);
+        }
+        if (r.file && r.file.blobId) {
+          try { fs.unlinkSync(path.join(VAULT_DIR, `${path.basename(r.file.blobId)}.enc`)); } catch (e) {}
+        }
+      }
+
+      all.splice(idx, 1);
+      writeJSON(TRANSFERS_FILE, all, { critical: true });
+      sendJSON(req, res, 200, { success: true, deleted: transferId }, {}, { noStore: true });
       return;
     }
 

@@ -114,7 +114,20 @@
     systemStatus: null,
     adminUserSearch: '',
     resetPasswordUserId: null,
-    confirmDeleteUserId: null
+    confirmDeleteUserId: null,
+    cloud: {
+      tenants: [],
+      storage: null,
+      backupHistory: [],
+      auditTransfers: []
+    },
+    transfer: {
+      publicTenants: [],
+      mine: { notificationEmail: '', sent: [], received: [], links: [] },
+      pendingFile: null,
+      activeLinkToken: '',
+      activeLinkPassword: ''
+    }
   };
 
   function apiFetch(url, options = {}) {
@@ -398,6 +411,7 @@
     openNewArticleModalBtn: document.getElementById('openNewArticleModalBtn'),
     openLinkedInModalBtn: document.getElementById('openLinkedInModalBtn'),
     openAdminControlBtn: document.getElementById('openAdminControlBtn'),
+    openTransferModalBtn: document.getElementById('openTransferModalBtn'),
     userSessionWidget: document.getElementById('userSessionWidget'),
     categoryTabs: document.getElementById('categoryTabs'),
     sortSelect: document.getElementById('sortSelect'),
@@ -462,6 +476,7 @@
     adminTabChatBtn: document.getElementById('adminTabChatBtn'),
     adminTabAdsBtn: document.getElementById('adminTabAdsBtn'),
     adminTabSecurityBtn: document.getElementById('adminTabSecurityBtn'),
+    adminTabCloudBtn: document.getElementById('adminTabCloudBtn'),
     adminOverviewSection: document.getElementById('adminOverviewSection'),
     adminOverviewKpiGrid: document.getElementById('adminOverviewKpiGrid'),
     adminOverviewServicesList: document.getElementById('adminOverviewServicesList'),
@@ -473,6 +488,7 @@
     adminChatSection: document.getElementById('adminChatSection'),
     adminAdsSection: document.getElementById('adminAdsSection'),
     adminSecuritySection: document.getElementById('adminSecuritySection'),
+    adminCloudSection: document.getElementById('adminCloudSection'),
     mircChannelTabs: document.getElementById('mircChannelTabs'),
     ircBrowseChannelsBtn: document.getElementById('ircBrowseChannelsBtn'),
     ircNewChannelBtn: document.getElementById('ircNewChannelBtn'),
@@ -676,7 +692,64 @@
     changePasswordForm: document.getElementById('changePasswordForm'),
     curPassInput: document.getElementById('curPassInput'),
     newPassInput: document.getElementById('newPassInput'),
-    confirmPassInput: document.getElementById('confirmPassInput')
+    confirmPassInput: document.getElementById('confirmPassInput'),
+
+    // OneDrive 5TB & Azure Tenants (Admin)
+    adminCloudStatusBox: document.getElementById('adminCloudStatusBox'),
+    cloudTestBtn: document.getElementById('cloudTestBtn'),
+    cloudBackupNowBtn: document.getElementById('cloudBackupNowBtn'),
+    cloudRestoreNowBtn: document.getElementById('cloudRestoreNowBtn'),
+    cloudTenantForm: document.getElementById('cloudTenantForm'),
+    ctRecordId: document.getElementById('ctRecordId'),
+    ctName: document.getElementById('ctName'),
+    ctCompanyDomain: document.getElementById('ctCompanyDomain'),
+    ctTenantId: document.getElementById('ctTenantId'),
+    ctClientId: document.getElementById('ctClientId'),
+    ctClientSecret: document.getElementById('ctClientSecret'),
+    ctAuthMode: document.getElementById('ctAuthMode'),
+    ctDriveUpn: document.getElementById('ctDriveUpn'),
+    ctBaseFolder: document.getElementById('ctBaseFolder'),
+    ctDefaultBackup: document.getElementById('ctDefaultBackup'),
+    ctAutoBackup: document.getElementById('ctAutoBackup'),
+    ctSendMail: document.getElementById('ctSendMail'),
+    ctResetFormBtn: document.getElementById('ctResetFormBtn'),
+    cloudTenantsList: document.getElementById('cloudTenantsList'),
+    cloudBackupHistoryList: document.getElementById('cloudBackupHistoryList'),
+    cloudAdminTransfersAuditList: document.getElementById('cloudAdminTransfersAuditList'),
+
+    // CYBERPOLIS Transfer (WeTransfer OneDrive Cifrado)
+    transferModal: document.getElementById('transferModal'),
+    closeTransferModalBtn: document.getElementById('closeTransferModalBtn'),
+    transferTabsBar: document.getElementById('transferTabsBar'),
+    transferPaneSend: document.getElementById('transferPaneSend'),
+    transferPaneReceive: document.getElementById('transferPaneReceive'),
+    transferPaneLinks: document.getElementById('transferPaneLinks'),
+    transferPaneEmail: document.getElementById('transferPaneEmail'),
+    transferCreateForm: document.getElementById('transferCreateForm'),
+    tfModeSelect: document.getElementById('tfModeSelect'),
+    tfTenantSelect: document.getElementById('tfTenantSelect'),
+    tfExpiresDays: document.getElementById('tfExpiresDays'),
+    tfRecipientRow: document.getElementById('tfRecipientRow'),
+    tfRecipientUsername: document.getElementById('tfRecipientUsername'),
+    tfRecipientEmail: document.getElementById('tfRecipientEmail'),
+    tfTitle: document.getElementById('tfTitle'),
+    tfAccessPassword: document.getElementById('tfAccessPassword'),
+    tfMessage: document.getElementById('tfMessage'),
+    tfFileInput: document.getElementById('tfFileInput'),
+    tfFilePreview: document.getElementById('tfFilePreview'),
+    tfAllowReply: document.getElementById('tfAllowReply'),
+    tfNotifyEmail: document.getElementById('tfNotifyEmail'),
+    tfSubmitBtn: document.getElementById('tfSubmitBtn'),
+    tfCreatedLinkResult: document.getElementById('tfCreatedLinkResult'),
+    tfRefreshMineBtn: document.getElementById('tfRefreshMineBtn'),
+    tfReceivedList: document.getElementById('tfReceivedList'),
+    tfSentList: document.getElementById('tfSentList'),
+    tfLinksList: document.getElementById('tfLinksList'),
+    tfEmailConfigForm: document.getElementById('tfEmailConfigForm'),
+    tfUserNotificationEmail: document.getElementById('tfUserNotificationEmail'),
+    transferLinkModal: document.getElementById('transferLinkModal'),
+    closeTransferLinkModalBtn: document.getElementById('closeTransferLinkModalBtn'),
+    transferLinkModalBody: document.getElementById('transferLinkModalBody')
   };
 
   // ==========================================
@@ -687,6 +760,7 @@
     applyTheme(state.theme);
     startLiveClock();
     bindEvents();
+    bindCloudAndTransferEvents();
     setupShortcuts();
 
     await checkServerConnection();
@@ -1183,6 +1257,11 @@
       crumb: 'Seguridad y BD',
       title: 'Infraestructura, Persistencia y Respaldos',
       subtitle: 'Estado del almacenamiento persistente, respaldos completos y credenciales Admin'
+    },
+    cloud: {
+      crumb: 'OneDrive 5TB y Azure',
+      title: 'Bóveda OneDrive 5 TB, Auto-Restore y Multi-Tenant Azure',
+      subtitle: 'Backup/Auto-Restore automático en despliegues y gestión de Tenants Azure Entra ID para WeTransfer'
     }
   };
 
@@ -1270,7 +1349,8 @@
       transform: [DOM.adminTabTransformBtn, DOM.adminTransformSection],
       chat: [DOM.adminTabChatBtn, DOM.adminChatSection],
       ads: [DOM.adminTabAdsBtn, DOM.adminAdsSection],
-      security: [DOM.adminTabSecurityBtn, DOM.adminSecuritySection]
+      security: [DOM.adminTabSecurityBtn, DOM.adminSecuritySection],
+      cloud: [DOM.adminTabCloudBtn, DOM.adminCloudSection]
     };
     for (const [key, [btn, sec]] of Object.entries(panels)) {
       const isActive = key === tab;
@@ -1288,6 +1368,7 @@
     if (tab === 'users') loadAdminUsers();
     if (tab === 'chat') loadAdminChatModeration();
     if (tab === 'security') loadAdminSystemStatus();
+    if (tab === 'cloud') loadAdminCloudStatus();
   }
 
   function renderAdminFeedsList() {
@@ -1490,6 +1571,9 @@
     if (DOM.openLinkedInModalBtn) {
       DOM.openLinkedInModalBtn.style.display = isLoggedIn ? 'inline-flex' : 'none';
     }
+    if (DOM.openTransferModalBtn) {
+      DOM.openTransferModalBtn.style.display = isLoggedIn ? 'inline-flex' : 'none';
+    }
     if (DOM.emptyCreateBtn) {
       DOM.emptyCreateBtn.style.display = isLoggedIn ? 'inline-flex' : 'none';
     }
@@ -1525,6 +1609,10 @@
             </button>
             <div class="dropdown-divider"></div>
           ` : ''}
+          <button class="dropdown-item" id="menuOpenTransferBtn">
+            <span>📦</span>
+            <span>Nube Transfer (WeTransfer)</span>
+          </button>
           <button class="dropdown-item" id="menuOpenLinkedInBtn">
             <span class="linkedin-glyph">in</span>
             <span>Ingestión LinkedIn</span>
@@ -1555,6 +1643,9 @@
 
       if (document.getElementById('menuOpenAdminBtn')) {
         document.getElementById('menuOpenAdminBtn').onclick = openAdminControl;
+      }
+      if (document.getElementById('menuOpenTransferBtn')) {
+        document.getElementById('menuOpenTransferBtn').onclick = () => openTransferModal('send');
       }
       document.getElementById('menuOpenLinkedInBtn').onclick = openLinkedInModal;
       document.getElementById('menuUsersListBtn').onclick = openUsersDirectory;
@@ -3177,6 +3268,7 @@
     if (DOM.adminTabChatBtn) DOM.adminTabChatBtn.addEventListener('click', () => switchAdminTab('chat'));
     if (DOM.adminTabAdsBtn) DOM.adminTabAdsBtn.addEventListener('click', () => switchAdminTab('ads'));
     if (DOM.adminTabSecurityBtn) DOM.adminTabSecurityBtn.addEventListener('click', () => switchAdminTab('security'));
+    if (DOM.adminTabCloudBtn) DOM.adminTabCloudBtn.addEventListener('click', () => switchAdminTab('cloud'));
     if (DOM.adminTopModBadge) DOM.adminTopModBadge.addEventListener('click', () => switchAdminTab('moderation'));
     if (DOM.adminRefreshOverviewBtn) {
       DOM.adminRefreshOverviewBtn.addEventListener('click', () => {
@@ -3186,6 +3278,7 @@
         else if (activeBtn && activeBtn.id === 'adminTabUsersBtn') loadAdminUsers();
         else if (activeBtn && activeBtn.id === 'adminTabChatBtn') loadAdminChatModeration();
         else if (activeBtn && activeBtn.id === 'adminTabSecurityBtn') loadAdminSystemStatus();
+        else if (activeBtn && activeBtn.id === 'adminTabCloudBtn') loadAdminCloudStatus();
         else loadAdminOverviewBlade();
       });
     }
@@ -3634,6 +3727,14 @@
           const uid = resetForm.dataset.userId;
           const inp = resetForm.querySelector('.admin-reset-pass-input');
           handleAdminResetPassword(uid, inp ? inp.value.trim() : '');
+          return;
+        }
+        const notifForm = e.target.closest('[data-user-notif-email-form]');
+        if (notifForm) {
+          e.preventDefault();
+          const uid = notifForm.dataset.userNotifEmailForm;
+          const inp = notifForm.querySelector('.admin-notif-email-input');
+          handleAdminUserTrust(uid, { notificationEmail: inp ? inp.value.trim() : '' });
         }
       });
 
@@ -5163,6 +5264,16 @@
         const exists = state.articles.some(a => a.id === articleParam);
         if (exists) openReaderModal(articleParam);
       }
+      const transferParam = params.get('transfer');
+      if (transferParam) {
+        openTransferLinkModal(transferParam);
+      }
+      const cloudOAuth = params.get('cloudOAuth');
+      if (cloudOAuth === 'ok') {
+        showToast('Tenant Microsoft 365 / OneDrive vinculado correctamente vía OAuth2.');
+      } else if (cloudOAuth === 'error') {
+        showToast('Error al vincular Tenant Microsoft 365 vía OAuth2.', 'error');
+      }
     } catch (e) {}
   }
 
@@ -5421,6 +5532,10 @@
               <div class="admin-user-meta">
                 ${u.email ? `${escapeHtml(u.email)} · ` : ''}Alta: ${escapeHtml(created)} (${Number(u.accountAgeDays) || 0}d) · 🪙 ${Number(u.tokens) || 0} tokens · ✓ ${Number(u.approvedPosts) || 0} aprobados · Último acceso: ${escapeHtml(lastLogin)} · ${u.articlesCount || 0} noticias · ${u.forumThreadsCount || 0} hilos · ${u.activeSessions || 0} sesiones
                 ${(u.registrationIp || u.lastLoginIp) ? `<br><span style="font-family:var(--font-mono);font-size:0.71rem;">🌐 IP Registro: ${escapeHtml(u.registrationIp || '—')} · Última IP: ${escapeHtml(u.lastLoginIp || '—')}</span>` : ''}
+                <form class="admin-reset-inline" data-user-notif-email-form="${escapeHtml(u.id)}" style="margin-top:6px;">
+                  <input type="email" class="hud-input admin-notif-email-input" value="${escapeHtml(u.notificationEmail || u.email || '')}" placeholder="Email notificaciones WeTransfer..." style="max-width:260px;padding:4px 8px;font-size:0.76rem;">
+                  <button type="submit" class="hud-btn hud-btn-outline" style="padding:4px 8px;font-size:0.74rem;">✉️ Guardar Email Avisos</button>
+                </form>
               </div>
             </div>
 
@@ -7339,6 +7454,759 @@
     } catch (err) {
       showToast('Error al ejecutar moderación IRC.', 'error');
       return false;
+    }
+  }
+
+  // ==========================================
+  // 19. OneDrive 5TB Backup, Multi-Tenant Azure Entra ID y CYBERPOLIS Transfer (v8.0)
+  // ==========================================
+  function formatBytesHuman(bytes) {
+    const n = Number(bytes) || 0;
+    if (n <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+    return `${(n / Math.pow(1024, i)).toFixed(i >= 2 ? 2 : 0)} ${units[i]}`;
+  }
+
+  function switchTransferTab(tab) {
+    const panes = {
+      send: DOM.transferPaneSend,
+      receive: DOM.transferPaneReceive,
+      links: DOM.transferPaneLinks,
+      email: DOM.transferPaneEmail
+    };
+    if (DOM.transferTabsBar) {
+      DOM.transferTabsBar.querySelectorAll('[data-transfer-tab]').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.transferTab === tab);
+      });
+    }
+    Object.entries(panes).forEach(([k, el]) => {
+      if (el) el.style.display = k === tab ? 'block' : 'none';
+    });
+    if (tab === 'receive' || tab === 'links') {
+      loadMyTransfers();
+    }
+  }
+
+  async function openTransferModal(initialTab = 'send') {
+    if (!state.currentUser) {
+      openAuthModal();
+      showToast('Inicia sesión para usar CYBERPOLIS Transfer.', 'info');
+      return;
+    }
+    if (!DOM.transferModal) return;
+    DOM.transferModal.style.display = 'flex';
+    switchTransferTab(initialTab);
+    await Promise.allSettled([loadPublicCloudTenants(), loadMyTransfers()]);
+  }
+
+  function closeTransferModal() {
+    if (DOM.transferModal) DOM.transferModal.style.display = 'none';
+  }
+
+  async function loadPublicCloudTenants() {
+    if (!state.serverMode || !state.currentUser || !DOM.tfTenantSelect) return;
+    try {
+      const res = await apiFetch('/api/cloud/tenants/public');
+      if (!res.ok) return;
+      const data = await res.json();
+      state.transfer.publicTenants = Array.isArray(data.tenants) ? data.tenants : [];
+      const opts = ['<option value="">Bóveda principal (OneDrive por defecto / Local cifrado)</option>'];
+      state.transfer.publicTenants.forEach(t => {
+        const label = `${t.name}${t.companyDomain ? ` (${t.companyDomain})` : ''}${t.isDefaultForBackup ? ' ★ Principal' : ''}`;
+        opts.push(`<option value="${escapeHtml(t.id)}">${escapeHtml(label)}</option>`);
+      });
+      DOM.tfTenantSelect.innerHTML = opts.join('');
+    } catch (e) {}
+  }
+
+  async function loadMyTransfers() {
+    if (!state.serverMode || !state.currentUser) return;
+    try {
+      const res = await apiFetch('/api/transfers/mine');
+      if (!res.ok) return;
+      const data = await res.json();
+      state.transfer.mine = {
+        notificationEmail: data.notificationEmail || '',
+        sent: Array.isArray(data.sent) ? data.sent : [],
+        received: Array.isArray(data.received) ? data.received : [],
+        links: Array.isArray(data.links) ? data.links : []
+      };
+      if (DOM.tfUserNotificationEmail) {
+        DOM.tfUserNotificationEmail.value = state.transfer.mine.notificationEmail || '';
+      }
+      renderMyTransfersLists();
+    } catch (e) {}
+  }
+
+  function renderTransferCardHtml(t, context) {
+    const shareHref = t.shareUrl || (t.shareToken ? `${window.location.origin}/?transfer=${encodeURIComponent(t.shareToken)}` : '');
+    const createdStr = t.createdAt ? new Date(t.createdAt).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+    const expStr = t.expiresAt ? new Date(t.expiresAt).toLocaleDateString('es-ES') : 'Sin caducidad';
+    const isSender = state.currentUser && t.senderUserId === state.currentUser.id;
+    const isAdmin = state.currentUser && state.currentUser.role === 'admin';
+    const responsesHtml = (t.responses || []).map(r => `
+      <div class="transfer-reply-item">
+        <strong>💬 ${escapeHtml(r.authorName || 'Receptor')}</strong>
+        <span class="transfer-card-meta"> · ${escapeHtml(r.createdAt ? new Date(r.createdAt).toLocaleString('es-ES') : '')}</span>
+        ${r.text ? `<div style="margin-top:4px;white-space:pre-wrap;">${escapeHtml(r.text)}</div>` : ''}
+        ${r.file ? `
+          <div style="margin-top:6px;">
+            <button type="button" class="hud-btn hud-btn-outline" data-tf-download="${escapeHtml(t.id)}" data-tf-resp="${escapeHtml(r.id)}" data-tf-has-pass="${t.hasPassword ? '1' : '0'}" style="padding:3px 9px;font-size:0.74rem;">
+              ⬇️ Descargar adjunto respuesta: ${escapeHtml(r.file.name)} (${escapeHtml(formatBytesHuman(r.file.size))})
+            </button>
+          </div>
+        ` : ''}
+      </div>
+    `).join('');
+
+    return `
+      <div class="transfer-card" data-tf-card="${escapeHtml(t.id)}">
+        <div class="transfer-card-head">
+          <div>
+            <div class="transfer-card-title">${escapeHtml(t.title || 'Envío Cifrado')}</div>
+            <div class="transfer-card-meta">
+              De: <strong>@${escapeHtml(t.senderUsername || '—')}</strong>
+              ${t.recipientUsername ? ` → Para: <strong>@${escapeHtml(t.recipientUsername)}</strong>` : ''}
+              ${t.recipientEmail ? ` (${escapeHtml(t.recipientEmail)})` : ''}
+              · ${escapeHtml(createdStr)} · Caduca: ${escapeHtml(expStr)}
+              ${t.tenantName ? ` · 🏢 ${escapeHtml(t.tenantName)}` : ''}
+            </div>
+          </div>
+          <div class="transfer-actions-row">
+            <span class="transfer-badge">${escapeHtml(String(t.mode || 'send').toUpperCase())}</span>
+            ${t.hasPassword ? '<span class="transfer-badge locked">🔒 PIN</span>' : ''}
+            <span class="transfer-badge ok">${t.file && t.file.storageLocation === 'onedrive' ? '☁️ OneDrive AES-256' : '🔐 Vault AES-256'}</span>
+          </div>
+        </div>
+
+        ${t.message ? `<div class="transfer-msg-box">${escapeHtml(t.message)}</div>` : ''}
+
+        ${t.file ? `
+          <div class="transfer-file-row">
+            <span>📎 <strong>${escapeHtml(t.file.name)}</strong> · ${escapeHtml(formatBytesHuman(t.file.size))} · SHA-256: <code>${escapeHtml(String(t.file.sha256 || '').slice(0, 14))}…</code></span>
+            <button type="button" class="hud-btn hud-btn-action" data-tf-download="${escapeHtml(t.id)}" data-tf-has-pass="${t.hasPassword ? '1' : '0'}" style="padding:5px 11px;font-size:0.78rem;">⬇️ Descargar Descifrado</button>
+          </div>
+        ` : ''}
+
+        ${shareHref ? `
+          <div class="transfer-file-row">
+            <span style="font-family:var(--font-mono);font-size:0.74rem;overflow:hidden;text-overflow:ellipsis;">🔗 ${escapeHtml(shareHref)}</span>
+            <button type="button" class="hud-btn hud-btn-outline" data-tf-copy-url="${escapeHtml(shareHref)}" style="padding:4px 9px;font-size:0.74rem;">📋 Copiar Link</button>
+          </div>
+        ` : ''}
+
+        ${responsesHtml ? `<div class="transfer-responses-list">${responsesHtml}</div>` : ''}
+
+        ${t.allowRecipientReply ? `
+          <form class="transfer-reply-form" data-tf-reply-form="${escapeHtml(t.id)}" data-tf-has-pass="${t.hasPassword ? '1' : '0'}">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <input type="text" class="hud-input" name="replyText" placeholder="Agregar información o nota de respuesta..." style="flex:1;min-width:200px;">
+              <input type="file" class="hud-input" name="replyFile" style="max-width:230px;padding:4px;">
+              <button type="submit" class="hud-btn hud-btn-outline">💬 Responder / Adjuntar</button>
+            </div>
+          </form>
+        ` : ''}
+
+        ${(isSender || isAdmin || context === 'sent' || context === 'links') ? `
+          <div class="transfer-actions-row" style="justify-content:flex-end;">
+            <button type="button" class="hud-btn hud-btn-danger" data-tf-delete="${escapeHtml(t.id)}" style="padding:4px 9px;font-size:0.74rem;">🗑️ Eliminar</button>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  function renderMyTransfersLists() {
+    const mine = state.transfer.mine || { sent: [], received: [], links: [] };
+    if (DOM.tfReceivedList) {
+      DOM.tfReceivedList.innerHTML = mine.received.length
+        ? mine.received.map(t => renderTransferCardHtml(t, 'received')).join('')
+        : '<p class="admin-help-text">No tienes envíos dirigidos a tu bandeja todavía.</p>';
+    }
+    if (DOM.tfSentList) {
+      DOM.tfSentList.innerHTML = mine.sent.length
+        ? mine.sent.map(t => renderTransferCardHtml(t, 'sent')).join('')
+        : '<p class="admin-help-text">No has enviado transferencias todavía.</p>';
+    }
+    if (DOM.tfLinksList) {
+      DOM.tfLinksList.innerHTML = mine.links.length
+        ? mine.links.map(t => renderTransferCardHtml(t, 'links')).join('')
+        : '<p class="admin-help-text">Aún no has creado enlaces compartidos tipo WeTransfer.</p>';
+    }
+  }
+
+  function readFileAsBase64Payload(file) {
+    return new Promise((resolve, reject) => {
+      if (!file) return resolve(null);
+      if (file.size > 18 * 1024 * 1024) {
+        return reject(new Error('El archivo supera el máximo web de 18 MB por subida JSON.'));
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const res = String(reader.result || '');
+        const comma = res.indexOf(',');
+        const base64Data = comma >= 0 ? res.slice(comma + 1) : res;
+        resolve({
+          name: file.name || 'archivo.bin',
+          mimeType: file.type || 'application/octet-stream',
+          size: file.size || 0,
+          base64Data
+        });
+      };
+      reader.onerror = () => reject(new Error('No se pudo leer el archivo seleccionado.'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function triggerEncryptedTransferDownload(transferId, opts = {}) {
+    let password = opts.password || state.transfer.activeLinkPassword || '';
+    if (opts.hasPassword && !password) {
+      password = window.prompt('Este archivo está protegido con PIN/contraseña:') || '';
+      if (!password) return;
+    }
+    const qs = new URLSearchParams();
+    if (opts.token) qs.set('token', opts.token);
+    if (password) qs.set('password', password);
+    if (opts.responseId) qs.set('responseId', opts.responseId);
+    const url = `/api/transfers/${encodeURIComponent(transferId)}/download${qs.toString() ? `?${qs.toString()}` : ''}`;
+
+    try {
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast(err.error || 'No se pudo descargar el archivo cifrado.', 'error');
+        return;
+      }
+      const blob = await res.blob();
+      const disp = res.headers.get('content-disposition') || '';
+      const m = disp.match(/filename="([^"]+)"/i);
+      const filename = m && m[1] ? decodeURIComponent(m[1]) : 'archivo_cyberpolis';
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(objUrl), 2500);
+      showToast(`Archivo "${filename}" descifrado y descargado correctamente.`);
+    } catch (e) {
+      showToast('Error de red al descargar archivo cifrado.', 'error');
+    }
+  }
+
+  async function openTransferLinkModal(token, suppliedPassword = '') {
+    if (!DOM.transferLinkModal || !DOM.transferLinkModalBody || !token) return;
+    state.transfer.activeLinkToken = token;
+    state.transfer.activeLinkPassword = suppliedPassword || '';
+    DOM.transferLinkModal.style.display = 'flex';
+    DOM.transferLinkModalBody.innerHTML = '<p class="admin-help-text">Verificando y descifrando envío...</p>';
+    try {
+      const qs = suppliedPassword ? `?password=${encodeURIComponent(suppliedPassword)}` : '';
+      const res = await apiFetch(`/api/transfers/link/${encodeURIComponent(token)}${qs}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        DOM.transferLinkModalBody.innerHTML = `<div class="admin-storage-banner banner-warn">${escapeHtml(data.error || 'Enlace no disponible o caducado.')}</div>`;
+        return;
+      }
+      if (data.locked) {
+        DOM.transferLinkModalBody.innerHTML = `
+          <div class="admin-config-card">
+            <h4 class="admin-sub-heading">🔒 Enlace protegido: ${escapeHtml(data.transfer ? data.transfer.title : 'Transferencia')}</h4>
+            <p class="admin-help-text">De @${escapeHtml(data.transfer ? data.transfer.senderUsername : 'usuario')} · Introduce la clave PIN facilitada por el remitente:</p>
+            <form id="tfLinkUnlockForm" style="display:flex;gap:8px;margin-top:10px;">
+              <input type="password" id="tfLinkUnlockInput" class="hud-input" placeholder="Clave PIN de acceso..." required>
+              <button type="submit" class="hud-btn hud-btn-action">🔓 Desbloquear</button>
+            </form>
+          </div>
+        `;
+        return;
+      }
+      const t = data.transfer;
+      DOM.transferLinkModalBody.innerHTML = renderTransferCardHtml(t, 'linkView');
+    } catch (e) {
+      DOM.transferLinkModalBody.innerHTML = '<div class="admin-storage-banner banner-warn">Error de red al consultar enlace cifrado.</div>';
+    }
+  }
+
+  async function loadAdminCloudStatus() {
+    if (!state.currentUser || state.currentUser.role !== 'admin') return;
+    if (DOM.adminCloudStatusBox) {
+      DOM.adminCloudStatusBox.className = 'admin-storage-banner';
+      DOM.adminCloudStatusBox.innerHTML = 'Consultando estado de Microsoft OneDrive 5 TB y Azure Entra ID...';
+    }
+    try {
+      const res = await apiFetch('/api/admin/cloud/status');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (DOM.adminCloudStatusBox) {
+          DOM.adminCloudStatusBox.className = 'admin-storage-banner banner-warn';
+          DOM.adminCloudStatusBox.textContent = data.error || 'Error cargando módulo OneDrive/Azure.';
+        }
+        return;
+      }
+      state.cloud.storage = data.storage || {};
+      state.cloud.tenants = Array.isArray(data.tenants) ? data.tenants : [];
+      state.cloud.backupHistory = Array.isArray(data.backupHistory) ? data.backupHistory : [];
+      renderAdminCloudUi();
+
+      const auditRes = await apiFetch('/api/admin/transfers/audit');
+      if (auditRes.ok) {
+        const auditData = await auditRes.json().catch(() => ({}));
+        state.cloud.auditTransfers = Array.isArray(auditData.transfers) ? auditData.transfers : [];
+        renderAdminCloudAudit();
+      }
+    } catch (e) {
+      if (DOM.adminCloudStatusBox) {
+        DOM.adminCloudStatusBox.className = 'admin-storage-banner banner-warn';
+        DOM.adminCloudStatusBox.textContent = 'Error de red consultando OneDrive / Azure Entra ID.';
+      }
+    }
+  }
+
+  function renderAdminCloudUi() {
+    const st = state.cloud.storage || {};
+    const linked = !!st.oneDriveLinked;
+    if (DOM.adminCloudStatusBox) {
+      DOM.adminCloudStatusBox.className = `admin-storage-banner ${linked ? 'banner-ok' : 'banner-warn'}`;
+      DOM.adminCloudStatusBox.innerHTML = linked ? `
+        <strong>☁️ OneDrive Auto-Backup Conectado (${escapeHtml(st.oneDriveTenantName || 'Tenant Azure')})</strong><br>
+        Cada cambio en usuarios, foro, noticias o WeTransfer se replica cifrado con AES-256-GCM en tu nube y se restaura en arranque si Render reconstruye el contenedor.
+      ` : `
+        <strong>⚠️ OneDrive 5 TB aún no vinculado en Render Environment</strong><br>
+        En Render actualmente solo están activas variables básicas, por lo que al compilar se reinicia el disco local. Para <strong>auto-restaurar automáticamente al arrancar</strong> tras cada deploy, registra tu App en Azure AD / Microsoft Entra y añade en <em>Render → Environment</em>:
+        <div class="admin-code-box" style="margin-top:8px;">
+          MS_TENANT_ID=tu-tenant-id-azure<br>
+          MS_CLIENT_ID=tu-client-id-app<br>
+          MS_CLIENT_SECRET=tu-client-secret<br>
+          ONEDRIVE_USER_UPN=tu_cuenta@tudominio.com<br>
+          PERSIST_SECRET=clave_larga_para_aes_256
+        </div>
+      `;
+    }
+
+    if (DOM.cloudTenantsList) {
+      DOM.cloudTenantsList.innerHTML = state.cloud.tenants.length ? state.cloud.tenants.map(t => {
+        const pct = t.quotaTotalBytes > 0 ? Math.min(100, Math.round((t.quotaUsedBytes / t.quotaTotalBytes) * 100)) : 0;
+        return `
+          <div class="cloud-tenant-card" data-tenant-id="${escapeHtml(t.id)}">
+            <div class="cloud-tenant-top">
+              <div>
+                <div class="cloud-tenant-title">🏢 ${escapeHtml(t.name)} ${t.isDefaultForBackup ? '<span class="transfer-badge ok">PRINCIPAL BACKUP</span>' : ''} ${t.fromEnv ? '<span class="transfer-badge">RENDER ENV</span>' : ''}</div>
+                <div class="cloud-tenant-meta">
+                  Tenant: ${escapeHtml(t.tenantId)} · Client: ${escapeHtml(t.clientId)} · Modo: ${escapeHtml(t.authMode)}
+                  ${t.driveUserUpn ? ` · UPN: ${escapeHtml(t.driveUserUpn)}` : ''} · Carpeta: /${escapeHtml(t.baseFolder || 'CYBERPOLIS_VAULT')}
+                </div>
+                <div class="cloud-tenant-meta">
+                  Secreto: ${t.hasClientSecret ? '✓ Guardado AES-256' : 'Pendiente'} · Refresh Token: ${t.hasRefreshToken ? '✓ Vinculado OAuth2' : 'No (App-Only)'}
+                  ${t.quotaTotalBytes > 0 ? ` · Espacio: ${escapeHtml(formatBytesHuman(t.quotaUsedBytes))} / ${escapeHtml(formatBytesHuman(t.quotaTotalBytes))} (${pct}%)` : ''}
+                </div>
+                ${t.quotaTotalBytes > 0 ? `<div class="cloud-quota-bar"><div class="cloud-quota-fill" style="width:${pct}%"></div></div>` : ''}
+              </div>
+              <div class="transfer-actions-row">
+                <button type="button" class="hud-btn hud-btn-outline" data-cloud-test-id="${escapeHtml(t.id)}">🔌 Probar</button>
+                ${!t.fromEnv ? `
+                  <button type="button" class="hud-btn hud-btn-outline" data-cloud-oauth-id="${escapeHtml(t.id)}">🔑 OAuth2 M365</button>
+                  <button type="button" class="hud-btn hud-btn-outline" data-cloud-edit-id="${escapeHtml(t.id)}">✏️ Editar</button>
+                  <button type="button" class="hud-btn hud-btn-danger" data-cloud-del-id="${escapeHtml(t.id)}">🗑️</button>
+                ` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('') : '<p class="admin-help-text">Sin tenants configurados todavía. Añade tu Tenant arriba.</p>';
+    }
+
+    if (DOM.cloudBackupHistoryList) {
+      DOM.cloudBackupHistoryList.innerHTML = state.cloud.backupHistory.length ? state.cloud.backupHistory.slice(0, 15).map(b => `
+        <div class="audit-log-row">
+          <strong>${escapeHtml(b.status || 'ok')}</strong> · ${escapeHtml(b.remotePath || '—')} · ${escapeHtml(formatBytesHuman(b.size || 0))} · ${escapeHtml(b.at ? new Date(b.at).toLocaleString('es-ES') : '')}
+        </div>
+      `).join('') : '<p class="admin-help-text">Aún no se han ejecutado copias hacia OneDrive.</p>';
+    }
+  }
+
+  function renderAdminCloudAudit() {
+    if (!DOM.cloudAdminTransfersAuditList) return;
+    DOM.cloudAdminTransfersAuditList.innerHTML = state.cloud.auditTransfers.length ? state.cloud.auditTransfers.slice(0, 25).map(a => `
+      <div class="audit-log-row">
+        <strong>[${escapeHtml(String(a.mode || 'send').toUpperCase())}]</strong> ${escapeHtml(a.title || '—')}
+        · @${escapeHtml(a.senderUsername)} → ${escapeHtml(a.recipientUsername ? `@${a.recipientUsername}` : (a.recipientEmail || 'Link público'))}
+        ${a.fileName ? ` · 📎 ${escapeHtml(a.fileName)} (${escapeHtml(formatBytesHuman(a.fileSize))})` : ''}
+        ${a.oneDrivePath ? ` · ☁️ ${escapeHtml(a.oneDrivePath)}` : ''}
+        <div class="cloud-tenant-meta">SHA-256: ${escapeHtml(String(a.fileSha256 || 'N/A').slice(0, 20))} · Respuestas: ${Number(a.responseCount) || 0} · Correos: ${Number(a.emailNotifications) || 0}</div>
+      </div>
+    `).join('') : '<p class="admin-help-text">Sin registros en trazabilidad Transfer.</p>';
+  }
+
+  function bindCloudAndTransferEvents() {
+    if (DOM.openTransferModalBtn) {
+      DOM.openTransferModalBtn.addEventListener('click', () => openTransferModal('send'));
+    }
+    if (DOM.closeTransferModalBtn) {
+      DOM.closeTransferModalBtn.addEventListener('click', closeTransferModal);
+    }
+    if (DOM.closeTransferLinkModalBtn && DOM.transferLinkModal) {
+      DOM.closeTransferLinkModalBtn.addEventListener('click', () => {
+        DOM.transferLinkModal.style.display = 'none';
+      });
+    }
+    if (DOM.transferTabsBar) {
+      DOM.transferTabsBar.addEventListener('click', e => {
+        const btn = e.target.closest('[data-transfer-tab]');
+        if (btn && btn.dataset.transferTab) switchTransferTab(btn.dataset.transferTab);
+      });
+    }
+    if (DOM.tfModeSelect && DOM.tfRecipientRow) {
+      DOM.tfModeSelect.addEventListener('change', () => {
+        DOM.tfRecipientRow.style.display = DOM.tfModeSelect.value === 'link' ? 'none' : 'grid';
+      });
+    }
+    if (DOM.tfFileInput) {
+      DOM.tfFileInput.addEventListener('change', async () => {
+        const f = DOM.tfFileInput.files && DOM.tfFileInput.files[0];
+        if (!f) {
+          state.transfer.pendingFile = null;
+          if (DOM.tfFilePreview) DOM.tfFilePreview.textContent = 'Sin archivo seleccionado.';
+          return;
+        }
+        try {
+          const payload = await readFileAsBase64Payload(f);
+          state.transfer.pendingFile = payload;
+          if (DOM.tfFilePreview) DOM.tfFilePreview.textContent = `✓ Listo para cifrar AES-256: ${f.name} (${formatBytesHuman(f.size)})`;
+        } catch (err) {
+          state.transfer.pendingFile = null;
+          DOM.tfFileInput.value = '';
+          if (DOM.tfFilePreview) DOM.tfFilePreview.textContent = err.message;
+          showToast(err.message, 'error');
+        }
+      });
+    }
+    if (DOM.transferCreateForm) {
+      DOM.transferCreateForm.addEventListener('submit', async e => {
+        e.preventDefault();
+        if (!state.currentUser) return;
+        const submitBtn = DOM.tfSubmitBtn;
+        if (submitBtn) submitBtn.disabled = true;
+        try {
+          const res = await apiFetch('/api/transfers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              mode: DOM.tfModeSelect ? DOM.tfModeSelect.value : 'send',
+              tenantId: DOM.tfTenantSelect ? DOM.tfTenantSelect.value : '',
+              expiresDays: DOM.tfExpiresDays ? Number(DOM.tfExpiresDays.value) || 7 : 7,
+              recipientUsername: DOM.tfRecipientUsername ? DOM.tfRecipientUsername.value.trim() : '',
+              recipientEmail: DOM.tfRecipientEmail ? DOM.tfRecipientEmail.value.trim() : '',
+              title: DOM.tfTitle ? DOM.tfTitle.value.trim() : '',
+              accessPassword: DOM.tfAccessPassword ? DOM.tfAccessPassword.value : '',
+              message: DOM.tfMessage ? DOM.tfMessage.value.trim() : '',
+              allowRecipientReply: DOM.tfAllowReply ? DOM.tfAllowReply.checked : true,
+              notifyByEmail: DOM.tfNotifyEmail ? DOM.tfNotifyEmail.checked : true,
+              file: state.transfer.pendingFile || null
+            })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showToast(data.error || 'Error creando transferencia cifrada.', 'error');
+            return;
+          }
+          DOM.transferCreateForm.reset();
+          state.transfer.pendingFile = null;
+          if (DOM.tfFilePreview) DOM.tfFilePreview.textContent = 'Sin archivo seleccionado.';
+          if (DOM.tfCreatedLinkResult) {
+            const fullShareUrl = data.shareUrl ? `${window.location.origin}${data.shareUrl.startsWith('/') ? '' : '/'}${data.shareUrl}` : '';
+            DOM.tfCreatedLinkResult.style.display = 'block';
+            DOM.tfCreatedLinkResult.innerHTML = `
+              <strong>✅ Envío cifrado guardado correctamente</strong><br>
+              ${fullShareUrl ? `Enlace seguro WeTransfer: <code>${escapeHtml(fullShareUrl)}</code> <button type="button" class="hud-btn hud-btn-outline" data-tf-copy-url="${escapeHtml(fullShareUrl)}" style="margin-left:8px;padding:3px 9px;font-size:0.74rem;">📋 Copiar</button>` : ''}
+            `;
+          }
+          showToast('Transferencia cifrada creada en Bóveda OneDrive.');
+          loadMyTransfers();
+        } catch (err) {
+          showToast('Error de red al crear transferencia.', 'error');
+        } finally {
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      });
+    }
+    if (DOM.tfRefreshMineBtn) {
+      DOM.tfRefreshMineBtn.addEventListener('click', loadMyTransfers);
+    }
+    if (DOM.tfEmailConfigForm) {
+      DOM.tfEmailConfigForm.addEventListener('submit', async e => {
+        e.preventDefault();
+        const email = DOM.tfUserNotificationEmail ? DOM.tfUserNotificationEmail.value.trim() : '';
+        try {
+          const res = await apiFetch('/api/profile/notification-email', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notificationEmail: email })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showToast(data.error || 'No se pudo guardar el correo.', 'error');
+            return;
+          }
+          state.transfer.mine.notificationEmail = data.notificationEmail || email;
+          showToast('Correo de notificaciones Transfer actualizado.');
+        } catch (err) {
+          showToast('Error guardando correo de avisos.', 'error');
+        }
+      });
+    }
+
+    const handleTransferContainerActions = (container, isLinkModal = false) => {
+      if (!container) return;
+      container.addEventListener('click', async e => {
+        const dlBtn = e.target.closest('[data-tf-download]');
+        if (dlBtn) {
+          await triggerEncryptedTransferDownload(dlBtn.dataset.tfDownload, {
+            responseId: dlBtn.dataset.tfResp || '',
+            hasPassword: dlBtn.dataset.tfHasPass === '1',
+            token: isLinkModal ? state.transfer.activeLinkToken : ''
+          });
+          return;
+        }
+        const copyBtn = e.target.closest('[data-tf-copy-url]');
+        if (copyBtn && copyBtn.dataset.tfCopyUrl) {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(copyBtn.dataset.tfCopyUrl).catch(() => {});
+          }
+          showToast('Enlace copiado al portapapeles.');
+          return;
+        }
+        const delBtn = e.target.closest('[data-tf-delete]');
+        if (delBtn && delBtn.dataset.tfDelete) {
+          try {
+            const res = await apiFetch(`/api/transfers/${encodeURIComponent(delBtn.dataset.tfDelete)}`, { method: 'DELETE' });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              showToast(data.error || 'No se pudo eliminar.', 'error');
+              return;
+            }
+            showToast('Transferencia eliminada de la bóveda.');
+            loadMyTransfers();
+          } catch (err) {
+            showToast('Error eliminando transferencia.', 'error');
+          }
+        }
+      });
+
+      container.addEventListener('submit', async e => {
+        const unlockForm = e.target.closest('#tfLinkUnlockForm');
+        if (unlockForm) {
+          e.preventDefault();
+          const inp = unlockForm.querySelector('#tfLinkUnlockInput');
+          const pwd = inp ? inp.value : '';
+          await openTransferLinkModal(state.transfer.activeLinkToken, pwd);
+          return;
+        }
+        const replyForm = e.target.closest('[data-tf-reply-form]');
+        if (replyForm) {
+          e.preventDefault();
+          const transferId = replyForm.dataset.tfReplyForm;
+          const textEl = replyForm.querySelector('[name="replyText"]');
+          const fileEl = replyForm.querySelector('[name="replyFile"]');
+          const text = textEl ? textEl.value.trim() : '';
+          const fileObj = fileEl && fileEl.files && fileEl.files[0] ? fileEl.files[0] : null;
+          try {
+            const filePayload = fileObj ? await readFileAsBase64Payload(fileObj) : null;
+            const res = await apiFetch(`/api/transfers/${encodeURIComponent(transferId)}/respond`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                token: isLinkModal ? state.transfer.activeLinkToken : '',
+                password: isLinkModal ? state.transfer.activeLinkPassword : '',
+                text,
+                file: filePayload
+              })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              showToast(data.error || 'No se pudo enviar la respuesta.', 'error');
+              return;
+            }
+            showToast('Respuesta e información agregadas al envío.');
+            if (isLinkModal) openTransferLinkModal(state.transfer.activeLinkToken, state.transfer.activeLinkPassword);
+            else loadMyTransfers();
+          } catch (err) {
+            showToast(err.message || 'Error al responder transferencia.', 'error');
+          }
+        }
+      });
+    };
+
+    handleTransferContainerActions(DOM.transferModal, false);
+    handleTransferContainerActions(DOM.transferLinkModalBody, true);
+
+    // Admin Cloud Blade Actions
+    if (DOM.ctResetFormBtn && DOM.cloudTenantForm) {
+      DOM.ctResetFormBtn.addEventListener('click', () => {
+        DOM.cloudTenantForm.reset();
+        if (DOM.ctRecordId) DOM.ctRecordId.value = '';
+        if (DOM.ctBaseFolder) DOM.ctBaseFolder.value = 'CYBERPOLIS_VAULT';
+      });
+    }
+    if (DOM.cloudTenantForm) {
+      DOM.cloudTenantForm.addEventListener('submit', async e => {
+        e.preventDefault();
+        try {
+          const res = await apiFetch('/api/admin/cloud/tenants', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: DOM.ctRecordId ? DOM.ctRecordId.value.trim() : '',
+              name: DOM.ctName ? DOM.ctName.value.trim() : '',
+              companyDomain: DOM.ctCompanyDomain ? DOM.ctCompanyDomain.value.trim() : '',
+              tenantId: DOM.ctTenantId ? DOM.ctTenantId.value.trim() : '',
+              clientId: DOM.ctClientId ? DOM.ctClientId.value.trim() : '',
+              clientSecret: DOM.ctClientSecret ? DOM.ctClientSecret.value.trim() : '',
+              authMode: DOM.ctAuthMode ? DOM.ctAuthMode.value : 'client_credentials',
+              driveUserUpn: DOM.ctDriveUpn ? DOM.ctDriveUpn.value.trim() : '',
+              baseFolder: DOM.ctBaseFolder ? DOM.ctBaseFolder.value.trim() : 'CYBERPOLIS_VAULT',
+              isDefaultForBackup: DOM.ctDefaultBackup ? DOM.ctDefaultBackup.checked : true,
+              autoBackupEnabled: DOM.ctAutoBackup ? DOM.ctAutoBackup.checked : true,
+              sendMailEnabled: DOM.ctSendMail ? DOM.ctSendMail.checked : true
+            })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showToast(data.error || 'Error guardando Tenant Azure.', 'error');
+            return;
+          }
+          DOM.cloudTenantForm.reset();
+          if (DOM.ctRecordId) DOM.ctRecordId.value = '';
+          if (DOM.ctBaseFolder) DOM.ctBaseFolder.value = 'CYBERPOLIS_VAULT';
+          showToast('Tenant Azure guardado con secretos cifrados AES-256.');
+          loadAdminCloudStatus();
+        } catch (err) {
+          showToast('Error guardando Tenant Azure.', 'error');
+        }
+      });
+    }
+
+    const runCloudTest = async (tenantId = '') => {
+      showToast('Probando autenticación Graph & cuota OneDrive...', 'info');
+      try {
+        const res = await apiFetch('/api/admin/cloud/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showToast(data.error || 'Fallo al conectar con Microsoft OneDrive.', 'error');
+          return;
+        }
+        showToast(`✅ OneDrive conectado (${data.ownerDisplayName || data.driveType}) · Libre: ${formatBytesHuman(data.quotaRemainingBytes)}`);
+        loadAdminCloudStatus();
+      } catch (err) {
+        showToast('Error probando conexión OneDrive.', 'error');
+      }
+    };
+
+    if (DOM.cloudTestBtn) DOM.cloudTestBtn.addEventListener('click', () => runCloudTest(''));
+    if (DOM.cloudBackupNowBtn) {
+      DOM.cloudBackupNowBtn.addEventListener('click', async () => {
+        showToast('Cifrando base de datos y subiendo a OneDrive...', 'info');
+        try {
+          const res = await apiFetch('/api/admin/cloud/backup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showToast(data.error || 'Error en backup a OneDrive.', 'error');
+            return;
+          }
+          showToast(`☁️ Backup subido a OneDrive (${data.remotePath}, ${formatBytesHuman(data.size)})`);
+          loadAdminCloudStatus();
+        } catch (err) {
+          showToast('Error ejecutando backup en OneDrive.', 'error');
+        }
+      });
+    }
+    if (DOM.cloudRestoreNowBtn) {
+      DOM.cloudRestoreNowBtn.addEventListener('click', async () => {
+        if (!window.confirm('¿Restaurar toda la base de datos desde la última copia cifrada en OneDrive?')) return;
+        try {
+          const res = await apiFetch('/api/admin/cloud/restore', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showToast(data.error || 'No se pudo restaurar desde OneDrive.', 'error');
+            return;
+          }
+          showToast('✅ Base de datos restaurada desde OneDrive. Recargando portal...');
+          setTimeout(() => window.location.reload(), 900);
+        } catch (err) {
+          showToast('Error al restaurar desde OneDrive.', 'error');
+        }
+      });
+    }
+    if (DOM.cloudTenantsList) {
+      DOM.cloudTenantsList.addEventListener('click', async e => {
+        const testBtn = e.target.closest('[data-cloud-test-id]');
+        if (testBtn) {
+          runCloudTest(testBtn.dataset.cloudTestId);
+          return;
+        }
+        const oauthBtn = e.target.closest('[data-cloud-oauth-id]');
+        if (oauthBtn) {
+          try {
+            const res = await apiFetch(`/api/cloud/oauth/start?tenantRecordId=${encodeURIComponent(oauthBtn.dataset.cloudOauthId)}`);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.authorizeUrl) {
+              showToast(data.error || 'No se pudo iniciar flujo OAuth2.', 'error');
+              return;
+            }
+            window.open(data.authorizeUrl, '_blank', 'noopener');
+          } catch (err) {
+            showToast('Error iniciando OAuth2 M365.', 'error');
+          }
+          return;
+        }
+        const editBtn = e.target.closest('[data-cloud-edit-id]');
+        if (editBtn) {
+          const found = (state.cloud.tenants || []).find(t => t.id === editBtn.dataset.cloudEditId);
+          if (found) {
+            if (DOM.ctRecordId) DOM.ctRecordId.value = found.id;
+            if (DOM.ctName) DOM.ctName.value = found.name || '';
+            if (DOM.ctCompanyDomain) DOM.ctCompanyDomain.value = found.companyDomain || '';
+            if (DOM.ctTenantId) DOM.ctTenantId.value = found.tenantId || '';
+            if (DOM.ctClientId) DOM.ctClientId.value = found.clientId || '';
+            if (DOM.ctClientSecret) DOM.ctClientSecret.value = '';
+            if (DOM.ctAuthMode) DOM.ctAuthMode.value = found.authMode || 'client_credentials';
+            if (DOM.ctDriveUpn) DOM.ctDriveUpn.value = found.driveUserUpn || '';
+            if (DOM.ctBaseFolder) DOM.ctBaseFolder.value = found.baseFolder || 'CYBERPOLIS_VAULT';
+            if (DOM.ctDefaultBackup) DOM.ctDefaultBackup.checked = !!found.isDefaultForBackup;
+            if (DOM.ctAutoBackup) DOM.ctAutoBackup.checked = !!found.autoBackupEnabled;
+            if (DOM.ctSendMail) DOM.ctSendMail.checked = !!found.sendMailEnabled;
+          }
+          return;
+        }
+        const delBtn = e.target.closest('[data-cloud-del-id]');
+        if (delBtn) {
+          try {
+            const res = await apiFetch(`/api/admin/cloud/tenants/${encodeURIComponent(delBtn.dataset.cloudDelId)}`, { method: 'DELETE' });
+            if (!res.ok) {
+              showToast('No se pudo eliminar Tenant.', 'error');
+              return;
+            }
+            showToast('Tenant Azure eliminado.');
+            loadAdminCloudStatus();
+          } catch (err) {
+            showToast('Error eliminando Tenant.', 'error');
+          }
+        }
+      });
     }
   }
 

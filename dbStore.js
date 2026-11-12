@@ -8,6 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const cloudOneDrive = require('./cloudOneDrive');
 
 const SEED_DATA_DIR = path.join(__dirname, 'data');
 
@@ -19,6 +20,8 @@ const STORE_DEFS = {
   forum: { filename: 'forum.json', fallback: [] },
   analytics: { filename: 'analytics.json', fallback: { totalViews: 0, dailyStats: {}, visitors: [] } },
   audit: { filename: 'audit.json', fallback: [] },
+  transfers: { filename: 'transfers.json', fallback: [] },
+  cloud: { filename: 'cloud.json', fallback: { tenants: [], backupHistory: [] } },
   chat: {
     filename: 'chat.json',
     fallback: {
@@ -150,6 +153,9 @@ class CyberpolisStore {
     } else if (this.gistId && this.ghToken) {
       this.mode = 'github-gist';
       await this.initGist();
+    } else if (this.getActiveOneDriveTenant()) {
+      this.mode = 'onedrive';
+      await this.initOneDrive();
     } else if (path.resolve(this.dataDir) !== path.resolve(this.seedDir) || process.env.PERSISTENT_DISK === 'true') {
       this.mode = 'persistent-disk';
       this.lastRemoteSyncAt = new Date().toISOString();
@@ -158,6 +164,136 @@ class CyberpolisStore {
     }
 
     this.initialized = true;
+  }
+
+  getActiveOneDriveTenant() {
+    const cloudState = this.cache.get('cloud') || { tenants: [] };
+    const resolved = cloudOneDrive.resolveActiveTenantConfig(cloudState);
+    if (!resolved) return null;
+    if (resolved.fromEnv || resolved.isDefaultForBackup) return resolved;
+    return null;
+  }
+
+  getOneDriveCryptoSecret() {
+    return this.persistSecret || process.env.SESSION_SECRET || 'cyberpolis-onedrive-backup-v8';
+  }
+
+  async initOneDrive() {
+    try {
+      const result = await this.restoreFromOneDriveSnapshot();
+      if (!result.restored) {
+        await this.pushOneDriveSnapshot();
+      }
+      this.lastRemoteSyncAt = new Date().toISOString();
+      this.lastError = null;
+      console.log('☁️ Persistencia Microsoft OneDrive (5 TB) conectada y restaurada.');
+    } catch (err) {
+      this.lastError = `OneDrive error: ${err.message}`;
+      console.error('⚠️ Error conectando OneDrive (usando caché local):', err.message);
+    }
+  }
+
+  async pushOneDriveSnapshot(tenantOverride = null) {
+    if (this.oneDriveFlushPromise) {
+      this.oneDriveDirtyDuringFlush = true;
+      return this.oneDriveFlushPromise;
+    }
+    const tenantCfg = tenantOverride || this.getActiveOneDriveTenant();
+    if (!tenantCfg) {
+      throw new Error('No hay ningún Tenant de Azure / OneDrive configurado.');
+    }
+    this.oneDriveFlushPromise = (async () => {
+      let lastUpload = null;
+      try {
+        const fetchFn = this.options.fetch || fetch;
+        do {
+          this.oneDriveDirtyDuringFlush = false;
+          const activeTenant = tenantOverride || this.getActiveOneDriveTenant() || tenantCfg;
+          const payloadObj = {};
+          for (const key of STORE_KEYS) {
+            payloadObj[key] = this.cache.get(key);
+          }
+          const encryptedStr = encryptSnapshotIfConfigured(JSON.stringify(payloadObj), this.getOneDriveCryptoSecret());
+          const buf = Buffer.from(encryptedStr, 'utf8');
+          lastUpload = await cloudOneDrive.uploadBufferToOneDrive(
+            activeTenant,
+            'backups/cyberpolis-latest.enc.json',
+            buf,
+            'application/json',
+            fetchFn
+          );
+          const dayKey = new Date().toISOString().slice(0, 10);
+          if (this.lastDailyOneDriveDay !== dayKey) {
+            this.lastDailyOneDriveDay = dayKey;
+            await cloudOneDrive.uploadBufferToOneDrive(
+              activeTenant,
+              `backups/cyberpolis-${dayKey}.enc.json`,
+              buf,
+              'application/json',
+              fetchFn
+            ).catch(() => {});
+          }
+          this.lastRemoteSyncAt = new Date().toISOString();
+          this.lastError = null;
+        } while (this.oneDriveDirtyDuringFlush);
+        return lastUpload;
+      } catch (err) {
+        this.lastError = `OneDrive write: ${err.message}`;
+        console.error('Error sincronizando backup OneDrive:', err.message);
+        throw err;
+      } finally {
+        this.oneDriveFlushPromise = null;
+      }
+    })();
+    return this.oneDriveFlushPromise;
+  }
+
+  async restoreFromOneDriveSnapshot(tenantOverride = null) {
+    const tenantCfg = tenantOverride || this.getActiveOneDriveTenant();
+    if (!tenantCfg) {
+      throw new Error('No hay ningún Tenant de Azure / OneDrive configurado.');
+    }
+    const fetchFn = this.options.fetch || fetch;
+    const buf = await cloudOneDrive.downloadBufferFromOneDrive(
+      tenantCfg,
+      'backups/cyberpolis-latest.enc.json',
+      fetchFn
+    );
+    if (!buf) {
+      return { restored: false, keys: [] };
+    }
+    const snapshot = decryptSnapshotIfNeeded(buf.toString('utf8'), this.getOneDriveCryptoSecret());
+    const restoredKeys = [];
+    for (const key of STORE_KEYS) {
+      if (snapshot[key] !== undefined) {
+        this.cache.set(key, snapshot[key]);
+        restoredKeys.push(key);
+        try {
+          writeJsonAtomic(this.getFilePath(key), snapshot[key]);
+        } catch (e) {}
+      }
+    }
+    this.lastRemoteSyncAt = new Date().toISOString();
+    this.lastError = null;
+    return { restored: true, keys: restoredKeys };
+  }
+
+  scheduleOneDriveSync(immediate = false) {
+    const tenant = this.getActiveOneDriveTenant();
+    if (!tenant || tenant.autoBackupEnabled === false) return;
+    if (this.oneDriveTimer) {
+      clearTimeout(this.oneDriveTimer);
+      this.oneDriveTimer = null;
+    }
+    if (immediate) {
+      this.pushOneDriveSnapshot(tenant).catch(() => {});
+      return;
+    }
+    this.oneDriveTimer = setTimeout(() => {
+      this.oneDriveTimer = null;
+      this.pushOneDriveSnapshot(tenant).catch(() => {});
+    }, 12000);
+    if (typeof this.oneDriveTimer.unref === 'function') this.oneDriveTimer.unref();
   }
 
   async initPostgres() {
@@ -271,8 +407,12 @@ class CyberpolisStore {
 
     if (this.mode === 'postgres' && this.pool) {
       this.schedulePostgresUpsert(key);
+      if (key !== 'analytics' && key !== 'sessions') this.scheduleOneDriveSync(false);
     } else if (this.mode === 'github-gist') {
       this.scheduleGistSync(!!opts.critical);
+      if (key !== 'analytics' && key !== 'sessions') this.scheduleOneDriveSync(false);
+    } else if (this.mode === 'onedrive' || this.getActiveOneDriveTenant()) {
+      this.scheduleOneDriveSync(!!opts.critical);
     }
     return true;
   }
@@ -370,6 +510,17 @@ class CyberpolisStore {
         this.gistTimer = null;
       }
       await this.pushGistSnapshot();
+    } else if (this.mode === 'onedrive') {
+      if (this.oneDriveTimer) {
+        clearTimeout(this.oneDriveTimer);
+        this.oneDriveTimer = null;
+      }
+      await this.pushOneDriveSnapshot().catch(() => {});
+    }
+    if (this.oneDriveTimer) {
+      clearTimeout(this.oneDriveTimer);
+      this.oneDriveTimer = null;
+      await this.pushOneDriveSnapshot().catch(() => {});
     }
   }
 
@@ -386,13 +537,17 @@ class CyberpolisStore {
       'postgres': 'PostgreSQL Externo (Persistente)',
       'persistent-disk': 'Disco Persistente (Montaje externo)',
       'github-gist': 'GitHub Gist Privado (Persistente)',
+      'onedrive': 'Microsoft OneDrive 5 TB (Persistente Cifrado)',
       'ephemeral': 'Disco Efímero del Contenedor (Sin DB externa)'
     };
+    const oneDriveTenant = this.getActiveOneDriveTenant();
     return {
       mode: this.mode,
       persistent,
       label: labels[this.mode] || this.mode,
       dataDir: this.mode === 'persistent-disk' ? this.dataDir : undefined,
+      oneDriveLinked: !!oneDriveTenant,
+      oneDriveTenantName: oneDriveTenant ? oneDriveTenant.name : null,
       lastRemoteSyncAt: this.lastRemoteSyncAt,
       lastError: this.lastError
     };
@@ -400,7 +555,7 @@ class CyberpolisStore {
 
   exportFullSnapshot() {
     return {
-      version: 7,
+      version: 8,
       exportedAt: new Date().toISOString(),
       storageMode: this.mode,
       config: cloneValue(this.read('config', {})),
@@ -408,6 +563,7 @@ class CyberpolisStore {
       articles: cloneValue(this.read('articles', [])),
       forum: cloneValue(this.read('forum', [])),
       analytics: cloneValue(this.read('analytics', { totalViews: 0, dailyStats: {}, visitors: [] })),
+      transfers: cloneValue(this.read('transfers', [])),
       chat: cloneValue(this.read('chat', STORE_DEFS.chat.fallback))
     };
   }

@@ -5975,3 +5975,143 @@ body.has-lateral-chat .irc-popup-container {
     grid-template-columns: 1fr;
   }
 }
+
+/* ==================== v8.0.0 ONEDRIVE 5TB + AZURE TENANTS + CYBERPOLIS TRANSFER ==================== */
+.transfer-top-btn {
+  padding: 6px 11px !important;
+  font-size: 0.76rem !important;
+  font-weight: 700 !important;
+  border-radius: 7px !important;
+  white-space: nowrap;
+}
+
+.cloud-tenants-list,
+.transfer-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cloud-tenant-card,
+.transfer-card {
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cloud-tenant-top,
+.transfer-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cloud-tenant-title,
+.transfer-card-title {
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--text-primary);
+}
+
+.cloud-tenant-meta,
+.transfer-card-meta {
+  font-family: var(--font-mono);
+  font-size: 0.73rem;
+  color: var(--text-muted);
+  word-break: break-word;
+}
+
+.cloud-quota-bar {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  overflow: hidden;
+  border: 1px solid var(--border-hairline);
+  margin: 4px 0;
+}
+
+.cloud-quota-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0078d4, #0ea5e9);
+}
+
+.transfer-msg-box {
+  background: var(--bg-subtle);
+  border-left: 3px solid #0078d4;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.84rem;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+
+.transfer-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px dashed var(--border-hairline);
+  font-size: 0.8rem;
+}
+
+.transfer-responses-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.transfer-reply-item {
+  background: rgba(14, 165, 233, 0.08);
+  border: 1px solid rgba(14, 165, 233, 0.25);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 0.8rem;
+}
+
+.transfer-reply-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.transfer-actions-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.transfer-badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.69rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(0, 120, 212, 0.14);
+  color: #0078d4;
+}
+
+.transfer-badge.locked {
+  background: rgba(217, 119, 6, 0.16);
+  color: #b45309;
+}
+
+.transfer-badge.ok {
+  background: rgba(22, 163, 74, 0.14);
+  color: #15803d;
+}
+
