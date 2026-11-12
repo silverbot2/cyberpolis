@@ -3714,3 +3714,625 @@ body.theme-accent-indigo { --accent-cyan: #4f46e5; --accent-cyan-glow: rgba(79, 
     height: 70px;
   }
 }
+
+/* ==========================================
+   V7.3 LATERAL LIVE IRC CHAT (mIRC32 STYLE)
+   ========================================== */
+.hud-container.portal-chat-shell {
+  max-width: 1500px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 348px;
+  gap: 24px;
+  align-items: start;
+}
+
+.portal-chat-shell.chat-collapsed,
+.portal-chat-shell.chat-disabled {
+  max-width: 1320px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.portal-chat-shell.chat-collapsed .irc-lateral-panel,
+.portal-chat-shell.chat-disabled .irc-lateral-panel {
+  display: none;
+}
+
+.portal-content-col {
+  min-width: 0;
+}
+
+.irc-lateral-panel {
+  position: sticky;
+  top: 90px;
+  z-index: 30;
+  height: calc(100vh - 118px);
+  min-height: 460px;
+  max-height: 760px;
+}
+
+.mirc-window {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  font-family: 'Courier New', 'JetBrains Mono', Consolas, monospace;
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+/* Tema clásico mIRC32 (Windows 95/XP beveled chrome + lienzo blanco) */
+.mirc-window.mirc-classic {
+  background: #d4d0c8;
+  color: #111827;
+  border-top: 2px solid #ffffff;
+  border-left: 2px solid #ffffff;
+  border-right: 2px solid #404040;
+  border-bottom: 2px solid #404040;
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.22), inset -1px -1px 0 #808080;
+}
+
+.mirc-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 7px;
+  background: linear-gradient(90deg, #000080 0%, #1084d0 100%);
+  color: #ffffff;
+  font-family: 'Tahoma', 'Inter', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 700;
+  user-select: none;
+}
+
+.mirc-titlebar-left {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.mirc-title-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.01em;
+}
+
+.mirc-titlebar-btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.mirc-live-dot {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #4ade80;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.mirc-live-dot.is-offline {
+  color: #fbbf24;
+}
+
+.mirc-win-btn {
+  min-width: 20px;
+  height: 19px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+  background: #d4d0c8;
+  color: #111111;
+  border-top: 1px solid #ffffff;
+  border-left: 1px solid #ffffff;
+  border-right: 1px solid #404040;
+  border-bottom: 1px solid #404040;
+  cursor: pointer;
+}
+
+.mirc-win-btn:active {
+  border-top: 1px solid #404040;
+  border-left: 1px solid #404040;
+  border-right: 1px solid #ffffff;
+  border-bottom: 1px solid #ffffff;
+}
+
+.mirc-topicbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: #ece9d8;
+  border-bottom: 1px solid #9ca3af;
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+
+.mirc-topic-label {
+  background: #000080;
+  color: #ffffff;
+  padding: 1px 5px;
+  font-weight: 700;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.mirc-topic-text {
+  color: #006600;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mirc-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  gap: 3px;
+  padding: 4px;
+  background: #d4d0c8;
+}
+
+.mirc-body.hide-nicks {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.mirc-body.hide-nicks .mirc-nicklist {
+  display: none;
+}
+
+.mirc-log,
+.mirc-nicklist {
+  background: #ffffff;
+  border-top: 2px solid #808080;
+  border-left: 2px solid #808080;
+  border-right: 2px solid #ffffff;
+  border-bottom: 2px solid #ffffff;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.mirc-log {
+  padding: 6px 7px;
+  font-size: 0.76rem;
+  line-height: 1.42;
+  color: #111827;
+  word-break: break-word;
+}
+
+.mirc-line {
+  position: relative;
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+
+.mirc-line:hover {
+  background: rgba(16, 132, 208, 0.08);
+}
+
+.mirc-ts {
+  color: #6b7280;
+  margin-right: 4px;
+  font-size: 0.7rem;
+}
+
+.mirc-nick {
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+.mirc-nick-op {
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.75);
+  padding: 0 3px;
+  border-radius: 2px;
+}
+
+.mirc-nick-voice {
+  color: #0f766e;
+}
+
+.mirc-nick-guest {
+  color: #1d4ed8;
+}
+
+.mirc-line-action {
+  color: #9c009c;
+  font-style: italic;
+}
+
+.mirc-line-system {
+  color: #008000;
+  font-weight: 600;
+}
+
+.mirc-inline-mod {
+  display: none;
+  float: right;
+  gap: 2px;
+  margin-left: 4px;
+}
+
+.mirc-line:hover .mirc-inline-mod {
+  display: inline-flex;
+}
+
+.mirc-mod-mini-btn {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #111827;
+  font-size: 0.65rem;
+  padding: 0 3px;
+  line-height: 1.25;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.mirc-mod-mini-btn:hover {
+  background: #fee2e2;
+  border-color: #ef4444;
+}
+
+.mirc-nicklist {
+  padding: 4px;
+  font-size: 0.72rem;
+}
+
+.mirc-nicklist-head {
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: #4b5563;
+  text-transform: uppercase;
+  padding: 2px 3px 4px;
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 3px;
+}
+
+.mirc-nick-item {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 2px 3px;
+  font-family: inherit;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  border-radius: 2px;
+  display: block;
+}
+
+.mirc-nick-item:hover {
+  background: #000080;
+  color: #ffffff;
+}
+
+.mirc-nick-item.is-op {
+  color: #b91c1c;
+  font-weight: 800;
+}
+
+.mirc-nick-item.is-voice {
+  color: #0f766e;
+  font-weight: 600;
+}
+
+.mirc-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 6px;
+  background: #d4d0c8;
+  border-top: 1px solid #ffffff;
+  font-size: 0.71rem;
+}
+
+.mirc-identity-wrap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex: 1;
+}
+
+.mirc-nick-badge {
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: #e5e7eb;
+  color: #1f2937;
+  white-space: nowrap;
+}
+
+.mirc-nick-badge.is-op {
+  background: #991b1b;
+  color: #fef08a;
+  border: 1px solid #f59e0b;
+}
+
+.mirc-nick-badge.is-voice {
+  background: #0f766e;
+  color: #ffffff;
+}
+
+.mirc-guest-nick-input {
+  width: 110px;
+  padding: 2px 5px;
+  font-family: inherit;
+  font-size: 0.72rem;
+  background: #ffffff;
+  color: #111827;
+  border-top: 1px solid #808080;
+  border-left: 1px solid #808080;
+  border-right: 1px solid #ffffff;
+  border-bottom: 1px solid #ffffff;
+}
+
+.mirc-online-count {
+  font-size: 0.68rem;
+  color: #374151;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.mirc-inputbar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px 6px;
+  background: #d4d0c8;
+}
+
+.mirc-prompt {
+  font-weight: 800;
+  color: #000080;
+}
+
+.mirc-chat-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 7px;
+  font-family: inherit;
+  font-size: 0.76rem;
+  background: #ffffff;
+  color: #111827;
+  border-top: 2px solid #808080;
+  border-left: 2px solid #808080;
+  border-right: 2px solid #ffffff;
+  border-bottom: 2px solid #ffffff;
+}
+
+.mirc-chat-input:focus,
+.mirc-guest-nick-input:focus {
+  outline: 1px dotted #000080;
+}
+
+.mirc-send-btn {
+  padding: 5px 10px;
+  font-family: 'Tahoma', 'Inter', sans-serif;
+  font-size: 0.73rem;
+  font-weight: 700;
+  background: #d4d0c8;
+  color: #111111;
+  border-top: 2px solid #ffffff;
+  border-left: 2px solid #ffffff;
+  border-right: 2px solid #404040;
+  border-bottom: 2px solid #404040;
+  cursor: pointer;
+}
+
+.mirc-send-btn:active {
+  border-top: 2px solid #404040;
+  border-left: 2px solid #404040;
+  border-right: 2px solid #ffffff;
+  border-bottom: 2px solid #ffffff;
+}
+
+/* Tema mIRC Terminal Oscuro (opcional desde Admin) */
+.mirc-window.mirc-dark {
+  background: #111827;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  box-shadow: 0 18px 36px rgba(2, 6, 23, 0.45);
+  border-radius: 8px;
+}
+
+.mirc-window.mirc-dark .mirc-titlebar {
+  background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%);
+  border-bottom: 1px solid #334155;
+}
+
+.mirc-window.mirc-dark .mirc-win-btn {
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #475569;
+}
+
+.mirc-window.mirc-dark .mirc-topicbar,
+.mirc-window.mirc-dark .mirc-statusbar,
+.mirc-window.mirc-dark .mirc-inputbar {
+  background: #0f172a;
+  color: #cbd5e1;
+  border-color: #1e293b;
+}
+
+.mirc-window.mirc-dark .mirc-topic-label {
+  background: #0284c7;
+}
+
+.mirc-window.mirc-dark .mirc-topic-text {
+  color: #34d399;
+}
+
+.mirc-window.mirc-dark .mirc-body {
+  background: #0b1120;
+}
+
+.mirc-window.mirc-dark .mirc-log,
+.mirc-window.mirc-dark .mirc-nicklist {
+  background: #090e1a;
+  color: #e2e8f0;
+  border: 1px solid #1e293b;
+}
+
+.mirc-window.mirc-dark .mirc-ts { color: #64748b; }
+.mirc-window.mirc-dark .mirc-nick-op { color: #fca5a5; background: rgba(185, 28, 28, 0.25); }
+.mirc-window.mirc-dark .mirc-nick-voice { color: #2dd4bf; }
+.mirc-window.mirc-dark .mirc-nick-guest { color: #60a5fa; }
+.mirc-window.mirc-dark .mirc-line-action { color: #e879f9; }
+.mirc-window.mirc-dark .mirc-line-system { color: #4ade80; }
+.mirc-window.mirc-dark .mirc-nicklist-head { color: #94a3b8; border-color: #1e293b; }
+.mirc-window.mirc-dark .mirc-nick-item { color: #cbd5e1; }
+.mirc-window.mirc-dark .mirc-nick-item.is-op { color: #fca5a5; }
+.mirc-window.mirc-dark .mirc-nick-item.is-voice { color: #2dd4bf; }
+.mirc-window.mirc-dark .mirc-nick-item:hover { background: #1e293b; }
+.mirc-window.mirc-dark .mirc-chat-input,
+.mirc-window.mirc-dark .mirc-guest-nick-input {
+  background: #090e1a;
+  color: #f8fafc;
+  border: 1px solid #334155;
+}
+.mirc-window.mirc-dark .mirc-send-btn {
+  background: #0284c7;
+  color: #ffffff;
+  border: 1px solid #0369a1;
+  border-radius: 4px;
+}
+.mirc-window.mirc-dark .mirc-prompt { color: #38bdf8; }
+.mirc-window.mirc-dark .mirc-online-count { color: #94a3b8; }
+
+.irc-reopen-tab {
+  position: fixed;
+  right: 16px;
+  bottom: 18px;
+  z-index: 64;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #000080 0%, #1084d0 100%);
+  color: #ffffff;
+  font-family: 'Courier New', 'JetBrains Mono', monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border: 2px solid #ffffff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.35);
+  cursor: pointer;
+}
+
+.irc-reopen-dot {
+  color: #4ade80;
+}
+
+/* Si hay chat lateral activo a la derecha, desplazar banner temporal a la izquierda para no tapar el input */
+body.has-lateral-chat .floating-ad-banner:not(.pos-left) {
+  right: 382px;
+}
+
+/* Panel Admin Chat Moderation Lists */
+.admin-chat-mod-grid {
+  display: grid;
+  grid-template-columns: 1.25fr 0.75fr;
+  gap: 14px;
+}
+
+.admin-sub-heading {
+  margin: 0 0 8px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.admin-chat-mod-list {
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-chat-mod-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-surface);
+  font-size: 0.77rem;
+}
+
+.admin-chat-mod-text {
+  min-width: 0;
+  flex: 1;
+  word-break: break-word;
+}
+
+.admin-chat-mod-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.admin-chat-mini-btn {
+  padding: 3px 6px;
+  font-size: 0.72rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-medium);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.admin-chat-mini-btn:hover {
+  border-color: var(--accent-crimson);
+  color: var(--accent-crimson);
+}
+
+/* Responsive tablet / móvil para el Chat IRC lateral */
+@media (max-width: 1180px) {
+  .hud-container.portal-chat-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .irc-lateral-panel {
+    position: fixed;
+    top: 76px;
+    right: 12px;
+    bottom: 64px;
+    height: auto;
+    max-height: none;
+    width: min(360px, calc(100vw - 24px));
+    z-index: 95;
+    display: none;
+  }
+  .portal-chat-shell.mobile-chat-open .irc-lateral-panel {
+    display: block;
+  }
+  body.has-lateral-chat .floating-ad-banner:not(.pos-left) {
+    right: 18px;
+    bottom: 66px;
+  }
+}
+
+@media (max-width: 780px) {
+  .admin-chat-mod-grid {
+    grid-template-columns: 1fr;
+  }
+}

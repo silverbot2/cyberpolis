@@ -59,7 +59,7 @@
 
   <link rel="icon" type="image/png" href="assets/silverbot-unix-logo.png">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
-  <link rel="stylesheet" href="css/styles.css?v=7.2.0">
+  <link rel="stylesheet" href="css/styles.css?v=7.3.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
@@ -189,44 +189,94 @@
 
   <!-- Contenido Central -->
   <main class="hud-main">
-    <div class="hud-container">
+    <div class="hud-container portal-chat-shell" id="portalChatShell">
 
-      <!-- Noticia Principal de Portada -->
-      <section class="hero-dispatch-section" id="featuredSection"></section>
+      <div class="portal-content-col">
+        <!-- Noticia Principal de Portada -->
+        <section class="hero-dispatch-section" id="featuredSection"></section>
 
-      <!-- Encabezado de la Sección de Noticias -->
-      <header class="feed-header-module">
-        <div class="feed-header-left">
-          <span class="feed-prefix">SELECCIÓN EDITORIAL</span>
-          <h2 class="feed-title" id="feedTitle">LO MÁS IMPORTANTE HOY</h2>
-        </div>
-        <div class="feed-header-right">
-          <span class="feed-meta" id="feedMeta">Las 8 noticias principales entre todas las fuentes</span>
-        </div>
-      </header>
+        <!-- Encabezado de la Sección de Noticias -->
+        <header class="feed-header-module">
+          <div class="feed-header-left">
+            <span class="feed-prefix">SELECCIÓN EDITORIAL</span>
+            <h2 class="feed-title" id="feedTitle">LO MÁS IMPORTANTE HOY</h2>
+          </div>
+          <div class="feed-header-right">
+            <span class="feed-meta" id="feedMeta">Las 8 noticias principales entre todas las fuentes</span>
+          </div>
+        </header>
 
-      <!-- Malla Editorial de Noticias -->
-      <div class="dispatches-grid" id="articlesGrid"></div>
+        <!-- Malla Editorial de Noticias -->
+        <div class="dispatches-grid" id="articlesGrid"></div>
 
-      <!-- Sección Foro & Debate Comunitario -->
-      <section id="forumSection" class="forum-section" style="display: none;"></section>
+        <!-- Sección Foro & Debate Comunitario -->
+        <section id="forumSection" class="forum-section" style="display: none;"></section>
 
-      <!-- Sección Contacto Editorial -->
-      <section id="contactSection" class="contact-section" style="display: none;"></section>
+        <!-- Sección Contacto Editorial -->
+        <section id="contactSection" class="contact-section" style="display: none;"></section>
 
-      <!-- Estado Vacío -->
-      <div class="empty-intel-box" id="emptyState" style="display: none;">
-        <div class="empty-hud-icon">📰</div>
-        <h3 class="empty-hud-title">Sin noticias coincidentes</h3>
-        <p class="empty-hud-msg" id="emptyMessage">No se han encontrado noticias con los filtros seleccionados.</p>
-        <div class="empty-hud-actions">
-          <button id="resetFiltersBtn" class="hud-btn hud-btn-outline">Ver portada completa</button>
-          <button id="emptyCreateBtn" class="hud-btn hud-btn-action" style="display: none;">+ Publicar noticia</button>
+        <!-- Estado Vacío -->
+        <div class="empty-intel-box" id="emptyState" style="display: none;">
+          <div class="empty-hud-icon">📰</div>
+          <h3 class="empty-hud-title">Sin noticias coincidentes</h3>
+          <p class="empty-hud-msg" id="emptyMessage">No se han encontrado noticias con los filtros seleccionados.</p>
+          <div class="empty-hud-actions">
+            <button id="resetFiltersBtn" class="hud-btn hud-btn-outline">Ver portada completa</button>
+            <button id="emptyCreateBtn" class="hud-btn hud-btn-action" style="display: none;">+ Publicar noticia</button>
+          </div>
         </div>
       </div>
 
+      <!-- Barra Lateral: Chat IRC en Vivo estilo mIRC32 -->
+      <aside class="irc-lateral-panel" id="ircLateralPanel" aria-label="Chat IRC en vivo estilo mIRC32">
+        <div class="mirc-window mirc-classic" id="mircWindow">
+          <div class="mirc-titlebar">
+            <div class="mirc-titlebar-left">
+              <span class="mirc-app-icon" aria-hidden="true">⚡</span>
+              <span class="mirc-title-text" id="ircTitlebarText">mIRC32 - [#cyberpolis] [+nt]</span>
+            </div>
+            <div class="mirc-titlebar-btns">
+              <span class="mirc-live-dot" id="ircLiveBadge" title="Conexión en vivo">● EN VIVO</span>
+              <button type="button" class="mirc-win-btn" id="ircToggleNicksBtn" title="Mostrar/ocultar lista de nicks">👥</button>
+              <button type="button" class="mirc-win-btn" id="ircAdminShortcutBtn" title="Moderar chat IRC (Admin)" style="display: none;">⚙️</button>
+              <button type="button" class="mirc-win-btn" id="ircCollapseBtn" title="Minimizar chat IRC">_</button>
+            </div>
+          </div>
+
+          <div class="mirc-topicbar">
+            <span class="mirc-topic-label" id="ircChannelBadge">#cyberpolis</span>
+            <span class="mirc-topic-text" id="ircTopicText" title="Topic del canal">Bienvenidos a #cyberpolis — Hacknoticiero &amp; Debate IRC en vivo</span>
+          </div>
+
+          <div class="mirc-body" id="ircBody">
+            <div class="mirc-log" id="ircMessagesList" role="log" aria-live="polite" aria-label="Mensajes del canal IRC"></div>
+            <aside class="mirc-nicklist" id="ircNickList" aria-label="Usuarios conectados en el canal"></aside>
+          </div>
+
+          <div class="mirc-statusbar">
+            <div class="mirc-identity-wrap" id="ircIdentityWrap">
+              <span class="mirc-nick-badge" id="ircIdentityBadge">invitado</span>
+              <input type="text" id="ircGuestNickInput" class="mirc-guest-nick-input" maxlength="18" placeholder="Tu nick..." title="Cambiar tu nick en IRC (sin @)" aria-label="Tu nick en IRC">
+            </div>
+            <span class="mirc-online-count" id="ircOnlineCount">0 online</span>
+          </div>
+
+          <form class="mirc-inputbar" id="ircChatForm" autocomplete="off">
+            <span class="mirc-prompt" aria-hidden="true">&gt;</span>
+            <input type="text" id="ircChatInput" class="mirc-chat-input" maxlength="460" placeholder="Mensaje en #cyberpolis o /help..." aria-label="Escribir mensaje en el chat IRC">
+            <button type="submit" class="mirc-send-btn" id="ircSendBtn">Enviar</button>
+          </form>
+        </div>
+      </aside>
+
     </div>
   </main>
+
+  <!-- Botón flotante para reabrir el Chat IRC en móvil o cuando esté minimizado -->
+  <button type="button" class="irc-reopen-tab" id="ircReopenTab" style="display: none;" title="Abrir Chat IRC #cyberpolis">
+    <span class="irc-reopen-dot" aria-hidden="true">●</span>
+    <span id="ircReopenLabel">mIRC #cyberpolis</span>
+  </button>
 
   <!-- Pie de Página Minimalista -->
   <footer class="hud-footer">
@@ -289,6 +339,7 @@
         <button class="auth-tab-btn" id="adminTabMetricsBtn">📊 MÉTRICAS Y VISITAS</button>
         <button class="auth-tab-btn" id="adminTabUsersBtn">👥 USUARIOS</button>
         <button class="auth-tab-btn" id="adminTabTransformBtn">🎨 APARIENCIA</button>
+        <button class="auth-tab-btn" id="adminTabChatBtn">💬 CHAT IRC</button>
         <button class="auth-tab-btn" id="adminTabAdsBtn">📣 PUBLICIDAD</button>
         <button class="auth-tab-btn" id="adminTabSecurityBtn">🛡️ SEGURIDAD Y BD</button>
       </div>
@@ -638,6 +689,104 @@
           <button type="button" class="hud-btn hud-btn-outline" id="adResetBtn">Restaurar The Prison</button>
           <button type="button" class="hud-btn hud-btn-outline" id="adPreviewBtn">👁️ Probar ahora</button>
           <button type="button" class="hud-btn hud-btn-action" id="adSaveBtn">💾 Guardar Publicidad</button>
+        </div>
+      </div>
+
+      <!-- SECCIÓN 7: ADMINISTRADOR DE CHAT IRC (ESTILO mIRC32) -->
+      <div id="adminChatSection" class="hud-modal-body" style="display: none;">
+        <p class="admin-help-text">Gestiona el canal lateral IRC en vivo, permisos de invitados, topic, avisos de operador (@) y moderación de mensajes o baneos.</p>
+
+        <div class="admin-config-card">
+          <div class="admin-card-row">
+            <div>
+              <strong>Activar Chat IRC Lateral</strong>
+              <p class="admin-sub-desc">Muestra u oculta el módulo mIRC32 en el lateral derecho del portal.</p>
+            </div>
+            <label class="hud-switch">
+              <input type="checkbox" id="chatAdminEnabledToggle" checked>
+              <span class="hud-slider"></span>
+            </label>
+          </div>
+          <div class="admin-card-row" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-hairline);">
+            <div>
+              <strong>Permitir Invitados sin Login</strong>
+              <p class="admin-sub-desc">Si lo desactivas, solo usuarios registrados y administradores (@) pueden enviar mensajes.</p>
+            </div>
+            <label class="hud-switch">
+              <input type="checkbox" id="chatAdminAllowGuestsToggle" checked>
+              <span class="hud-slider"></span>
+            </label>
+          </div>
+          <div class="admin-card-row" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-hairline);">
+            <div>
+              <strong>Modo Moderado (+m)</strong>
+              <p class="admin-sub-desc">Solo operadores (@admin) y voces registradas (+) pueden escribir en el canal.</p>
+            </div>
+            <label class="hud-switch">
+              <input type="checkbox" id="chatAdminModeratedToggle">
+              <span class="hud-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="admin-transform-grid">
+          <div class="form-field">
+            <label for="chatAdminChannelInput" class="hud-label">CANAL IRC</label>
+            <input type="text" id="chatAdminChannelInput" class="hud-input" maxlength="32" placeholder="#cyberpolis">
+          </div>
+          <div class="form-field">
+            <label for="chatAdminThemeSelect" class="hud-label">ESTILO VISUAL mIRC32</label>
+            <select id="chatAdminThemeSelect" class="hud-select">
+              <option value="mirc-classic">mIRC32 Clásico (Gris/Blanco Retro)</option>
+              <option value="mirc-dark">Terminal IRC Oscuro (Hack Mode)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label for="chatAdminTopicInput" class="hud-label">TOPIC DEL CANAL</label>
+          <input type="text" id="chatAdminTopicInput" class="hud-input" maxlength="180" placeholder="Bienvenidos a #cyberpolis — Hacknoticiero & Debate IRC en vivo">
+        </div>
+
+        <div class="hud-form-actions admin-transform-actions" style="margin-bottom: 16px;">
+          <button type="button" class="hud-btn hud-btn-outline" id="chatAdminRefreshBtn">🔄 Actualizar panel</button>
+          <button type="button" class="hud-btn hud-btn-action" id="chatAdminSaveConfigBtn">💾 Guardar Ajustes IRC</button>
+        </div>
+
+        <div class="admin-config-card">
+          <label for="chatAdminNoticeInput" class="hud-label">AVISO OFICIAL @ADMIN Y LIMPIEZA</label>
+          <div class="admin-logo-upload-row" style="margin-top: 6px;">
+            <input type="text" id="chatAdminNoticeInput" class="hud-input" maxlength="320" placeholder="Escribe un aviso oficial del operador (@) para el canal...">
+            <button type="button" class="hud-btn hud-btn-action" id="chatAdminNoticeBtn">📢 Enviar aviso</button>
+            <button type="button" class="hud-btn hud-btn-outline" id="chatAdminClearBtn" title="Borrar todo el historial del canal">🧹 Vaciar chat</button>
+          </div>
+        </div>
+
+        <div class="admin-config-card">
+          <label class="hud-label">MODERAR USUARIO (MUTE +q / BAN +b / KICK)</label>
+          <div class="admin-logo-upload-row" style="margin-top: 6px; flex-wrap: wrap;">
+            <input type="text" id="chatAdminModNickInput" class="hud-input" style="max-width: 170px;" maxlength="20" placeholder="Nick objetivo">
+            <input type="text" id="chatAdminModReasonInput" class="hud-input" maxlength="120" placeholder="Motivo (ej: spam / flood)">
+            <button type="button" class="hud-btn hud-btn-outline" id="chatAdminMuteBtn">🔇 Silenciar</button>
+            <button type="button" class="hud-btn hud-btn-outline" id="chatAdminKickBtn">👢 Kick</button>
+            <button type="button" class="hud-btn hud-btn-danger" id="chatAdminBanBtn">🚫 Banear</button>
+          </div>
+        </div>
+
+        <div class="admin-chat-mod-grid">
+          <div class="admin-config-card">
+            <h4 class="admin-sub-heading">Últimos mensajes en vivo</h4>
+            <div id="chatAdminMessagesList" class="admin-chat-mod-list">
+              <p class="admin-help-text">Cargando mensajes...</p>
+            </div>
+          </div>
+
+          <div class="admin-config-card">
+            <h4 class="admin-sub-heading">Silenciados (+q) y Baneados (+b)</h4>
+            <div id="chatAdminBansList" class="admin-chat-mod-list">
+              <p class="admin-help-text">Sin sanciones activas.</p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1064,6 +1213,6 @@
 
   <!-- Scripts -->
   <script src="js/polygons.js?v=7.0.0"></script>
-  <script src="js/app.js?v=7.2.0"></script>
+  <script src="js/app.js?v=7.3.0"></script>
 </body>
 </html>

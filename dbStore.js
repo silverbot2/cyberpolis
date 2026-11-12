@@ -17,7 +17,21 @@ const STORE_DEFS = {
   sessions: { filename: 'sessions.json', fallback: [] },
   config: { filename: 'config.json', fallback: {} },
   forum: { filename: 'forum.json', fallback: [] },
-  analytics: { filename: 'analytics.json', fallback: { totalViews: 0, dailyStats: {}, visitors: [] } }
+  analytics: { filename: 'analytics.json', fallback: { totalViews: 0, dailyStats: {}, visitors: [] } },
+  chat: {
+    filename: 'chat.json',
+    fallback: {
+      channel: '#cyberpolis',
+      topic: 'Bienvenidos a #cyberpolis — Hacknoticiero & Chat IRC en vivo',
+      enabled: true,
+      allowGuests: true,
+      moderatedMode: false,
+      theme: 'mirc-classic',
+      messages: [],
+      mutedNicks: [],
+      bannedEntries: []
+    }
+  }
 };
 
 const STORE_KEYS = Object.keys(STORE_DEFS);
@@ -390,7 +404,8 @@ class CyberpolisStore {
       users: cloneValue(this.read('users', [])),
       articles: cloneValue(this.read('articles', [])),
       forum: cloneValue(this.read('forum', [])),
-      analytics: cloneValue(this.read('analytics', { totalViews: 0, dailyStats: {}, visitors: [] }))
+      analytics: cloneValue(this.read('analytics', { totalViews: 0, dailyStats: {}, visitors: [] })),
+      chat: cloneValue(this.read('chat', STORE_DEFS.chat.fallback))
     };
   }
 }
