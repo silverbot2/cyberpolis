@@ -57,7 +57,9 @@
     serverMode: false,
     activeReaderArticle: null,
     forumThreads: [],
+    forumView: 'index',
     forumFilter: 'Todos',
+    forumPrefixFilter: 'Todos',
     activeForumThreadId: null,
     pendingLogoDataUrl: null,
     pendingAdImageDataUrl: null,
@@ -3486,25 +3488,71 @@
       DOM.adSaveBtn.addEventListener('click', handleSaveAdBannerConfig);
     }
 
-    // Delegación de eventos del Foro & Debate Comunitario
+    // Delegación de eventos del Foro Comunitario estilo HTCMania
     if (DOM.forumSection) {
       DOM.forumSection.addEventListener('click', e => {
-        const filterBtn = e.target.closest('.forum-filter-pill[data-forum-cat]');
-        if (filterBtn) {
-          state.forumFilter = filterBtn.dataset.forumCat || 'Todos';
+        const navIdxBtn = e.target.closest('[data-forum-nav="index"]');
+        if (navIdxBtn) {
+          state.forumView = 'index';
+          state.forumFilter = 'Todos';
+          state.forumPrefixFilter = 'Todos';
+          state.activeForumThreadId = null;
           renderForum();
           return;
         }
-        const toggleBtn = e.target.closest('[data-forum-toggle]');
-        if (toggleBtn) {
-          const id = toggleBtn.dataset.forumToggle;
-          state.activeForumThreadId = state.activeForumThreadId === id ? null : id;
+        const boardBtn = e.target.closest('[data-forum-board]');
+        if (boardBtn) {
+          state.forumView = 'board';
+          state.forumFilter = boardBtn.dataset.forumBoard || 'Todos';
+          state.forumPrefixFilter = 'Todos';
+          state.activeForumThreadId = null;
           renderForum();
+          return;
+        }
+        const prefixBtn = e.target.closest('[data-forum-prefix]');
+        if (prefixBtn) {
+          state.forumPrefixFilter = prefixBtn.dataset.forumPrefix || 'Todos';
+          renderForum();
+          return;
+        }
+        const threadBtn = e.target.closest('[data-forum-thread]');
+        if (threadBtn) {
+          openForumThreadView(threadBtn.dataset.forumThread);
+          return;
+        }
+        const likeBtn = e.target.closest('[data-forum-like]');
+        if (likeBtn) {
+          handleToggleForumLike(likeBtn.dataset.forumLike, likeBtn.dataset.forumReplyId || '');
+          return;
+        }
+        const quoteBtn = e.target.closest('[data-forum-quote]');
+        if (quoteBtn) {
+          quoteForumPostIntoReply(quoteBtn.dataset.forumQuoteAuthor || 'Usuario', quoteBtn.dataset.forumQuote || '');
+          return;
+        }
+        const modBtn = e.target.closest('[data-forum-mod]');
+        if (modBtn) {
+          handleModerateForumThread(modBtn.dataset.forumThreadId, modBtn.dataset.forumMod);
+          return;
+        }
+        const delReplyBtn = e.target.closest('[data-forum-del-reply]');
+        if (delReplyBtn) {
+          handleDeleteForumReply(delReplyBtn.dataset.forumThreadId, delReplyBtn.dataset.forumDelReply);
           return;
         }
         const deleteBtn = e.target.closest('[data-forum-delete]');
         if (deleteBtn) {
           handleDeleteForumThread(deleteBtn.dataset.forumDelete);
+          return;
+        }
+        if (e.target.closest('#forumQuickReplyScrollBtn')) {
+          const box = document.getElementById('forumQuickReplyText');
+          if (box) {
+            box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            box.focus();
+          } else {
+            openAuthModal();
+          }
           return;
         }
         if (e.target.closest('#toggleForumComposerBtn')) {
@@ -3877,161 +3925,615 @@
     }
   }
 
-  function renderForum() {
-    if (!DOM.forumSection) return;
-
-    const categories = ['Todos', 'Ciberseguridad', 'Tecnopolítica', 'Herramientas', 'Dudas & Ayuda'];
-    let list = Array.isArray(state.forumThreads) ? [...state.forumThreads] : [];
-
-    if (state.forumFilter && state.forumFilter !== 'Todos') {
-      list = list.filter(t => (t.category || '').toLowerCase() === state.forumFilter.toLowerCase());
+  const FORUM_BOARD_GROUPS = [
+    {
+      title: 'Ciberseguridad, Hacking & Herramientas',
+      subtitle: 'Debates técnicos, CVEs, análisis de malware y utilidades',
+      boards: [
+        { key: 'Ciberseguridad', icon: '🛡️', desc: 'Alertas CVE, vulnerabilidades 0-day, ransomware e incidentes en vivo.' },
+        { key: 'Herramientas', icon: '🧰', desc: 'OSINT, pentesting, scripts, laboratorios y utilidades recomendadas.' }
+      ]
+    },
+    {
+      title: 'Comunidad, Legislación & Soporte',
+      subtitle: 'Actualidad digital, consultas y charla general estilo HTCMania',
+      boards: [
+        { key: 'Tecnopolítica', icon: '⚖️', desc: 'Privacidad, NIS2, regulación europea, soberanía digital y geopolítica.' },
+        { key: 'Dudas & Ayuda', icon: '❓', desc: 'Resolución de dudas, configuración de redes, Linux y seguridad básica.' },
+        { key: 'Off-Topic', icon: '☕', desc: 'Presentaciones, hardware, cafetería digital y charla abierta de la comunidad.' }
+      ]
     }
+  ];
 
-    const q = (state.searchQuery || '').toLowerCase().trim();
-    if (q) {
-      list = list.filter(t =>
-        (t.title || '').toLowerCase().includes(q) ||
-        (t.body || '').toLowerCase().includes(q) ||
-        (t.author || '').toLowerCase().includes(q) ||
-        (t.category || '').toLowerCase().includes(q)
-      );
+  function getForumPrefixBadgeHtml(prefix) {
+    const p = prefix || 'Debate';
+    const clsMap = {
+      Debate: 'p-debate',
+      Tutorial: 'p-tutorial',
+      Noticia: 'p-noticia',
+      Consulta: 'p-consulta',
+      'Off-Topic': 'p-offtopic'
+    };
+    return `<span class="htc-prefix ${clsMap[p] || 'p-debate'}">[${escapeHtml(p)}]</span>`;
+  }
+
+  function formatForumPostHtml(rawText) {
+    let html = escapeHtml(String(rawText || ''));
+    html = html.replace(/```([\s\S]*?)```/g, (_m, code) => `<pre class="htc-code-block">${code.trim()}</pre>`);
+    html = html.replace(/\[quote=([^\]]+)\]([\s\S]*?)\[\/quote\]/gi, (_m, who, inner) =>
+      `<div class="htc-quote-box"><div class="htc-quote-head">❝ Cita de ${who}</div><div>${inner.trim()}</div></div>`
+    );
+    html = html.replace(/\[quote\]([\s\S]*?)\[\/quote\]/gi, (_m, inner) =>
+      `<div class="htc-quote-box"><div class="htc-quote-head">❝ Cita</div><div>${inner.trim()}</div></div>`
+    );
+    return html.replace(/\n/g, '<br>');
+  }
+
+  function buildForumAuthorStats(threads) {
+    const counts = new Map();
+    for (const t of threads) {
+      const a = String(t.author || 'Anónimo').toLowerCase();
+      counts.set(a, (counts.get(a) || 0) + 1);
+      for (const r of (t.replies || [])) {
+        const ra = String(r.author || 'Usuario').toLowerCase();
+        counts.set(ra, (counts.get(ra) || 0) + 1);
+      }
     }
+    return counts;
+  }
 
-    const isLoggedIn = !!state.currentUser;
+  function getForumRankMeta(authorName, role, postCount) {
+    if (role === 'admin') return { label: 'ADMINISTRADOR', cls: 'is-admin' };
+    if (postCount >= 15) return { label: 'MAESTRO CYBER', cls: 'is-veteran' };
+    if (postCount >= 5) return { label: 'FORERO VETERANO', cls: 'is-veteran' };
+    return { label: role === 'analyst' ? 'ANALISTA' : 'MIEMBRO', cls: '' };
+  }
 
-    const headerHtml = `
-      <div class="forum-header-card">
-        <div class="forum-header-info">
-          <h2>Foro & Debate Comunitario</h2>
-          <p>Espacio abierto de lectura para debates técnicos sobre ciberseguridad, herramientas OSINT y actualidad digital.</p>
-        </div>
-        <div>
-          ${isLoggedIn
-            ? `<button type="button" id="toggleForumComposerBtn" class="hud-btn hud-btn-action">${state.showForumComposer ? '× Cerrar formulario' : '+ Nuevo tema de debate'}</button>`
-            : `<button type="button" id="forumLoginPromptBtn" class="hud-btn hud-btn-outline">🔑 Iniciar sesión / Registro para participar</button>`
-          }
-        </div>
-      </div>
-    `;
+  function sortForumThreads(threads) {
+    return [...threads].sort((a, b) => {
+      if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+      const da = new Date(a.lastActivityAt || a.createdAt || 0).getTime();
+      const db = new Date(b.lastActivityAt || b.createdAt || 0).getTime();
+      return db - da;
+    });
+  }
 
-    const toolbarHtml = `
-      <div class="forum-toolbar">
-        <div class="forum-filter-pills">
-          ${categories.map(cat => `
-            <button type="button" class="forum-filter-pill ${state.forumFilter === cat ? 'active' : ''}" data-forum-cat="${escapeHtml(cat)}">
-              ${escapeHtml(cat)}
-            </button>
-          `).join('')}
-        </div>
-        <span class="feed-meta">${list.length} ${list.length === 1 ? 'hilo activo' : 'hilos activos'}</span>
-      </div>
-    `;
+  function getThreadLastActivityMeta(t) {
+    const replies = Array.isArray(t.replies) ? t.replies : [];
+    const last = replies.length ? replies[replies.length - 1] : null;
+    return {
+      author: last ? (last.author || 'Usuario') : (t.author || 'Anónimo'),
+      ts: last ? last.createdAt : (t.lastActivityAt || t.createdAt)
+    };
+  }
 
-    const composerHtml = (isLoggedIn && state.showForumComposer) ? `
+  function renderForumComposerCard() {
+    if (!state.currentUser || !state.showForumComposer) return '';
+    const defaultCat = state.forumFilter && state.forumFilter !== 'Todos' ? state.forumFilter : 'Ciberseguridad';
+    const boardOptions = ['Ciberseguridad', 'Herramientas', 'Tecnopolítica', 'Dudas & Ayuda', 'Off-Topic'];
+    return `
       <div class="forum-composer-card">
-        <h3 class="forum-composer-title">Abrir un nuevo tema en el foro</h3>
+        <h3 class="forum-composer-title">📝 Publicar nuevo tema en el foro</h3>
         <form id="forumCreateThreadForm">
           <div class="form-grid-2">
             <div class="form-field">
-              <label for="forumThreadTitle" class="hud-label">TÍTULO DEL DEBATE *</label>
-              <input type="text" id="forumThreadTitle" class="hud-input" maxlength="160" required placeholder="Ej: Análisis de nueva vulnerabilidad en routers...">
+              <label for="forumThreadTitle" class="hud-label">TÍTULO DEL TEMA *</label>
+              <input type="text" id="forumThreadTitle" class="hud-input" maxlength="160" required placeholder="Ej: [Guía] Cómo blindar un router doméstico paso a paso...">
             </div>
-            <div class="form-field">
-              <label for="forumThreadCategory" class="hud-label">CATEGORÍA</label>
-              <select id="forumThreadCategory" class="hud-select">
-                <option value="Ciberseguridad">Ciberseguridad</option>
-                <option value="Tecnopolítica">Tecnopolítica</option>
-                <option value="Herramientas">Herramientas</option>
-                <option value="Dudas & Ayuda">Dudas & Ayuda</option>
-              </select>
+            <div class="form-grid-2">
+              <div class="form-field">
+                <label for="forumThreadCategory" class="hud-label">SUBFORO</label>
+                <select id="forumThreadCategory" class="hud-select">
+                  ${boardOptions.map(c => `<option value="${escapeHtml(c)}" ${c === defaultCat ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
+                </select>
+              </div>
+              <div class="form-field">
+                <label for="forumThreadPrefix" class="hud-label">PREFIJO</label>
+                <select id="forumThreadPrefix" class="hud-select">
+                  <option value="Debate">Debate</option>
+                  <option value="Tutorial">Tutorial</option>
+                  <option value="Noticia">Noticia</option>
+                  <option value="Consulta">Consulta</option>
+                  <option value="Off-Topic">Off-Topic</option>
+                </select>
+              </div>
             </div>
           </div>
           <div class="form-field">
-            <label for="forumThreadBody" class="hud-label">MENSAJE *</label>
-            <textarea id="forumThreadBody" class="hud-textarea" rows="4" maxlength="4000" required placeholder="Expón tu análisis, consulta o punto de vista..."></textarea>
+            <label for="forumThreadBody" class="hud-label">MENSAJE * (soporta [quote=Autor]...[/quote] y bloques \`\`\`código\`\`\`)</label>
+            <textarea id="forumThreadBody" class="hud-textarea" rows="5" maxlength="4000" required placeholder="Expón tu tutorial, noticia, análisis técnico o consulta..."></textarea>
           </div>
           <div class="modal-footer-actions">
             <button type="button" id="cancelForumComposerBtn" class="hud-btn hud-btn-outline">Cancelar</button>
-            <button type="submit" class="hud-btn hud-btn-action">Publicar hilo</button>
+            <button type="submit" class="hud-btn hud-btn-action">Publicar tema</button>
           </div>
         </form>
       </div>
-    ` : '';
+    `;
+  }
 
-    let threadsHtml = '';
-    if (list.length === 0) {
-      threadsHtml = `
-        <div class="empty-intel-box">
-          <div class="empty-hud-icon">💬</div>
-          <h3 class="empty-hud-title">Sin hilos en esta categoría</h3>
-          <p class="empty-hud-msg">No hay debates publicados con los filtros actuales.</p>
+  function renderForumThreadRowHtml(t) {
+    const replies = Array.isArray(t.replies) ? t.replies : [];
+    const last = getThreadLastActivityMeta(t);
+    const statusIcon = t.pinned ? '📌' : (t.locked ? '🔒' : (replies.length >= 3 ? '🔥' : '💬'));
+    const views = Math.max(1, Number(t.views) || 1);
+    return `
+      <div class="htc-thread-row ${t.pinned ? 'is-pinned' : ''}">
+        <div class="htc-thread-status" title="${t.pinned ? 'Tema fijado (Chincheta)' : (t.locked ? 'Hilo cerrado' : 'Tema abierto')}">${statusIcon}</div>
+        <div class="htc-thread-title-wrap">
+          <div class="htc-thread-headline">
+            ${t.pinned ? '<span class="htc-sticky-tag">CHINCHETA</span>' : ''}
+            ${t.locked ? '<span class="htc-locked-tag">CERRADO</span>' : ''}
+            ${getForumPrefixBadgeHtml(t.prefix)}
+            <button type="button" class="htc-thread-link" data-forum-thread="${escapeHtml(t.id)}">${escapeHtml(t.title)}</button>
+          </div>
+          <div class="htc-thread-submeta">
+            Iniciado por <strong>${escapeHtml(t.author || 'Anónimo')}</strong> · ${getRelativeTime(t.createdAt)} · en <span>${escapeHtml(t.category || 'General')}</span>
+          </div>
+        </div>
+        <div class="htc-stat-cell">${replies.length}</div>
+        <div class="htc-stat-cell">${views}</div>
+        <div class="htc-lastpost-cell">
+          <span class="htc-lastpost-link" data-forum-thread="${escapeHtml(t.id)}">por ${escapeHtml(last.author)}</span>
+          <span class="htc-lastpost-meta">${getRelativeTime(last.ts)}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderForum() {
+    if (!DOM.forumSection) return;
+
+    const allThreads = sortForumThreads(Array.isArray(state.forumThreads) ? state.forumThreads : []);
+    const isLoggedIn = !!state.currentUser;
+    const isAdmin = !!(state.currentUser && state.currentUser.role === 'admin');
+    const q = (state.searchQuery || '').toLowerCase().trim();
+    const authorStats = buildForumAuthorStats(allThreads);
+
+    // Si hay búsqueda activa en el buscador global, mostrar resultados en formato tabla
+    const effectiveView = q && state.forumView === 'index' ? 'board' : state.forumView;
+
+    const actionBtnHtml = isLoggedIn
+      ? `<button type="button" id="toggleForumComposerBtn" class="hud-btn hud-btn-action">${state.showForumComposer ? '× Cerrar editor' : '+ Nuevo tema'}</button>`
+      : `<button type="button" id="forumLoginPromptBtn" class="hud-btn hud-btn-outline">🔑 Acceder / Registro para publicar</button>`;
+
+    // VISTA 3: HILO COMPLETO ESTILO vBULLETIN (2 COLUMNAS)
+    if (effectiveView === 'thread' && state.activeForumThreadId) {
+      const thread = allThreads.find(t => t.id === state.activeForumThreadId);
+      if (!thread) {
+        state.forumView = 'index';
+        state.activeForumThreadId = null;
+        renderForum();
+        return;
+      }
+
+      const replies = Array.isArray(thread.replies) ? thread.replies : [];
+      const posts = [
+        {
+          id: thread.id,
+          isOp: true,
+          num: 1,
+          author: thread.author || 'Anónimo',
+          authorId: thread.authorId || '',
+          authorRole: thread.authorRole || 'analyst',
+          createdAt: thread.createdAt,
+          text: thread.body || '',
+          likedBy: Array.isArray(thread.likedBy) ? thread.likedBy : [],
+          likes: Array.isArray(thread.likedBy) ? thread.likedBy.length : (Number(thread.likes) || 0)
+        },
+        ...replies.map((r, i) => ({
+          id: r.id,
+          isOp: false,
+          num: i + 2,
+          author: r.author || 'Usuario',
+          authorId: r.authorId || '',
+          authorRole: r.authorRole || 'analyst',
+          createdAt: r.createdAt,
+          text: r.text || '',
+          likedBy: Array.isArray(r.likedBy) ? r.likedBy : [],
+          likes: Array.isArray(r.likedBy) ? r.likedBy.length : (Number(r.likes) || 0)
+        }))
+      ];
+
+      const canDeleteThread = isLoggedIn && (isAdmin || state.currentUser.id === thread.authorId);
+
+      const breadcrumbHtml = `
+        <div class="htc-breadcrumb">
+          <div class="htc-crumb-trail">
+            <button type="button" class="htc-crumb-link" data-forum-nav="index">🏠 Índice del Foro</button>
+            <span>›</span>
+            <button type="button" class="htc-crumb-link" data-forum-board="${escapeHtml(thread.category || 'Ciberseguridad')}">${escapeHtml(thread.category || 'Ciberseguridad')}</button>
+            <span>›</span>
+            <span class="htc-crumb-current">${escapeHtml(thread.title)}</span>
+          </div>
+          <div class="htc-forum-actions">
+            <button type="button" class="hud-btn hud-btn-outline" data-forum-board="${escapeHtml(thread.category || 'Todos')}">← Volver al subforo</button>
+            ${(!thread.locked || isAdmin) ? `<button type="button" id="forumQuickReplyScrollBtn" class="hud-btn hud-btn-action">↩ Responder</button>` : ''}
+          </div>
         </div>
       `;
-    } else {
-      threadsHtml = `<div class="forum-threads-list">${list.map(t => {
-        const replies = Array.isArray(t.replies) ? t.replies : [];
-        const isExpanded = state.activeForumThreadId === t.id;
-        const canDelete = isLoggedIn && (state.currentUser.role === 'admin' || state.currentUser.id === t.authorId);
-        const roleTag = t.authorRole === 'admin' ? 'ADMIN' : 'MIEMBRO';
 
-        const repliesHtml = isExpanded ? `
-          <div class="forum-replies-panel">
-            ${replies.length === 0
-              ? `<p style="font-size: 0.85rem; color: var(--text-muted); margin: 0;">Todavía no hay respuestas. Sé el primero en comentar.</p>`
-              : replies.map(rep => `
-                <div class="forum-reply-item">
-                  <div class="forum-reply-header">
-                    <span class="forum-author-badge">${escapeHtml(rep.author || 'Usuario')}</span>
-                    <span class="forum-role-tag">${rep.authorRole === 'admin' ? 'ADMIN' : 'MIEMBRO'}</span>
-                    <span>• ${getRelativeTime(rep.createdAt)}</span>
-                  </div>
-                  <p class="forum-reply-text">${escapeHtml(rep.text || '')}</p>
-                </div>
-              `).join('')
-            }
-
-            ${isLoggedIn ? `
-              <form class="forum-reply-form" data-thread-id="${escapeHtml(t.id)}">
-                <textarea class="hud-textarea" name="replyText" rows="2" maxlength="2500" required placeholder="Escribe tu respuesta en el debate..."></textarea>
-                <div style="display: flex; justify-content: flex-end;">
-                  <button type="submit" class="hud-btn hud-btn-action">Responder</button>
-                </div>
-              </form>
-            ` : `
-              <div class="forum-guest-notice">
-                <span>Inicia sesión o regístrate abajo para responder a este debate.</span>
-                <button type="button" class="hud-btn hud-btn-outline" data-forum-login="1">🔑 Acceder / Registro</button>
-              </div>
-            `}
+      const threadHeaderHtml = `
+        <div class="htc-thread-header">
+          <div>
+            <div class="htc-thread-headline">
+              ${thread.pinned ? '<span class="htc-sticky-tag">📌 CHINCHETA</span>' : ''}
+              ${thread.locked ? '<span class="htc-locked-tag">🔒 CERRADO</span>' : ''}
+              ${getForumPrefixBadgeHtml(thread.prefix)}
+              <span style="font-size:0.78rem;color:var(--text-muted);">${Math.max(1, Number(thread.views) || 1)} visitas · ${replies.length} respuestas</span>
+            </div>
+            <h2>${escapeHtml(thread.title)}</h2>
           </div>
-        ` : '';
+          <div class="htc-forum-actions">
+            ${isAdmin ? `
+              <button type="button" class="htc-action-btn" data-forum-thread-id="${escapeHtml(thread.id)}" data-forum-mod="${thread.pinned ? 'unpin' : 'pin'}">${thread.pinned ? '📌 Quitar chincheta' : '📌 Fijar tema'}</button>
+              <button type="button" class="htc-action-btn" data-forum-thread-id="${escapeHtml(thread.id)}" data-forum-mod="${thread.locked ? 'unlock' : 'lock'}">${thread.locked ? '🔓 Reabrir hilo' : '🔒 Cerrar hilo'}</button>
+            ` : ''}
+            ${canDeleteThread ? `<button type="button" class="htc-action-btn is-danger" data-forum-delete="${escapeHtml(thread.id)}">🗑️ Eliminar hilo</button>` : ''}
+          </div>
+        </div>
+      `;
+
+      const postsHtml = posts.map(p => {
+        const count = authorStats.get(String(p.author || '').toLowerCase()) || 1;
+        const rank = getForumRankMeta(p.author, p.authorRole, count);
+        const initial = String(p.author || 'U').trim().charAt(0).toUpperCase();
+        const isLiked = isLoggedIn && p.likedBy.includes(state.currentUser.id);
+        const canDeleteReply = !p.isOp && isLoggedIn && (isAdmin || state.currentUser.id === p.authorId);
 
         return `
-          <article class="forum-thread-card" data-thread-id="${escapeHtml(t.id)}">
-            <div class="forum-thread-top">
-              <div class="forum-thread-meta-left">
-                <span class="forum-cat-badge">${escapeHtml(t.category || 'General')}</span>
-                <span class="forum-author-badge">${escapeHtml(t.author || 'Anónimo')}</span>
-                <span class="forum-role-tag">${roleTag}</span>
-                <span>• ${getRelativeTime(t.createdAt)}</span>
+          <article class="htc-post-card">
+            <div class="htc-post-topbar">
+              <span>🕒 Publicado ${getRelativeTime(p.createdAt)}</span>
+              <span class="htc-post-num">#${p.num}</span>
+            </div>
+            <div class="htc-post-grid">
+              <aside class="htc-post-author-col">
+                <div class="htc-author-avatar">${escapeHtml(initial)}</div>
+                <div class="htc-author-name">${escapeHtml(p.author)}</div>
+                <span class="htc-rank-badge ${rank.cls}">${escapeHtml(rank.label)}</span>
+                <div class="htc-author-stats">
+                  <div>Mensajes: <strong>${count}</strong></div>
+                  <div>${p.isOp ? 'Autor del hilo' : 'Participante'}</div>
+                </div>
+              </aside>
+              <div class="htc-post-body-col">
+                <div class="htc-post-content">${formatForumPostHtml(p.text)}</div>
+                <div class="htc-post-footer">
+                  <div class="htc-post-actions">
+                    <button type="button" class="htc-action-btn ${isLiked ? 'is-liked' : ''}" data-forum-like="${escapeHtml(thread.id)}" ${p.isOp ? '' : `data-forum-reply-id="${escapeHtml(p.id)}"`}>
+                      👍 Gracias (${p.likes})
+                    </button>
+                    ${(!thread.locked || isAdmin) ? `
+                      <button type="button" class="htc-action-btn" data-forum-quote="${escapeHtml(p.text)}" data-forum-quote-author="${escapeHtml(p.author)}">
+                        ❝ Citar
+                      </button>
+                    ` : ''}
+                  </div>
+                  <div class="htc-post-actions">
+                    ${canDeleteReply ? `<button type="button" class="htc-action-btn is-danger" data-forum-thread-id="${escapeHtml(thread.id)}" data-forum-del-reply="${escapeHtml(p.id)}">🗑️ Borrar</button>` : ''}
+                  </div>
+                </div>
               </div>
-              ${canDelete ? `<button type="button" class="forum-delete-btn" data-forum-delete="${escapeHtml(t.id)}">Eliminar</button>` : ''}
             </div>
-            <h3 class="forum-thread-title">${escapeHtml(t.title)}</h3>
-            <p class="forum-thread-body">${escapeHtml(t.body)}</p>
-            <div class="forum-thread-actions">
-              <button type="button" class="forum-reply-toggle-btn" data-forum-toggle="${escapeHtml(t.id)}">
-                <span>💬 ${replies.length} ${replies.length === 1 ? 'respuesta' : 'respuestas'}</span>
-                <span>· ${isExpanded ? 'Ocultar debate ▴' : 'Ver debate y responder ▾'}</span>
-              </button>
-            </div>
-            ${repliesHtml}
           </article>
         `;
-      }).join('')}</div>`;
+      }).join('');
+
+      let replyBoxHtml = '';
+      if (thread.locked && !isAdmin) {
+        replyBoxHtml = `
+          <div class="forum-guest-notice">
+            <span>🔒 Este tema ha sido cerrado por moderación y ya no admite nuevas respuestas.</span>
+          </div>
+        `;
+      } else if (isLoggedIn) {
+        replyBoxHtml = `
+          <div class="forum-composer-card">
+            <h3 class="forum-composer-title">↩ Respuesta rápida al tema</h3>
+            <form class="forum-reply-form" data-thread-id="${escapeHtml(thread.id)}">
+              <div class="form-field">
+                <textarea id="forumQuickReplyText" class="hud-textarea" name="replyText" rows="4" maxlength="2500" required placeholder="Escribe tu respuesta... Puedes pulsar 'Citar' en cualquier post para responder a alguien en concreto."></textarea>
+              </div>
+              <div class="modal-footer-actions">
+                <button type="submit" class="hud-btn hud-btn-action">Publicar respuesta</button>
+              </div>
+            </form>
+          </div>
+        `;
+      } else {
+        replyBoxHtml = `
+          <div class="forum-guest-notice">
+            <span>Inicia sesión o regístrate gratuitamente para responder, agradecer posts y citar mensajes.</span>
+            <button type="button" class="hud-btn hud-btn-outline" data-forum-login="1">🔑 Acceder / Registro</button>
+          </div>
+        `;
+      }
+
+      DOM.forumSection.innerHTML = breadcrumbHtml + threadHeaderHtml + postsHtml + replyBoxHtml;
+      return;
     }
 
-    DOM.forumSection.innerHTML = headerHtml + toolbarHtml + composerHtml + threadsHtml;
+    // VISTA 2: LISTADO DE TEMAS DE UN SUBFORO (O BÚSQUEDA GLOBAL)
+    if (effectiveView === 'board') {
+      const boardName = state.forumFilter || 'Todos';
+      const prefixes = ['Todos', 'Debate', 'Tutorial', 'Noticia', 'Consulta', 'Off-Topic'];
+
+      let list = [...allThreads];
+      if (boardName !== 'Todos') {
+        list = list.filter(t => (t.category || '').toLowerCase() === boardName.toLowerCase());
+      }
+      if (state.forumPrefixFilter && state.forumPrefixFilter !== 'Todos') {
+        list = list.filter(t => (t.prefix || 'Debate').toLowerCase() === state.forumPrefixFilter.toLowerCase());
+      }
+      if (q) {
+        list = list.filter(t =>
+          (t.title || '').toLowerCase().includes(q) ||
+          (t.body || '').toLowerCase().includes(q) ||
+          (t.author || '').toLowerCase().includes(q) ||
+          (t.category || '').toLowerCase().includes(q)
+        );
+      }
+
+      const breadcrumbHtml = `
+        <div class="htc-breadcrumb">
+          <div class="htc-crumb-trail">
+            <button type="button" class="htc-crumb-link" data-forum-nav="index">🏠 Índice del Foro</button>
+            <span>›</span>
+            <span class="htc-crumb-current">${q ? `Búsqueda: "${escapeHtml(q)}"` : (boardName === 'Todos' ? 'Todos los temas' : escapeHtml(boardName))}</span>
+          </div>
+          <div class="htc-forum-actions">
+            <button type="button" class="hud-btn hud-btn-outline" data-forum-nav="index">← Índice</button>
+            ${actionBtnHtml}
+          </div>
+        </div>
+      `;
+
+      const prefixBarHtml = `
+        <div class="forum-toolbar">
+          <div class="forum-filter-pills">
+            ${prefixes.map(p => `
+              <button type="button" class="forum-filter-pill ${state.forumPrefixFilter === p ? 'active' : ''}" data-forum-prefix="${escapeHtml(p)}">${escapeHtml(p)}</button>
+            `).join('')}
+          </div>
+          <span class="feed-meta">${list.length} ${list.length === 1 ? 'tema' : 'temas'}</span>
+        </div>
+      `;
+
+      const tableHtml = list.length === 0
+        ? `
+          <div class="empty-intel-box">
+            <div class="empty-hud-icon">💬</div>
+            <h3 class="empty-hud-title">Sin temas en este subforo todavía</h3>
+            <p class="empty-hud-msg">Sé el primero en abrir un hilo técnico en ${escapeHtml(boardName)}.</p>
+          </div>
+        `
+        : `
+          <div class="htc-category-block">
+            <div class="htc-category-bar">
+              <span>📂 ${q ? 'Resultados encontrados' : (boardName === 'Todos' ? 'Todos los subforos' : escapeHtml(boardName))}</span>
+              <span class="htc-category-sub">Ordenado por chinchetas y última actividad</span>
+            </div>
+            <div class="htc-threads-head">
+              <div></div>
+              <div>Tema / Autor</div>
+              <div style="text-align:center;">Respuestas</div>
+              <div style="text-align:center;">Visitas</div>
+              <div>Último mensaje</div>
+            </div>
+            ${list.map(renderForumThreadRowHtml).join('')}
+          </div>
+        `;
+
+      DOM.forumSection.innerHTML = breadcrumbHtml + renderForumComposerCard() + prefixBarHtml + tableHtml;
+      return;
+    }
+
+    // VISTA 1: ÍNDICE GENERAL ESTILO HTCMANIA (SUBFOROS AGRUPADOS + ÚLTIMOS MENSAJES)
+    const breadcrumbHtml = `
+      <div class="htc-breadcrumb">
+        <div class="htc-crumb-trail">
+          <span class="htc-crumb-current">🏠 Foro CYBERPOLIS — Comunidad de Ciberseguridad &amp; Tecnología</span>
+        </div>
+        <div class="htc-forum-actions">
+          <button type="button" class="hud-btn hud-btn-outline" data-forum-board="Todos">📋 Todos los temas (${allThreads.length})</button>
+          ${actionBtnHtml}
+        </div>
+      </div>
+    `;
+
+    const groupsHtml = FORUM_BOARD_GROUPS.map(group => {
+      const rowsHtml = group.boards.map(b => {
+        const boardThreads = allThreads.filter(t => (t.category || 'Ciberseguridad').toLowerCase() === b.key.toLowerCase());
+        const totalReplies = boardThreads.reduce((acc, t) => acc + (Array.isArray(t.replies) ? t.replies.length : 0), 0);
+        const totalPosts = boardThreads.length + totalReplies;
+        const latest = boardThreads[0] || null;
+        const latestMeta = latest ? getThreadLastActivityMeta(latest) : null;
+
+        return `
+          <div class="htc-board-row">
+            <div class="htc-board-icon" aria-hidden="true">${b.icon}</div>
+            <div class="htc-board-main">
+              <button type="button" class="htc-board-title" data-forum-board="${escapeHtml(b.key)}">${escapeHtml(b.key)}</button>
+              <p class="htc-board-desc">${escapeHtml(b.desc)}</p>
+            </div>
+            <div class="htc-stat-cell">${boardThreads.length}</div>
+            <div class="htc-stat-cell">${totalPosts}</div>
+            <div class="htc-lastpost-cell">
+              ${latest
+                ? `<button type="button" class="htc-lastpost-link" data-forum-thread="${escapeHtml(latest.id)}" title="${escapeHtml(latest.title)}">${escapeHtml(latest.title)}</button>
+                   <span class="htc-lastpost-meta">por ${escapeHtml(latestMeta.author)} · ${getRelativeTime(latestMeta.ts)}</span>`
+                : '<span class="htc-lastpost-meta">Sin temas aún — ¡inaugúralo!</span>'
+              }
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div class="htc-category-block">
+          <div class="htc-category-bar">
+            <span>📌 ${escapeHtml(group.title)}</span>
+            <span class="htc-category-sub">${escapeHtml(group.subtitle)}</span>
+          </div>
+          <div class="htc-board-head">
+            <div></div>
+            <div>Subforo</div>
+            <div style="text-align:center;">Temas</div>
+            <div style="text-align:center;">Mensajes</div>
+            <div>Último mensaje</div>
+          </div>
+          ${rowsHtml}
+        </div>
+      `;
+    }).join('');
+
+    const recentThreadsHtml = allThreads.length > 0 ? `
+      <div class="htc-category-block">
+        <div class="htc-category-bar">
+          <span>🔥 Últimos mensajes activos en el foro</span>
+          <span class="htc-category-sub">Hilos con actividad reciente</span>
+        </div>
+        <div class="htc-threads-head">
+          <div></div>
+          <div>Tema / Autor</div>
+          <div style="text-align:center;">Respuestas</div>
+          <div style="text-align:center;">Visitas</div>
+          <div>Último mensaje</div>
+        </div>
+        ${allThreads.slice(0, 6).map(renderForumThreadRowHtml).join('')}
+      </div>
+    ` : '';
+
+    const totalRepliesAll = allThreads.reduce((acc, t) => acc + (Array.isArray(t.replies) ? t.replies.length : 0), 0);
+    const statsHtml = `
+      <div class="htc-stats-bar">
+        <span>📊 <strong>Estadísticas del Foro:</strong> ${allThreads.length} temas · ${allThreads.length + totalRepliesAll} mensajes · ${authorStats.size} participantes</span>
+        <span>💡 Pulsa en cualquier subforo o hilo para abrir el debate completo estilo vBulletin</span>
+      </div>
+    `;
+
+    DOM.forumSection.innerHTML = breadcrumbHtml + renderForumComposerCard() + groupsHtml + recentThreadsHtml + statsHtml;
+  }
+
+  function openForumThreadView(threadId) {
+    if (!threadId) return;
+    state.activeForumThreadId = threadId;
+    state.forumView = 'thread';
+    const localThread = state.forumThreads.find(t => t.id === threadId);
+    if (localThread) {
+      localThread.views = Math.max(1, Number(localThread.views) || 1) + 1;
+    }
+    renderForum();
+    if (DOM.forumSection) DOM.forumSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    if (state.serverMode) {
+      fetch(`/api/forum/${encodeURIComponent(threadId)}/view`, { method: 'POST' })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data && data.views && localThread) localThread.views = data.views;
+        })
+        .catch(() => {});
+    }
+  }
+
+  function quoteForumPostIntoReply(authorName, rawText) {
+    if (!state.currentUser) {
+      openAuthModal();
+      return;
+    }
+    const box = document.getElementById('forumQuickReplyText');
+    if (!box) return;
+    const cleanExcerpt = String(rawText || '').replace(/\[quote[\s\S]*?\[\/quote\]/gi, '').trim().slice(0, 260);
+    const snippet = `[quote=${authorName}]${cleanExcerpt}[/quote]\n`;
+    box.value = box.value ? `${box.value.trimEnd()}\n\n${snippet}` : snippet;
+    box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    box.focus();
+  }
+
+  async function handleToggleForumLike(threadId, replyId = '') {
+    if (!state.currentUser) {
+      openAuthModal();
+      return;
+    }
+    if (state.serverMode) {
+      try {
+        const res = await apiFetch(`/api/forum/${encodeURIComponent(threadId)}/like`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ replyId })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showToast(data.error || 'No se pudo registrar el agradecimiento.', 'error');
+          return;
+        }
+        const idx = state.forumThreads.findIndex(t => t.id === threadId);
+        if (idx !== -1 && data.thread) state.forumThreads[idx] = data.thread;
+        localStorage.setItem('silverbot_forum_cache', JSON.stringify(state.forumThreads));
+        renderForum();
+        return;
+      } catch (e) {}
+    }
+
+    const thread = state.forumThreads.find(t => t.id === threadId);
+    if (!thread) return;
+    const target = replyId ? (thread.replies || []).find(r => r.id === replyId) : thread;
+    if (!target) return;
+    if (!Array.isArray(target.likedBy)) target.likedBy = [];
+    const uid = state.currentUser.id;
+    target.likedBy = target.likedBy.includes(uid)
+      ? target.likedBy.filter(x => x !== uid)
+      : [...target.likedBy, uid];
+    target.likes = target.likedBy.length;
+    localStorage.setItem('silverbot_forum_cache', JSON.stringify(state.forumThreads));
+    renderForum();
+  }
+
+  async function handleModerateForumThread(threadId, action) {
+    if (!state.currentUser || state.currentUser.role !== 'admin') return;
+    if (!state.serverMode) return;
+    try {
+      const res = await apiFetch(`/api/forum/${encodeURIComponent(threadId)}/moderate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || 'Acción fallida.', 'error');
+        return;
+      }
+      const idx = state.forumThreads.findIndex(t => t.id === threadId);
+      if (idx !== -1 && data.thread) state.forumThreads[idx] = data.thread;
+      localStorage.setItem('silverbot_forum_cache', JSON.stringify(state.forumThreads));
+      renderForum();
+      showToast('Moderación del tema aplicada.');
+    } catch (e) {
+      showToast('Error al moderar el tema.', 'error');
+    }
+  }
+
+  async function handleDeleteForumReply(threadId, replyId) {
+    if (!state.currentUser || !threadId || !replyId) return;
+    if (state.serverMode) {
+      try {
+        const res = await apiFetch(`/api/forum/${encodeURIComponent(threadId)}/reply/${encodeURIComponent(replyId)}`, {
+          method: 'DELETE'
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showToast(data.error || 'No se pudo borrar la respuesta.', 'error');
+          return;
+        }
+        const idx = state.forumThreads.findIndex(t => t.id === threadId);
+        if (idx !== -1 && data.thread) state.forumThreads[idx] = data.thread;
+        localStorage.setItem('silverbot_forum_cache', JSON.stringify(state.forumThreads));
+        renderForum();
+        showToast('Respuesta eliminada.');
+        return;
+      } catch (e) {}
+    }
   }
 
   async function handleCreateForumThread(form) {
@@ -4041,9 +4543,11 @@
     }
     const titleEl = form.querySelector('#forumThreadTitle');
     const catEl = form.querySelector('#forumThreadCategory');
+    const prefixEl = form.querySelector('#forumThreadPrefix');
     const bodyEl = form.querySelector('#forumThreadBody');
     const title = titleEl ? titleEl.value.trim() : '';
     const category = catEl ? catEl.value : 'Ciberseguridad';
+    const prefix = prefixEl ? prefixEl.value : 'Debate';
     const body = bodyEl ? bodyEl.value.trim() : '';
 
     if (!title || !body) {
@@ -4056,7 +4560,7 @@
         const res = await apiFetch('/api/forum', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, category, body })
+          body: JSON.stringify({ title, category, prefix, body })
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -4066,7 +4570,9 @@
         state.forumThreads.unshift(data.thread);
         localStorage.setItem('silverbot_forum_cache', JSON.stringify(state.forumThreads));
         state.showForumComposer = false;
+        state.forumFilter = category;
         state.activeForumThreadId = data.thread.id;
+        state.forumView = 'thread';
         updateForumCount();
         renderForum();
         showToast('¡Tema publicado en el foro!');
@@ -4074,21 +4580,31 @@
       } catch (e) {}
     }
 
+    const nowIso = new Date().toISOString();
     const localThread = {
       id: 'frm-' + Date.now(),
       title,
       category,
+      prefix,
       body,
       author: state.currentUser.displayName,
       authorId: state.currentUser.id,
       authorRole: state.currentUser.role,
-      createdAt: new Date().toISOString(),
+      pinned: false,
+      locked: false,
+      views: 1,
+      likedBy: [],
+      likes: 0,
+      createdAt: nowIso,
+      lastActivityAt: nowIso,
       replies: []
     };
     state.forumThreads.unshift(localThread);
     localStorage.setItem('silverbot_forum_cache', JSON.stringify(state.forumThreads));
     state.showForumComposer = false;
+    state.forumFilter = category;
     state.activeForumThreadId = localThread.id;
+    state.forumView = 'thread';
     updateForumCount();
     renderForum();
     showToast('¡Tema guardado en modo local!');
@@ -4127,14 +4643,18 @@
     const thread = state.forumThreads.find(t => t.id === threadId);
     if (thread) {
       if (!Array.isArray(thread.replies)) thread.replies = [];
+      const nowIso = new Date().toISOString();
       thread.replies.push({
         id: 'rep-' + Date.now(),
         text,
         author: state.currentUser.displayName,
         authorId: state.currentUser.id,
         authorRole: state.currentUser.role,
-        createdAt: new Date().toISOString()
+        likedBy: [],
+        likes: 0,
+        createdAt: nowIso
       });
+      thread.lastActivityAt = nowIso;
       localStorage.setItem('silverbot_forum_cache', JSON.stringify(state.forumThreads));
       renderForum();
       showToast('Respuesta guardada en modo local.');
@@ -4156,6 +4676,10 @@
       } catch (e) {}
     }
     state.forumThreads = state.forumThreads.filter(t => t.id !== threadId);
+    if (state.activeForumThreadId === threadId) {
+      state.activeForumThreadId = null;
+      state.forumView = 'board';
+    }
     localStorage.setItem('silverbot_forum_cache', JSON.stringify(state.forumThreads));
     updateForumCount();
     renderForum();

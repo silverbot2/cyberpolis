@@ -2287,21 +2287,30 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (Array.isArray(body.forum)) {
-        const cleanForum = body.forum.slice(0, 150).map(t => ({
+        const cleanForum = body.forum.slice(0, 200).map(t => ({
           id: sanitizeInput(t.id || ('frm-' + Date.now()), 64),
           title: sanitizeInput(t.title || 'Debate', 160),
           category: sanitizeInput(t.category || 'General', 40),
+          prefix: ['Debate', 'Tutorial', 'Noticia', 'Consulta', 'Off-Topic'].includes(t.prefix) ? t.prefix : 'Debate',
           body: sanitizeInput(t.body || '', 4000),
           author: sanitizeInput(t.author || 'Usuario', 64),
           authorId: sanitizeInput(t.authorId || '', 64),
           authorRole: t.authorRole === 'admin' ? 'admin' : 'analyst',
+          pinned: !!t.pinned,
+          locked: !!t.locked,
+          views: Math.max(1, Number(t.views) || 1),
+          likedBy: Array.isArray(t.likedBy) ? t.likedBy.slice(0, 200).map(x => sanitizeInput(String(x), 64)) : [],
+          likes: Array.isArray(t.likedBy) ? t.likedBy.length : (Number(t.likes) || 0),
           createdAt: t.createdAt || new Date().toISOString(),
+          lastActivityAt: t.lastActivityAt || t.createdAt || new Date().toISOString(),
           replies: Array.isArray(t.replies) ? t.replies.slice(0, 200).map(r => ({
             id: sanitizeInput(r.id || ('rep-' + Date.now()), 64),
             text: sanitizeInput(r.text || '', 2500),
             author: sanitizeInput(r.author || 'Usuario', 64),
             authorId: sanitizeInput(r.authorId || '', 64),
             authorRole: r.authorRole === 'admin' ? 'admin' : 'analyst',
+            likedBy: Array.isArray(r.likedBy) ? r.likedBy.slice(0, 200).map(x => sanitizeInput(String(x), 64)) : [],
+            likes: Array.isArray(r.likedBy) ? r.likedBy.length : (Number(r.likes) || 0),
             createdAt: r.createdAt || new Date().toISOString()
           })) : []
         }));
@@ -3072,9 +3081,40 @@ const server = http.createServer(async (req, res) => {
     // API FORO COMUNITARIO
     // ----------------------------------------------------
 
+    // ----------------------------------------------------
+    // API FORO COMUNITARIO ESTILO HTCMANIA (vBulletin)
+    // ----------------------------------------------------
+    const FORUM_PREFIXES = ['Debate', 'Tutorial', 'Noticia', 'Consulta', 'Off-Topic'];
+    const normalizeForumThread = (t) => {
+      const replies = Array.isArray(t.replies) ? t.replies.map(r => {
+        const rLikes = Array.isArray(r.likedBy) ? r.likedBy : [];
+        return {
+          ...r,
+          likedBy: rLikes,
+          likes: rLikes.length
+        };
+      }) : [];
+      const tLikes = Array.isArray(t.likedBy) ? t.likedBy : [];
+      const lastReply = replies.length ? replies[replies.length - 1] : null;
+      return {
+        ...t,
+        prefix: FORUM_PREFIXES.includes(t.prefix) ? t.prefix : 'Debate',
+        pinned: !!t.pinned,
+        locked: !!t.locked,
+        views: Math.max(1, Number(t.views) || 1),
+        likedBy: tLikes,
+        likes: tLikes.length,
+        lastActivityAt: t.lastActivityAt || (lastReply && lastReply.createdAt) || t.createdAt,
+        replies
+      };
+    };
+
     if (pathname === '/api/forum' && method === 'GET') {
-      const threads = readJSON(FORUM_FILE, []);
-      threads.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      const threads = readJSON(FORUM_FILE, []).map(normalizeForumThread);
+      threads.sort((a, b) => {
+        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+        return new Date(b.lastActivityAt || b.createdAt) - new Date(a.lastActivityAt || a.createdAt);
+      });
       sendJSON(req, res, 200, threads);
       return;
     }
@@ -3092,7 +3132,8 @@ const server = http.createServer(async (req, res) => {
 
       const body = await parseBody(req);
       const title = sanitizeInput(body.title || '', 160);
-      const category = sanitizeInput(body.category || 'General', 40);
+      const category = sanitizeInput(body.category || 'Ciberseguridad', 40);
+      const prefix = FORUM_PREFIXES.includes(body.prefix) ? body.prefix : 'Debate';
       const text = sanitizeInput(body.body || '', 4000);
 
       if (!title || !text) {
@@ -3100,21 +3141,29 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      const nowIso = new Date().toISOString();
       const threads = readJSON(FORUM_FILE, []);
       const newThread = {
         id: 'frm-' + Date.now(),
         title,
         category,
+        prefix,
         body: text,
         author: currentUser.displayName,
         authorId: currentUser.id,
         authorRole: currentUser.role,
-        createdAt: new Date().toISOString(),
+        pinned: false,
+        locked: false,
+        views: 1,
+        likedBy: [],
+        likes: 0,
+        createdAt: nowIso,
+        lastActivityAt: nowIso,
         replies: []
       };
 
       threads.unshift(newThread);
-      if (threads.length > 100) threads.length = 100;
+      if (threads.length > 200) threads.length = 200;
       writeJSON(FORUM_FILE, threads, { critical: true });
       sendJSON(req, res, 201, { success: true, thread: newThread });
       return;
@@ -3140,9 +3189,14 @@ const server = http.createServer(async (req, res) => {
       }
 
       const threads = readJSON(FORUM_FILE, []);
-      const thread = threads.find(t => t.id === threadId);
-      if (!thread) {
+      const idx = threads.findIndex(t => t.id === threadId);
+      if (idx === -1) {
         sendJSON(req, res, 404, { error: 'Tema no encontrado' });
+        return;
+      }
+      const thread = threads[idx];
+      if (thread.locked && currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Este hilo está cerrado por un administrador.' });
         return;
       }
 
@@ -3152,13 +3206,130 @@ const server = http.createServer(async (req, res) => {
         author: currentUser.displayName,
         authorId: currentUser.id,
         authorRole: currentUser.role,
+        likedBy: [],
+        likes: 0,
         createdAt: new Date().toISOString()
       };
 
       if (!Array.isArray(thread.replies)) thread.replies = [];
       thread.replies.push(reply);
+      thread.lastActivityAt = reply.createdAt;
+      threads[idx] = normalizeForumThread(thread);
       writeJSON(FORUM_FILE, threads, { critical: true });
-      sendJSON(req, res, 201, { success: true, reply, thread });
+      sendJSON(req, res, 201, { success: true, reply, thread: threads[idx] });
+      return;
+    }
+
+    if (/^\/api\/forum\/[^/]+\/view$/.test(pathname) && method === 'POST') {
+      const threadId = decodeURIComponent(pathname.split('/')[3]);
+      const threads = readJSON(FORUM_FILE, []);
+      const idx = threads.findIndex(t => t.id === threadId);
+      if (idx === -1) {
+        sendJSON(req, res, 404, { error: 'Tema no encontrado' });
+        return;
+      }
+      if (checkRateLimit(`fview:${ip}:${threadId}`, 3, 60000)) {
+        threads[idx].views = Math.max(1, Number(threads[idx].views) || 1) + 1;
+        writeJSON(FORUM_FILE, threads);
+      }
+      sendJSON(req, res, 200, { success: true, views: Math.max(1, Number(threads[idx].views) || 1) });
+      return;
+    }
+
+    if (/^\/api\/forum\/[^/]+\/like$/.test(pathname) && method === 'POST') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser) {
+        sendJSON(req, res, 401, { error: 'Inicia sesión para agradecer un post.' });
+        return;
+      }
+      const threadId = decodeURIComponent(pathname.split('/')[3]);
+      const body = await parseBody(req);
+      const replyId = body && body.replyId ? String(body.replyId) : '';
+      const threads = readJSON(FORUM_FILE, []);
+      const idx = threads.findIndex(t => t.id === threadId);
+      if (idx === -1) {
+        sendJSON(req, res, 404, { error: 'Tema no encontrado' });
+        return;
+      }
+      const thread = normalizeForumThread(threads[idx]);
+      let targetObj = thread;
+      if (replyId) {
+        targetObj = thread.replies.find(r => r.id === replyId);
+        if (!targetObj) {
+          sendJSON(req, res, 404, { error: 'Respuesta no encontrada' });
+          return;
+        }
+      }
+      const hasLiked = targetObj.likedBy.includes(currentUser.id);
+      targetObj.likedBy = hasLiked
+        ? targetObj.likedBy.filter(uid => uid !== currentUser.id)
+        : [...targetObj.likedBy, currentUser.id];
+      targetObj.likes = targetObj.likedBy.length;
+      threads[idx] = normalizeForumThread(thread);
+      writeJSON(FORUM_FILE, threads, { critical: true });
+      sendJSON(req, res, 200, { success: true, thread: threads[idx] });
+      return;
+    }
+
+    if (/^\/api\/forum\/[^/]+\/moderate$/.test(pathname) && method === 'POST') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Solo el Administrador puede fijar o cerrar temas.' });
+        return;
+      }
+      const threadId = decodeURIComponent(pathname.split('/')[3]);
+      const body = await parseBody(req);
+      const action = String((body && body.action) || '').toLowerCase();
+      const threads = readJSON(FORUM_FILE, []);
+      const idx = threads.findIndex(t => t.id === threadId);
+      if (idx === -1) {
+        sendJSON(req, res, 404, { error: 'Tema no encontrado' });
+        return;
+      }
+      const thread = normalizeForumThread(threads[idx]);
+      if (action === 'pin') thread.pinned = true;
+      else if (action === 'unpin') thread.pinned = false;
+      else if (action === 'lock') thread.locked = true;
+      else if (action === 'unlock') thread.locked = false;
+      else {
+        sendJSON(req, res, 400, { error: 'Acción de moderación no válida.' });
+        return;
+      }
+      threads[idx] = thread;
+      writeJSON(FORUM_FILE, threads, { critical: true });
+      sendJSON(req, res, 200, { success: true, thread });
+      return;
+    }
+
+    if (/^\/api\/forum\/[^/]+\/reply\/[^/]+$/.test(pathname) && method === 'DELETE') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser) {
+        sendJSON(req, res, 401, { error: 'No autenticado' });
+        return;
+      }
+      const parts = pathname.split('/');
+      const threadId = decodeURIComponent(parts[3]);
+      const replyId = decodeURIComponent(parts[5]);
+      const threads = readJSON(FORUM_FILE, []);
+      const idx = threads.findIndex(t => t.id === threadId);
+      if (idx === -1) {
+        sendJSON(req, res, 404, { error: 'Tema no encontrado' });
+        return;
+      }
+      const thread = normalizeForumThread(threads[idx]);
+      const targetReply = thread.replies.find(r => r.id === replyId);
+      if (!targetReply) {
+        sendJSON(req, res, 404, { error: 'Respuesta no encontrada' });
+        return;
+      }
+      if (targetReply.authorId !== currentUser.id && currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Sin permisos para eliminar esta respuesta.' });
+        return;
+      }
+      thread.replies = thread.replies.filter(r => r.id !== replyId);
+      threads[idx] = thread;
+      writeJSON(FORUM_FILE, threads, { critical: true });
+      sendJSON(req, res, 200, { success: true, thread });
       return;
     }
 
