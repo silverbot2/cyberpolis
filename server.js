@@ -1788,6 +1788,17 @@ function sanitizeAdBannerConfig(raw, existing = null) {
 // ==========================================
 // Chat IRC Lateral en Vivo (Estilo mIRC32)
 // ==========================================
+const DEFAULT_BOT_CONFIG = {
+  enabled: true,
+  nick: 'CyberBot',
+  antiFloodMaxMsgs: 5,
+  antiFloodWindowSec: 8,
+  antiSpamLinks: true,
+  badWords: ['spam', 'scam', 'phishing', 'carding', 'ddos4hire', 'exploit4sale', 'gilipollas', 'idiota'],
+  badWordAction: 'mute',
+  welcomeRules: 'Reglas CYBERPOLIS: 1) Respeto y ética 2) Cero spam/phishing 3) Usa !comandos o /join #canal para abrir salas'
+};
+
 const DEFAULT_CHAT_STATE = {
   channel: '#cyberpolis',
   topic: 'Bienvenidos a #cyberpolis — Hacknoticiero & Debate IRC en vivo',
@@ -1795,6 +1806,7 @@ const DEFAULT_CHAT_STATE = {
   allowGuests: true,
   moderatedMode: false,
   theme: 'mirc-classic',
+  botConfig: { ...DEFAULT_BOT_CONFIG },
   messages: [
     {
       id: 'irc-welcome-1',
@@ -1802,17 +1814,19 @@ const DEFAULT_CHAT_STATE = {
       nick: 'ChanServ',
       prefix: '@',
       role: 'system',
-      text: '*** Now talking in #cyberpolis (+nt) — Canal oficial de CYBERPOLIS',
+      text: '*** Now talking in #cyberpolis (+nt) — Canal oficial de CYBERPOLIS · Bot @CyberBot activo (!help)',
       ts: '2026-11-12T09:00:00.000Z'
     }
   ],
   opNicks: [],
   voiceNicks: [],
   mutedNicks: [],
-  bannedEntries: []
+  bannedEntries: [],
+  channels: {}
 };
 
 const chatSseClients = new Map();
+const chatBotFloodMap = new Map();
 
 const chatHeartbeatTimer = setInterval(() => {
   if (chatSseClients.size === 0) return;
@@ -1840,24 +1854,41 @@ function sanitizeIrcNick(raw, fallback = 'invitado') {
   return cleaned.length >= 2 ? cleaned : fallback;
 }
 
-function normalizeChatStore(raw) {
-  const src = raw && typeof raw === 'object' ? raw : {};
-  const messages = Array.isArray(src.messages)
-    ? src.messages
-        .filter(m => m && typeof m === 'object' && typeof m.text === 'string')
-        .slice(-1000)
-        .map(m => ({
-          id: sanitizeInput(String(m.id || ('irc-' + Date.now())), 64),
-          type: ['msg', 'action', 'system'].includes(m.type) ? m.type : 'msg',
-          nick: sanitizeIrcNick(m.nick || 'anon', 'anon'),
-          prefix: m.prefix === '@' ? '@' : (m.prefix === '+' ? '+' : ''),
-          role: m.role === 'admin' ? 'admin' : (m.role === 'analyst' ? 'analyst' : (m.role === 'system' ? 'system' : 'guest')),
-          text: sanitizeInput(m.text, 480),
-          ts: typeof m.ts === 'string' ? m.ts : new Date().toISOString()
-        }))
-    : [...DEFAULT_CHAT_STATE.messages];
+function hashChannelKey(rawKey) {
+  const trimmed = String(rawKey || '').trim();
+  if (!trimmed) return '';
+  return crypto.createHash('sha256').update('cp-irc-key:' + trimmed).digest('hex');
+}
 
-  const normalizeNickRoleList = (arr, defaultReason) => Array.isArray(arr)
+function sanitizeBotConfig(raw, fallback = DEFAULT_BOT_CONFIG) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const base = fallback || DEFAULT_BOT_CONFIG;
+  const maxMsgs = Number(src.antiFloodMaxMsgs !== undefined ? src.antiFloodMaxMsgs : base.antiFloodMaxMsgs);
+  const winSec = Number(src.antiFloodWindowSec !== undefined ? src.antiFloodWindowSec : base.antiFloodWindowSec);
+  const badWordsRaw = Array.isArray(src.badWords)
+    ? src.badWords
+    : (typeof src.badWords === 'string' ? src.badWords.split(/[\n,]+/) : base.badWords);
+  const badWords = badWordsRaw
+    .map(w => sanitizeInput(String(w || '').trim().toLowerCase(), 40))
+    .filter(Boolean)
+    .slice(0, 80);
+  const action = ['warn', 'delete', 'mute'].includes(src.badWordAction)
+    ? src.badWordAction
+    : (base.badWordAction || 'mute');
+  return {
+    enabled: src.enabled !== undefined ? !!src.enabled : !!base.enabled,
+    nick: sanitizeIrcNick(src.nick || base.nick || 'CyberBot', 'CyberBot'),
+    antiFloodMaxMsgs: Number.isFinite(maxMsgs) ? Math.min(20, Math.max(2, Math.round(maxMsgs))) : 5,
+    antiFloodWindowSec: Number.isFinite(winSec) ? Math.min(60, Math.max(3, Math.round(winSec))) : 8,
+    antiSpamLinks: src.antiSpamLinks !== undefined ? !!src.antiSpamLinks : !!base.antiSpamLinks,
+    badWords,
+    badWordAction: action,
+    welcomeRules: sanitizeInput(src.welcomeRules !== undefined ? src.welcomeRules : base.welcomeRules, 320) || DEFAULT_BOT_CONFIG.welcomeRules
+  };
+}
+
+function normalizeNickRoleList(arr, defaultReason) {
+  return Array.isArray(arr)
     ? arr
         .filter(x => x && typeof x.nick === 'string')
         .slice(-100)
@@ -1869,10 +1900,38 @@ function normalizeChatStore(raw) {
         }))
         .filter(x => !!x.nick)
     : [];
+}
 
-  const opNicks = normalizeNickRoleList(src.opNicks, 'Operador de canal (+o)');
-  const voiceNicks = normalizeNickRoleList(src.voiceNicks, 'Voz de canal (+v)');
-  const mutedNicks = normalizeNickRoleList(src.mutedNicks, 'Silenciado por @op');
+function normalizeSingleChannel(name, rawCh, fallbackMessages = null) {
+  const chName = sanitizeIrcChannel(name || '#cyberpolis');
+  const isMain = chName.toLowerCase() === '#cyberpolis';
+  const src = rawCh && typeof rawCh === 'object' ? rawCh : {};
+  const defaultMsgs = fallbackMessages || (isMain
+    ? [...DEFAULT_CHAT_STATE.messages]
+    : [{
+        id: 'irc-ch-' + Date.now(),
+        type: 'system',
+        nick: 'ChanServ',
+        prefix: '@',
+        role: 'system',
+        text: `*** Now talking in ${chName} ${src.isPrivate || src.keyHash ? '(+p/+k privado)' : '(+nt)'}`,
+        ts: new Date().toISOString()
+      }]);
+
+  const messages = Array.isArray(src.messages)
+    ? src.messages
+        .filter(m => m && typeof m === 'object' && typeof m.text === 'string')
+        .slice(-1000)
+        .map(m => ({
+          id: sanitizeInput(String(m.id || ('irc-' + Date.now())), 64),
+          type: ['msg', 'action', 'system'].includes(m.type) ? m.type : 'msg',
+          nick: sanitizeIrcNick(m.nick || 'anon', 'anon'),
+          prefix: m.prefix === '@' ? '@' : (m.prefix === '+' ? '+' : ''),
+          role: m.role === 'admin' ? 'admin' : (m.role === 'analyst' ? 'analyst' : (m.role === 'bot' ? 'bot' : (m.role === 'system' ? 'system' : 'guest'))),
+          text: sanitizeInput(m.text, 480),
+          ts: typeof m.ts === 'string' ? m.ts : new Date().toISOString()
+        }))
+    : defaultMsgs;
 
   const bannedEntries = Array.isArray(src.bannedEntries)
     ? src.bannedEntries
@@ -1889,19 +1948,94 @@ function normalizeChatStore(raw) {
         .filter(x => !!(x.nick || x.ip))
     : [];
 
+  const lowerList = arr => Array.isArray(arr)
+    ? [...new Set(arr.map(n => sanitizeIrcNick(n, '').toLowerCase()).filter(Boolean))].slice(-200)
+    : [];
+
   return {
-    channel: sanitizeIrcChannel(src.channel || DEFAULT_CHAT_STATE.channel),
-    topic: sanitizeInput(src.topic !== undefined ? src.topic : DEFAULT_CHAT_STATE.topic, 180) || DEFAULT_CHAT_STATE.topic,
-    enabled: src.enabled !== undefined ? !!src.enabled : true,
-    allowGuests: src.allowGuests !== undefined ? !!src.allowGuests : true,
+    name: chName,
+    topic: sanitizeInput(src.topic !== undefined ? src.topic : (isMain ? DEFAULT_CHAT_STATE.topic : `Canal ${chName} en CYBERPOLIS`), 180),
+    owner: sanitizeIrcNick(src.owner || 'admin', 'admin'),
+    createdAt: typeof src.createdAt === 'string' ? src.createdAt : new Date().toISOString(),
+    isPrivate: isMain ? false : !!src.isPrivate,
+    secret: isMain ? false : !!src.secret,
+    inviteOnly: isMain ? false : !!src.inviteOnly,
+    keyHash: !isMain && typeof src.keyHash === 'string' && /^[a-f0-9]{64}$/i.test(src.keyHash) ? src.keyHash.toLowerCase() : '',
+    allowGuests: src.allowGuests !== undefined ? !!src.allowGuests : !src.isPrivate,
     moderatedMode: !!src.moderatedMode,
-    theme: src.theme === 'mirc-dark' ? 'mirc-dark' : 'mirc-classic',
+    invitedNicks: lowerList(src.invitedNicks),
+    unlockedNicks: lowerList(src.unlockedNicks),
     messages,
-    opNicks,
-    voiceNicks,
-    mutedNicks,
+    opNicks: normalizeNickRoleList(src.opNicks, 'Operador de canal (+o)'),
+    voiceNicks: normalizeNickRoleList(src.voiceNicks, 'Voz de canal (+v)'),
+    mutedNicks: normalizeNickRoleList(src.mutedNicks, 'Silenciado por @op'),
     bannedEntries
   };
+}
+
+function syncPrimaryChannelBackToRoot(chat) {
+  if (!chat || !chat.channels) return chat;
+  const mainKey = sanitizeIrcChannel(chat.channel || '#cyberpolis').toLowerCase();
+  const mainCh = chat.channels[mainKey] || chat.channels['#cyberpolis'];
+  if (!mainCh) return chat;
+  chat.channel = mainCh.name;
+  chat.topic = mainCh.topic;
+  chat.allowGuests = mainCh.allowGuests;
+  chat.moderatedMode = mainCh.moderatedMode;
+  chat.messages = mainCh.messages;
+  chat.opNicks = mainCh.opNicks;
+  chat.voiceNicks = mainCh.voiceNicks;
+  chat.mutedNicks = mainCh.mutedNicks;
+  chat.bannedEntries = mainCh.bannedEntries;
+  return chat;
+}
+
+function normalizeChatStore(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const primaryName = sanitizeIrcChannel(src.channel || DEFAULT_CHAT_STATE.channel);
+  const primaryKey = primaryName.toLowerCase();
+  const channels = {};
+
+  if (src.channels && typeof src.channels === 'object') {
+    for (const [k, v] of Object.entries(src.channels)) {
+      if (!v || typeof v !== 'object') continue;
+      const norm = normalizeSingleChannel(v.name || k, v);
+      channels[norm.name.toLowerCase()] = norm;
+    }
+  }
+
+  if (!channels[primaryKey]) {
+    channels[primaryKey] = normalizeSingleChannel(primaryName, {
+      name: primaryName,
+      topic: src.topic,
+      allowGuests: src.allowGuests,
+      moderatedMode: src.moderatedMode,
+      messages: src.messages,
+      opNicks: src.opNicks,
+      voiceNicks: src.voiceNicks,
+      mutedNicks: src.mutedNicks,
+      bannedEntries: src.bannedEntries
+    });
+  } else if (Array.isArray(src.messages) && (!Array.isArray(channels[primaryKey].messages) || channels[primaryKey].messages.length === 0)) {
+    channels[primaryKey].messages = normalizeSingleChannel(primaryName, src).messages;
+  }
+
+  const normalized = {
+    channel: primaryName,
+    topic: channels[primaryKey].topic,
+    enabled: src.enabled !== undefined ? !!src.enabled : true,
+    allowGuests: channels[primaryKey].allowGuests,
+    moderatedMode: channels[primaryKey].moderatedMode,
+    theme: src.theme === 'mirc-dark' ? 'mirc-dark' : 'mirc-classic',
+    botConfig: sanitizeBotConfig(src.botConfig, DEFAULT_BOT_CONFIG),
+    messages: channels[primaryKey].messages,
+    opNicks: channels[primaryKey].opNicks,
+    voiceNicks: channels[primaryKey].voiceNicks,
+    mutedNicks: channels[primaryKey].mutedNicks,
+    bannedEntries: channels[primaryKey].bannedEntries,
+    channels
+  };
+  return syncPrimaryChannelBackToRoot(normalized);
 }
 
 function readChatState() {
@@ -1914,14 +2048,44 @@ function writeChatState(nextState) {
   return normalized;
 }
 
-function isNickChannelOp(chat, nick) {
-  const lower = String(nick || '').toLowerCase();
-  return !!(lower && (chat.opNicks || []).some(x => x.nick && x.nick.toLowerCase() === lower));
+function getChannelObject(chat, channelName = '') {
+  if (!chat) return null;
+  const channels = chat.channels || {};
+  const target = sanitizeIrcChannel(channelName || chat.channel || '#cyberpolis').toLowerCase();
+  if (channelName && !channels[target]) return null;
+  if (channels[target]) return channels[target];
+  const primary = sanitizeIrcChannel(chat.channel || '#cyberpolis').toLowerCase();
+  return channels[primary] || Object.values(channels)[0] || null;
 }
 
-function isNickChannelVoice(chat, nick) {
+function isNickChannelOp(chOrChat, nick) {
   const lower = String(nick || '').toLowerCase();
-  return !!(lower && (chat.voiceNicks || []).some(x => x.nick && x.nick.toLowerCase() === lower));
+  return !!(lower && chOrChat && (chOrChat.opNicks || []).some(x => x.nick && x.nick.toLowerCase() === lower));
+}
+
+function isNickChannelVoice(chOrChat, nick) {
+  const lower = String(nick || '').toLowerCase();
+  return !!(lower && chOrChat && (chOrChat.voiceNicks || []).some(x => x.nick && x.nick.toLowerCase() === lower));
+}
+
+function canUserAccessChannel(chObj, identity = null, suppliedKey = '') {
+  if (!chObj) return false;
+  if (chObj.name.toLowerCase() === '#cyberpolis') return true;
+  if (!chObj.isPrivate && !chObj.secret && !chObj.inviteOnly && !chObj.keyHash) return true;
+  if (!identity || !identity.ok) return false;
+  if (identity.isSiteAdmin) return true;
+  const lowerNick = String(identity.nick || '').toLowerCase();
+  if (chObj.owner && chObj.owner.toLowerCase() === lowerNick) return true;
+  if (isNickChannelOp(chObj, identity.nick)) return true;
+  if (!chObj.allowGuests && identity.role === 'guest') return false;
+  if (Array.isArray(chObj.invitedNicks) && chObj.invitedNicks.includes(lowerNick)) return true;
+  if (chObj.inviteOnly) return false;
+  if (chObj.keyHash) {
+    if (Array.isArray(chObj.unlockedNicks) && chObj.unlockedNicks.includes(lowerNick)) return true;
+    if (suppliedKey && hashChannelKey(suppliedKey) === chObj.keyHash) return true;
+    return false;
+  }
+  return !chObj.isPrivate && !chObj.secret;
 }
 
 function isRegisteredAdminNick(nick) {
@@ -1936,13 +2100,15 @@ function isRegisteredAdminNick(nick) {
   );
 }
 
-function resolveChatIdentity(req, requestedNick = '', chatOverride = null) {
+function resolveChatIdentity(req, requestedNick = '', chatOverride = null, channelName = '') {
   const chat = chatOverride || readChatState();
+  const chObj = getChannelObject(chat, channelName) || getChannelObject(chat) || chat;
   const user = getSessionUser(req);
   if (user) {
     const cleanNick = sanitizeIrcNick(user.username || user.displayName, 'usuario');
     const isSiteAdmin = user.role === 'admin';
-    const isChannelOp = isSiteAdmin || isNickChannelOp(chat, cleanNick);
+    const isOwner = !!(chObj && chObj.owner && chObj.owner.toLowerCase() === cleanNick.toLowerCase());
+    const isChannelOp = isSiteAdmin || isOwner || isNickChannelOp(chObj, cleanNick);
     const prefix = isChannelOp ? '@' : '+';
     return {
       ok: true,
@@ -1971,8 +2137,8 @@ function resolveChatIdentity(req, requestedNick = '', chatOverride = null) {
       error: `El nick "${cleanGuest}" está reservado a una cuenta registrada. Inicia sesión o usa otro nick.`
     };
   }
-  const isChannelOp = isNickChannelOp(chat, cleanGuest);
-  const isVoice = !isChannelOp && isNickChannelVoice(chat, cleanGuest);
+  const isChannelOp = isNickChannelOp(chObj, cleanGuest);
+  const isVoice = !isChannelOp && isNickChannelVoice(chObj, cleanGuest);
   return {
     ok: true,
     authenticated: false,
@@ -1985,22 +2151,35 @@ function resolveChatIdentity(req, requestedNick = '', chatOverride = null) {
   };
 }
 
-function findChatBan(chat, nick, ip) {
+function findChatBan(chOrChat, nick, ip) {
   const lowerNick = String(nick || '').toLowerCase();
-  return (chat.bannedEntries || []).find(b =>
+  return ((chOrChat && chOrChat.bannedEntries) || []).find(b =>
     (b.nick && lowerNick && b.nick.toLowerCase() === lowerNick) ||
     (b.ip && ip && b.ip === ip)
   ) || null;
 }
 
-function findChatMute(chat, nick) {
+function findChatMute(chOrChat, nick) {
   const lowerNick = String(nick || '').toLowerCase();
-  return (chat.mutedNicks || []).find(m => m.nick && m.nick.toLowerCase() === lowerNick) || null;
+  return ((chOrChat && chOrChat.mutedNicks) || []).find(m => m.nick && m.nick.toLowerCase() === lowerNick) || null;
 }
 
-function getOnlineChatNicks() {
+function getOnlineChatNicks(channelName = '#cyberpolis', chat = null) {
+  const chLower = sanitizeIrcChannel(channelName || '#cyberpolis').toLowerCase();
   const byNick = new Map();
+  const bot = (chat && chat.botConfig) || DEFAULT_BOT_CONFIG;
+  if (bot && bot.enabled) {
+    const botNick = bot.nick || 'CyberBot';
+    byNick.set(botNick.toLowerCase(), {
+      nick: botNick,
+      prefix: '@',
+      role: 'bot',
+      rank: 4
+    });
+  }
   for (const client of chatSseClients.values()) {
+    const cCh = (client.channel || '#cyberpolis').toLowerCase();
+    if (cCh !== chLower) continue;
     const key = client.nick.toLowerCase();
     const existing = byNick.get(key);
     const rank = client.prefix === '@' ? 3 : (client.prefix === '+' ? 2 : 1);
@@ -2018,47 +2197,102 @@ function getOnlineChatNicks() {
     .map(({ nick, prefix, role }) => ({ nick, prefix, role }));
 }
 
-function buildPublicChatPayload(chat, identity = null, ip = '') {
+function listAccessibleChannels(chat, identity = null) {
+  const all = Object.values((chat && chat.channels) || {});
+  return all
+    .filter(ch => !ch.secret || canUserAccessChannel(ch, identity))
+    .map(ch => {
+      const canAccess = canUserAccessChannel(ch, identity);
+      const modes = [];
+      if (ch.moderatedMode) modes.push('+m');
+      if (ch.isPrivate) modes.push('+p');
+      if (ch.secret) modes.push('+s');
+      if (ch.inviteOnly) modes.push('+i');
+      if (ch.keyHash) modes.push('+k');
+      return {
+        name: ch.name,
+        topic: canAccess ? ch.topic : 'Canal privado — introduce clave (+k) o solicita invitación (+i)',
+        owner: ch.owner || 'admin',
+        isMain: ch.name.toLowerCase() === '#cyberpolis',
+        isPrivate: !!ch.isPrivate,
+        secret: !!ch.secret,
+        inviteOnly: !!ch.inviteOnly,
+        hasKey: !!ch.keyHash,
+        allowGuests: !!ch.allowGuests,
+        moderatedMode: !!ch.moderatedMode,
+        modes: modes.join('') || '+nt',
+        canAccess,
+        onlineCount: getOnlineChatNicks(ch.name, chat).length,
+        msgCount: Array.isArray(ch.messages) ? ch.messages.length : 0
+      };
+    })
+    .sort((a, b) => (a.isMain ? -1 : b.isMain ? 1 : a.name.localeCompare(b.name, 'es')));
+}
+
+function buildPublicChatPayload(chat, identity = null, ip = '', channelName = '') {
+  const chObj = getChannelObject(chat, channelName) || getChannelObject(chat);
   const nick = identity && identity.ok ? identity.nick : '';
-  const ban = identity && identity.ok ? findChatBan(chat, nick, ip) : findChatBan(chat, '', ip);
-  const mute = identity && identity.ok ? findChatMute(chat, nick) : null;
+  const ban = identity && identity.ok ? findChatBan(chObj, nick, ip) : findChatBan(chObj, '', ip);
+  const mute = identity && identity.ok ? findChatMute(chObj, nick) : null;
+  const scopedIdentity = identity && identity.ok
+    ? {
+        nick: identity.nick,
+        prefix: (identity.isSiteAdmin || (chObj.owner && chObj.owner.toLowerCase() === identity.nick.toLowerCase()) || isNickChannelOp(chObj, identity.nick))
+          ? '@'
+          : (identity.authenticated || isNickChannelVoice(chObj, identity.nick) ? '+' : ''),
+        role: identity.role,
+        authenticated: identity.authenticated,
+        isChannelOp: !!(identity.isSiteAdmin || (chObj.owner && chObj.owner.toLowerCase() === identity.nick.toLowerCase()) || isNickChannelOp(chObj, identity.nick)),
+        isSiteAdmin: !!identity.isSiteAdmin
+      }
+    : null;
+  const bot = chat.botConfig || DEFAULT_BOT_CONFIG;
   return {
-    channel: chat.channel,
-    topic: chat.topic,
+    channel: chObj.name,
+    topic: chObj.topic,
+    owner: chObj.owner || 'admin',
     enabled: chat.enabled,
-    allowGuests: chat.allowGuests,
-    moderatedMode: chat.moderatedMode,
+    allowGuests: chObj.allowGuests,
+    moderatedMode: chObj.moderatedMode,
+    isPrivate: !!chObj.isPrivate,
+    secret: !!chObj.secret,
+    inviteOnly: !!chObj.inviteOnly,
+    hasKey: !!chObj.keyHash,
     theme: chat.theme,
-    messages: chat.messages.slice(-250),
-    onlineUsers: getOnlineChatNicks(),
-    mutedNickNames: (chat.mutedNicks || []).map(x => x.nick),
-    opNickNames: (chat.opNicks || []).map(x => x.nick),
-    voiceNickNames: (chat.voiceNicks || []).map(x => x.nick),
+    messages: (chObj.messages || []).slice(-250),
+    onlineUsers: getOnlineChatNicks(chObj.name, chat),
+    mutedNickNames: (chObj.mutedNicks || []).map(x => x.nick),
+    opNickNames: (chObj.opNicks || []).map(x => x.nick),
+    voiceNickNames: (chObj.voiceNicks || []).map(x => x.nick),
     isBanned: !!ban,
     isMuted: !!mute,
-    identity: identity && identity.ok ? {
-      nick: identity.nick,
-      prefix: identity.prefix,
-      role: identity.role,
-      authenticated: identity.authenticated,
-      isChannelOp: !!identity.isChannelOp,
-      isSiteAdmin: !!identity.isSiteAdmin
-    } : null
+    identity: scopedIdentity,
+    channels: listAccessibleChannels(chat, identity),
+    bot: {
+      enabled: !!bot.enabled,
+      nick: bot.nick || 'CyberBot'
+    }
   };
 }
 
-function syncOnlineClientPrefixes(chat) {
+function syncOnlineClientPrefixes(chat, chObjOverride = null) {
+  const chObj = chObjOverride || getChannelObject(chat);
+  if (!chObj) return;
+  const chLower = chObj.name.toLowerCase();
   let changed = false;
   for (const client of chatSseClients.values()) {
+    if ((client.channel || '#cyberpolis').toLowerCase() !== chLower) continue;
     const isSiteAdmin = client.role === 'admin';
-    const isOp = isSiteAdmin || isNickChannelOp(chat, client.nick);
-    const isVoice = !isOp && (client.role === 'analyst' || isNickChannelVoice(chat, client.nick));
+    const isOwner = !!(chObj.owner && chObj.owner.toLowerCase() === client.nick.toLowerCase());
+    const isOp = isSiteAdmin || isOwner || isNickChannelOp(chObj, client.nick);
+    const isVoice = !isOp && (client.role === 'analyst' || isNickChannelVoice(chObj, client.nick));
     const nextPrefix = isOp ? '@' : (isVoice ? '+' : '');
     if (client.prefix !== nextPrefix) {
       client.prefix = nextPrefix;
       changed = true;
       try {
         client.res.write(`event: self_mode\ndata: ${JSON.stringify({
+          channel: chObj.name,
           nick: client.nick,
           prefix: nextPrefix,
           isChannelOp: isOp
@@ -2067,40 +2301,49 @@ function syncOnlineClientPrefixes(chat) {
     }
   }
   broadcastChatEvent('config', {
-    channel: chat.channel,
-    topic: chat.topic,
+    channel: chObj.name,
+    topic: chObj.topic,
     enabled: chat.enabled,
-    allowGuests: chat.allowGuests,
-    moderatedMode: chat.moderatedMode,
+    allowGuests: chObj.allowGuests,
+    moderatedMode: chObj.moderatedMode,
+    isPrivate: !!chObj.isPrivate,
+    secret: !!chObj.secret,
+    inviteOnly: !!chObj.inviteOnly,
+    hasKey: !!chObj.keyHash,
     theme: chat.theme,
-    mutedNickNames: (chat.mutedNicks || []).map(x => x.nick),
-    opNickNames: (chat.opNicks || []).map(x => x.nick),
-    voiceNickNames: (chat.voiceNicks || []).map(x => x.nick)
-  });
+    mutedNickNames: (chObj.mutedNicks || []).map(x => x.nick),
+    opNickNames: (chObj.opNicks || []).map(x => x.nick),
+    voiceNickNames: (chObj.voiceNicks || []).map(x => x.nick)
+  }, chObj.name);
   if (changed) {
-    broadcastChatEvent('presence', { onlineUsers: getOnlineChatNicks() });
+    broadcastChatEvent('presence', {
+      channel: chObj.name,
+      onlineUsers: getOnlineChatNicks(chObj.name, chat)
+    }, chObj.name);
   }
 }
 
-function executeIrcModAction(chat, actorIdentity, { action, nick = '', reason = 'Moderación @op', text = '', id = '' }) {
+function executeIrcModAction(chat, actorIdentity, { action, nick = '', reason = 'Moderación @op', text = '', id = '', channel = '' }) {
+  const chObj = getChannelObject(chat, channel) || getChannelObject(chat);
+  if (!chObj) return { ok: false, status: 404, error: 'Canal no encontrado.' };
   const act = String(action || '').toLowerCase();
   const opNick = sanitizeIrcNick((actorIdentity && actorIdentity.nick) || 'admin', 'admin');
   const targetNick = nick ? sanitizeIrcNick(nick, '') : '';
   const cleanReason = sanitizeInput(reason || 'Moderación @op', 140) || 'Moderación @op';
 
   if (act === 'clear') {
-    chat.messages = [{
+    chObj.messages = [{
       id: 'irc-' + Date.now(),
       type: 'system',
       nick: opNick,
       prefix: '@',
       role: 'system',
-      text: `* @${opNick} ha limpiado el historial de ${chat.channel}`,
+      text: `* @${opNick} ha limpiado el historial de ${chObj.name}`,
       ts: new Date().toISOString()
     }];
     writeChatState(chat);
-    broadcastChatEvent('clear', { messages: chat.messages });
-    return { ok: true, status: 200, chatPayload: buildPublicChatPayload(chat) };
+    broadcastChatEvent('clear', { channel: chObj.name, messages: chObj.messages }, chObj.name);
+    return { ok: true, status: 200, chatPayload: buildPublicChatPayload(chat, actorIdentity, '', chObj.name) };
   }
 
   if (act === 'notice') {
@@ -2112,34 +2355,34 @@ function executeIrcModAction(chat, actorIdentity, { action, nick = '', reason = 
       prefix: '@',
       role: 'system',
       text: `[AVISO @${opNick}] ${cleanText}`
-    });
+    }, chObj);
     return { ok: true, status: 201, message: msg };
   }
 
   if (act === 'toggle_moderated') {
-    chat.moderatedMode = !chat.moderatedMode;
+    chObj.moderatedMode = !chObj.moderatedMode;
     appendChatMessage(chat, {
       type: 'system',
       nick: opNick,
       prefix: '@',
       role: 'system',
-      text: `* @${opNick} sets mode ${chat.moderatedMode ? '+m (canal moderado)' : '-m (canal abierto)'}`
-    });
-    syncOnlineClientPrefixes(chat);
-    return { ok: true, status: 200, chatPayload: buildPublicChatPayload(chat) };
+      text: `* @${opNick} sets mode ${chObj.moderatedMode ? '+m (canal moderado)' : '-m (canal abierto)'}`
+    }, chObj);
+    syncOnlineClientPrefixes(chat, chObj);
+    return { ok: true, status: 200, chatPayload: buildPublicChatPayload(chat, actorIdentity, '', chObj.name) };
   }
 
   if (act === 'toggle_guests') {
-    chat.allowGuests = !chat.allowGuests;
+    chObj.allowGuests = !chObj.allowGuests;
     appendChatMessage(chat, {
       type: 'system',
       nick: opNick,
       prefix: '@',
       role: 'system',
-      text: `* @${opNick} ${chat.allowGuests ? 'habilita' : 'restringe'} el chat para invitados`
-    });
-    syncOnlineClientPrefixes(chat);
-    return { ok: true, status: 200, chatPayload: buildPublicChatPayload(chat) };
+      text: `* @${opNick} ${chObj.allowGuests ? 'habilita' : 'restringe'} el chat para invitados en ${chObj.name}`
+    }, chObj);
+    syncOnlineClientPrefixes(chat, chObj);
+    return { ok: true, status: 200, chatPayload: buildPublicChatPayload(chat, actorIdentity, '', chObj.name) };
   }
 
   if (!targetNick && act !== 'unban') {
@@ -2154,46 +2397,50 @@ function executeIrcModAction(chat, actorIdentity, { action, nick = '', reason = 
     return { ok: false, status: 403, error: 'No se puede sancionar ni degradar a un Administrador del portal.' };
   }
 
-  if (act === 'op') {
-    if (!isNickChannelOp(chat, targetNick)) {
-      chat.opNicks.push({ nick: targetNick, reason: 'Elevado a @op', createdAt: new Date().toISOString(), createdBy: opNick });
+  if (act === 'invite') {
+    const nl = targetNick.toLowerCase();
+    if (!chObj.invitedNicks.includes(nl)) chObj.invitedNicks.push(nl);
+    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} invited ${targetNick} into ${chObj.name}` }, chObj);
+  } else if (act === 'op') {
+    if (!isNickChannelOp(chObj, targetNick)) {
+      chObj.opNicks.push({ nick: targetNick, reason: 'Elevado a @op', createdAt: new Date().toISOString(), createdBy: opNick });
     }
-    chat.mutedNicks = chat.mutedNicks.filter(m => m.nick.toLowerCase() !== targetNick.toLowerCase());
-    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} gives channel operator status (@) to ${targetNick}` });
-    syncOnlineClientPrefixes(chat);
+    chObj.mutedNicks = chObj.mutedNicks.filter(m => m.nick.toLowerCase() !== targetNick.toLowerCase());
+    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} gives channel operator status (@) to ${targetNick}` }, chObj);
+    syncOnlineClientPrefixes(chat, chObj);
   } else if (act === 'deop') {
-    chat.opNicks = chat.opNicks.filter(x => x.nick.toLowerCase() !== targetNick.toLowerCase());
-    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} removes channel operator status (@) from ${targetNick}` });
-    syncOnlineClientPrefixes(chat);
+    chObj.opNicks = chObj.opNicks.filter(x => x.nick.toLowerCase() !== targetNick.toLowerCase());
+    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} removes channel operator status (@) from ${targetNick}` }, chObj);
+    syncOnlineClientPrefixes(chat, chObj);
   } else if (act === 'voice') {
-    if (!isNickChannelVoice(chat, targetNick)) {
-      chat.voiceNicks.push({ nick: targetNick, reason: 'Voz en canal (+v)', createdAt: new Date().toISOString(), createdBy: opNick });
+    if (!isNickChannelVoice(chObj, targetNick)) {
+      chObj.voiceNicks.push({ nick: targetNick, reason: 'Voz en canal (+v)', createdAt: new Date().toISOString(), createdBy: opNick });
     }
-    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} gives voice (+v) to ${targetNick}` });
-    syncOnlineClientPrefixes(chat);
+    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} gives voice (+v) to ${targetNick}` }, chObj);
+    syncOnlineClientPrefixes(chat, chObj);
   } else if (act === 'devoice') {
-    chat.voiceNicks = chat.voiceNicks.filter(x => x.nick.toLowerCase() !== targetNick.toLowerCase());
-    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} removes voice (-v) from ${targetNick}` });
-    syncOnlineClientPrefixes(chat);
+    chObj.voiceNicks = chObj.voiceNicks.filter(x => x.nick.toLowerCase() !== targetNick.toLowerCase());
+    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} removes voice (-v) from ${targetNick}` }, chObj);
+    syncOnlineClientPrefixes(chat, chObj);
   } else if (act === 'mute') {
-    if (!findChatMute(chat, targetNick)) {
-      chat.mutedNicks.push({ nick: targetNick, reason: cleanReason, createdAt: new Date().toISOString(), createdBy: opNick });
+    if (!findChatMute(chObj, targetNick)) {
+      chObj.mutedNicks.push({ nick: targetNick, reason: cleanReason, createdAt: new Date().toISOString(), createdBy: opNick });
     }
-    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} sets mode +q on ${targetNick} (${cleanReason})` });
-    syncOnlineClientPrefixes(chat);
+    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} sets mode +q on ${targetNick} (${cleanReason})` }, chObj);
+    syncOnlineClientPrefixes(chat, chObj);
   } else if (act === 'unmute') {
-    chat.mutedNicks = chat.mutedNicks.filter(m => m.nick.toLowerCase() !== targetNick.toLowerCase());
-    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} sets mode -q on ${targetNick}` });
-    syncOnlineClientPrefixes(chat);
+    chObj.mutedNicks = chObj.mutedNicks.filter(m => m.nick.toLowerCase() !== targetNick.toLowerCase());
+    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} sets mode -q on ${targetNick}` }, chObj);
+    syncOnlineClientPrefixes(chat, chObj);
   } else if (act === 'ban' || act === 'kickban') {
     let targetIp = '';
     for (const c of chatSseClients.values()) {
       if (c.nick.toLowerCase() === targetNick.toLowerCase()) targetIp = c.ip;
     }
-    chat.opNicks = chat.opNicks.filter(x => x.nick.toLowerCase() !== targetNick.toLowerCase());
-    chat.voiceNicks = chat.voiceNicks.filter(x => x.nick.toLowerCase() !== targetNick.toLowerCase());
-    if (!chat.bannedEntries.some(b => b.nick && b.nick.toLowerCase() === targetNick.toLowerCase())) {
-      chat.bannedEntries.push({
+    chObj.opNicks = chObj.opNicks.filter(x => x.nick.toLowerCase() !== targetNick.toLowerCase());
+    chObj.voiceNicks = chObj.voiceNicks.filter(x => x.nick.toLowerCase() !== targetNick.toLowerCase());
+    if (!chObj.bannedEntries.some(b => b.nick && b.nick.toLowerCase() === targetNick.toLowerCase())) {
+      chObj.bannedEntries.push({
         id: 'ban-' + Date.now(),
         nick: targetNick,
         ip: targetIp,
@@ -2203,24 +2450,24 @@ function executeIrcModAction(chat, actorIdentity, { action, nick = '', reason = 
       });
     }
     const modeLabel = act === 'kickban' ? 'kick & ban +b' : 'ban +b';
-    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} sets ${modeLabel} on ${targetNick} (${cleanReason})` });
-    syncOnlineClientPrefixes(chat);
-    disconnectMatchingChatClients({ nick: targetNick, ip: targetIp, reason: `Baneado por @${opNick}: ${cleanReason}` });
+    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} sets ${modeLabel} on ${targetNick} (${cleanReason})` }, chObj);
+    syncOnlineClientPrefixes(chat, chObj);
+    disconnectMatchingChatClients({ nick: targetNick, ip: targetIp, reason: `Baneado por @${opNick}: ${cleanReason}`, channel: chObj.name });
   } else if (act === 'unban') {
     const banId = String(id || '');
-    chat.bannedEntries = chat.bannedEntries.filter(b =>
+    chObj.bannedEntries = chObj.bannedEntries.filter(b =>
       (banId ? b.id !== banId : true) &&
       (targetNick ? (b.nick || '').toLowerCase() !== targetNick.toLowerCase() : true)
     );
     if (targetNick) {
-      appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} sets mode -b on ${targetNick}` });
+      appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} sets mode -b on ${targetNick}` }, chObj);
     } else {
       writeChatState(chat);
     }
-    syncOnlineClientPrefixes(chat);
+    syncOnlineClientPrefixes(chat, chObj);
   } else if (act === 'kick') {
-    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* ${targetNick} was kicked by @${opNick} (${cleanReason})` });
-    disconnectMatchingChatClients({ nick: targetNick, reason: `Expulsado por @${opNick}: ${cleanReason}` });
+    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* ${targetNick} was kicked by @${opNick} (${cleanReason})` }, chObj);
+    disconnectMatchingChatClients({ nick: targetNick, reason: `Expulsado por @${opNick}: ${cleanReason}`, channel: chObj.name });
   } else {
     return { ok: false, status: 400, error: 'Acción de moderación desconocida.' };
   }
@@ -2228,16 +2475,18 @@ function executeIrcModAction(chat, actorIdentity, { action, nick = '', reason = 
   return {
     ok: true,
     status: 200,
-    mutedNicks: chat.mutedNicks,
-    bannedEntries: chat.bannedEntries,
-    chatPayload: buildPublicChatPayload(chat)
+    mutedNicks: chObj.mutedNicks,
+    bannedEntries: chObj.bannedEntries,
+    chatPayload: buildPublicChatPayload(chat, actorIdentity, '', chObj.name)
   };
 }
 
-function broadcastChatEvent(eventType, payload) {
+function broadcastChatEvent(eventType, payload, targetChannel = null) {
   if (chatSseClients.size === 0) return;
+  const targetLower = targetChannel ? sanitizeIrcChannel(targetChannel).toLowerCase() : '';
   const frame = `event: ${eventType}\ndata: ${JSON.stringify(payload)}\n\n`;
   for (const [cid, client] of chatSseClients.entries()) {
+    if (targetLower && (client.channel || '#cyberpolis').toLowerCase() !== targetLower) continue;
     try {
       client.res.write(frame);
     } catch (e) {
@@ -2246,10 +2495,12 @@ function broadcastChatEvent(eventType, payload) {
   }
 }
 
-function disconnectMatchingChatClients({ nick = '', ip = '', reason = 'Desconectado por un operador (@)' }) {
+function disconnectMatchingChatClients({ nick = '', ip = '', reason = 'Desconectado por un operador (@)', channel = null }) {
   const lowerNick = String(nick || '').toLowerCase();
+  const targetLower = channel ? sanitizeIrcChannel(channel).toLowerCase() : '';
   let removed = false;
   for (const [cid, client] of chatSseClients.entries()) {
+    if (targetLower && (client.channel || '#cyberpolis').toLowerCase() !== targetLower) continue;
     const nickMatch = lowerNick && client.nick.toLowerCase() === lowerNick;
     const ipMatch = ip && client.ip === ip;
     if (nickMatch || ipMatch) {
@@ -2262,12 +2513,16 @@ function disconnectMatchingChatClients({ nick = '', ip = '', reason = 'Desconect
     }
   }
   if (removed) {
-    broadcastChatEvent('presence', { onlineUsers: getOnlineChatNicks() });
+    broadcastChatEvent('presence', {
+      channel: targetLower || '#cyberpolis',
+      onlineUsers: getOnlineChatNicks(targetLower || '#cyberpolis')
+    }, targetLower || null);
   }
   return removed;
 }
 
-function appendChatMessage(chat, entry) {
+function appendChatMessage(chat, entry, chObj = null) {
+  const targetCh = chObj || getChannelObject(chat);
   const msg = {
     id: 'irc-' + Date.now() + '-' + crypto.randomBytes(2).toString('hex'),
     type: ['msg', 'action', 'system'].includes(entry.type) ? entry.type : 'msg',
@@ -2277,13 +2532,137 @@ function appendChatMessage(chat, entry) {
     text: sanitizeInput(String(entry.text || ''), 480),
     ts: new Date().toISOString()
   };
-  chat.messages.push(msg);
-  if (chat.messages.length > 1000) {
-    chat.messages = chat.messages.slice(-1000);
+  if (targetCh && Array.isArray(targetCh.messages)) {
+    targetCh.messages.push(msg);
+    if (targetCh.messages.length > 1000) {
+      targetCh.messages = targetCh.messages.slice(-1000);
+    }
+  } else {
+    chat.messages.push(msg);
+    if (chat.messages.length > 1000) {
+      chat.messages = chat.messages.slice(-1000);
+    }
   }
   writeChatState(chat);
-  broadcastChatEvent('message', msg);
+  broadcastChatEvent('message', { ...msg, channel: targetCh ? targetCh.name : chat.channel }, targetCh ? targetCh.name : chat.channel);
   return msg;
+}
+
+function evaluateCyberBotModeration(chat, chObj, identity, rawText) {
+  const bot = chat.botConfig || DEFAULT_BOT_CONFIG;
+  if (!bot.enabled || !identity || identity.isSiteAdmin || identity.isChannelOp) {
+    return { blocked: false };
+  }
+  const botNick = bot.nick || 'CyberBot';
+  const lowerText = String(rawText || '').toLowerCase();
+
+  const floodKey = `${chObj.name.toLowerCase()}:${identity.nick.toLowerCase()}`;
+  const now = Date.now();
+  const winMs = (bot.antiFloodWindowSec || 8) * 1000;
+  const recent = (chatBotFloodMap.get(floodKey) || []).filter(t => now - t <= winMs);
+  recent.push(now);
+  chatBotFloodMap.set(floodKey, recent);
+  if (chatBotFloodMap.size > 2000) chatBotFloodMap.clear();
+
+  if (recent.length > (bot.antiFloodMaxMsgs || 5)) {
+    if (!findChatMute(chObj, identity.nick)) {
+      chObj.mutedNicks.push({
+        nick: identity.nick,
+        reason: `Auto-flood (@${botNick})`,
+        createdAt: new Date().toISOString(),
+        createdBy: botNick
+      });
+    }
+    appendChatMessage(chat, {
+      type: 'system',
+      nick: botNick,
+      prefix: '@',
+      role: 'bot',
+      text: `🤖 @${botNick} sets mode +q on ${identity.nick} (Anti-flood automático)`
+    }, chObj);
+    syncOnlineClientPrefixes(chat, chObj);
+    return { blocked: true, error: `🤖 @${botNick}: Demasiados mensajes seguidos (flood). Has sido silenciado (+q).` };
+  }
+
+  const matchedWord = (bot.badWords || []).find(w => w && lowerText.includes(w.toLowerCase()));
+  if (matchedWord) {
+    const action = bot.badWordAction || 'mute';
+    if (action === 'mute') {
+      if (!findChatMute(chObj, identity.nick)) {
+        chObj.mutedNicks.push({
+          nick: identity.nick,
+          reason: `Lenguaje/spam detectado por @${botNick}`,
+          createdAt: new Date().toISOString(),
+          createdBy: botNick
+        });
+      }
+      appendChatMessage(chat, {
+        type: 'system',
+        nick: botNick,
+        prefix: '@',
+        role: 'bot',
+        text: `🤖 @${botNick} bloquea mensaje de ${identity.nick} y aplica +q (filtro de seguridad)`
+      }, chObj);
+      syncOnlineClientPrefixes(chat, chObj);
+      return { blocked: true, error: `🤖 @${botNick}: Mensaje bloqueado por política del canal (+q aplicado).` };
+    }
+    if (action === 'delete') {
+      appendChatMessage(chat, {
+        type: 'system',
+        nick: botNick,
+        prefix: '@',
+        role: 'bot',
+        text: `🤖 @${botNick}: Aviso a ${identity.nick} — término bloqueado por moderación automática.`
+      }, chObj);
+      return { blocked: true, error: `🤖 @${botNick}: Tu mensaje contiene términos no permitidos en ${chObj.name}.` };
+    }
+    return { blocked: false, warn: `🤖 @${botNick}: ${identity.nick}, modera el lenguaje y evita spam.` };
+  }
+
+  if (bot.antiSpamLinks && identity.role === 'guest' && /https?:\/\/|www\./i.test(rawText) && !/cyberpolis\.onrender\.com/i.test(rawText)) {
+    appendChatMessage(chat, {
+      type: 'system',
+      nick: botNick,
+      prefix: '@',
+      role: 'bot',
+      text: `🤖 @${botNick}: Enlace externo de ${identity.nick} bloqueado (inicia sesión para compartir URLs).`
+    }, chObj);
+    return { blocked: true, error: `🤖 @${botNick}: Los invitados no pueden publicar enlaces externos.` };
+  }
+
+  return { blocked: false };
+}
+
+function handleCyberBotTrigger(chat, chObj, rawText) {
+  const bot = chat.botConfig || DEFAULT_BOT_CONFIG;
+  if (!bot.enabled) return;
+  const botNick = bot.nick || 'CyberBot';
+  const cmd = String(rawText || '').trim().toLowerCase().split(/\s+/)[0];
+  let reply = '';
+  if (cmd === '!help' || cmd === '!comandos') {
+    reply = `🤖 [${botNick}] Comandos: !reglas | !noticias | !canales | !ping · IRC: /join #canal | /part | /list | /me | /slap | /whois`;
+  } else if (cmd === '!reglas' || cmd === '!rules') {
+    reply = `📜 [${botNick}] ${bot.welcomeRules}`;
+  } else if (cmd === '!ping') {
+    reply = `🏓 [${botNick}] PONG! Canal ${chObj.name} activo (${getOnlineChatNicks(chObj.name, chat).length} conectados).`;
+  } else if (cmd === '!canales') {
+    const pubs = Object.values(chat.channels || {}).filter(c => !c.isPrivate && !c.secret).map(c => c.name);
+    reply = `📺 [${botNick}] Canales públicos: ${pubs.join(', ') || '#cyberpolis'} — Usa /join #canal o crea un canal privado.`;
+  } else if (cmd === '!noticias') {
+    const arts = readJSON(ARTICLES_FILE, []).filter(a => a && (!a.moderationStatus || a.moderationStatus === 'approved')).slice(0, 3);
+    reply = arts.length
+      ? `📰 [${botNick}] Últimos titulares: ` + arts.map((a, i) => `${i + 1}) ${String(a.title || '').slice(0, 70)}`).join(' | ')
+      : `📰 [${botNick}] Sin noticias recientes en portada.`;
+  }
+  if (reply) {
+    appendChatMessage(chat, {
+      type: 'msg',
+      nick: botNick,
+      prefix: '@',
+      role: 'bot',
+      text: reply
+    }, chObj);
+  }
 }
 
 const server = http.createServer(async (req, res) => {
@@ -4156,24 +4535,205 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/chat/state' && method === 'GET') {
       const chat = readChatState();
       const requestedNick = (parsedUrl.query && parsedUrl.query.nick) || '';
+      const requestedCh = (parsedUrl.query && parsedUrl.query.channel) || '';
+      const suppliedKey = (parsedUrl.query && parsedUrl.query.key) || '';
+      const chObj = getChannelObject(chat, requestedCh);
+      if (requestedCh && !chObj) {
+        sendJSON(req, res, 404, { error: 'Canal IRC no encontrado.' }, {}, { noStore: true });
+        return;
+      }
+      const targetCh = chObj || getChannelObject(chat);
+      const identity = resolveChatIdentity(req, requestedNick, chat, targetCh.name);
+      if (!canUserAccessChannel(targetCh, identity.ok ? identity : null, suppliedKey)) {
+        sendJSON(req, res, 403, {
+          error: targetCh.inviteOnly
+            ? `Canal privado (+i): necesitas invitación de @op para entrar en ${targetCh.name}.`
+            : `Canal privado (+k/+p): clave inválida o acceso denegado en ${targetCh.name}.`,
+          requiresKey: !!targetCh.keyHash,
+          inviteOnly: !!targetCh.inviteOnly,
+          channel: targetCh.name
+        }, {}, { noStore: true });
+        return;
+      }
+      if (suppliedKey && targetCh.keyHash && identity.ok && hashChannelKey(suppliedKey) === targetCh.keyHash) {
+        const nl = identity.nick.toLowerCase();
+        if (!targetCh.unlockedNicks.includes(nl)) {
+          targetCh.unlockedNicks.push(nl);
+          writeChatState(chat);
+        }
+      }
+      sendJSON(req, res, 200, buildPublicChatPayload(chat, identity.ok ? identity : null, ip, targetCh.name), {}, { noStore: true });
+      return;
+    }
+
+    if (pathname === '/api/chat/channels' && method === 'GET') {
+      const chat = readChatState();
+      const requestedNick = (parsedUrl.query && parsedUrl.query.nick) || '';
       const identity = resolveChatIdentity(req, requestedNick, chat);
-      sendJSON(req, res, 200, buildPublicChatPayload(chat, identity.ok ? identity : null, ip), {}, { noStore: true });
+      sendJSON(req, res, 200, {
+        channels: listAccessibleChannels(chat, identity.ok ? identity : null)
+      }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname === '/api/chat/channels' && method === 'POST') {
+      const sessionUser = getSessionUser(req);
+      if (!sessionUser) {
+        sendJSON(req, res, 401, { error: 'Debes iniciar sesión para crear nuevos canales IRC.' }, {}, { noStore: true });
+        return;
+      }
+      const body = await parseBody(req);
+      const chName = sanitizeIrcChannel(body.channel || '');
+      if (!chName || chName.length < 3) {
+        sendJSON(req, res, 400, { error: 'Nombre de canal inválido (ej. #seguridad, mínimo 2 caracteres).' }, {}, { noStore: true });
+        return;
+      }
+      const chat = readChatState();
+      const chLower = chName.toLowerCase();
+      if (chLower === '#cyberpolis' || chat.channels[chLower]) {
+        sendJSON(req, res, 409, { error: `El canal ${chName} ya existe.` }, {}, { noStore: true });
+        return;
+      }
+      if (Object.keys(chat.channels || {}).length >= 30) {
+        sendJSON(req, res, 400, { error: 'Límite de 30 canales alcanzado. Elimina alguno antes de crear otro.' }, {}, { noStore: true });
+        return;
+      }
+      const ownerNick = sanitizeIrcNick(sessionUser.username || sessionUser.displayName, 'usuario');
+      const rawKey = String(body.key || '').trim();
+      const keyHash = rawKey ? hashChannelKey(rawKey) : '';
+      const isPrivate = !!body.isPrivate || !!rawKey || !!body.inviteOnly;
+      const newCh = normalizeSingleChannel(chName, {
+        name: chName,
+        topic: sanitizeInput(body.topic || `Canal ${chName} creado por @${ownerNick}`, 180),
+        owner: ownerNick,
+        isPrivate,
+        secret: !!body.secret,
+        inviteOnly: !!body.inviteOnly,
+        keyHash,
+        allowGuests: body.allowGuests !== undefined ? !!body.allowGuests : !isPrivate,
+        moderatedMode: !!body.moderatedMode,
+        unlockedNicks: [ownerNick.toLowerCase()],
+        opNicks: [{ nick: ownerNick, reason: 'Creador del canal', createdAt: new Date().toISOString(), createdBy: ownerNick }],
+        messages: [{
+          id: 'irc-ch-' + Date.now(),
+          type: 'system',
+          nick: 'ChanServ',
+          prefix: '@',
+          role: 'system',
+          text: `*** ${chName} creado por @${ownerNick} ${keyHash ? '(+p +k con clave)' : (isPrivate ? '(+p privado)' : '(+nt público)')} · Bot @${(chat.botConfig && chat.botConfig.nick) || 'CyberBot'} activo`,
+          ts: new Date().toISOString()
+        }]
+      });
+      chat.channels[chLower] = newCh;
+      const saved = writeChatState(chat);
+      const identity = resolveChatIdentity(req, ownerNick, saved, chName);
+      sendJSON(req, res, 201, {
+        success: true,
+        channel: newCh.name,
+        chat: buildPublicChatPayload(saved, identity, ip, newCh.name)
+      }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname === '/api/chat/channels/join' && method === 'POST') {
+      const body = await parseBody(req);
+      const chName = sanitizeIrcChannel(body.channel || '#cyberpolis');
+      const chat = readChatState();
+      const chObj = getChannelObject(chat, chName);
+      if (!chObj) {
+        sendJSON(req, res, 404, { error: `El canal ${chName} no existe.` }, {}, { noStore: true });
+        return;
+      }
+      const identity = resolveChatIdentity(req, body.nick || '', chat, chObj.name);
+      if (!identity.ok) {
+        sendJSON(req, res, identity.status || 403, { error: identity.error }, {}, { noStore: true });
+        return;
+      }
+      const ban = findChatBan(chObj, identity.nick, ip);
+      if (ban) {
+        sendJSON(req, res, 403, { error: `Estás baneado de ${chObj.name}: ${ban.reason || 'Baneado por @op'}` }, {}, { noStore: true });
+        return;
+      }
+      const suppliedKey = String(body.key || '').trim();
+      if (!canUserAccessChannel(chObj, identity, suppliedKey)) {
+        sendJSON(req, res, 403, {
+          error: chObj.inviteOnly
+            ? `Canal ${chObj.name} (+i): solo por invitación de un @op.`
+            : `Canal privado ${chObj.name}: se requiere clave válida (+k) o permiso.`,
+          requiresKey: !!chObj.keyHash,
+          inviteOnly: !!chObj.inviteOnly,
+          channel: chObj.name
+        }, {}, { noStore: true });
+        return;
+      }
+      if (suppliedKey && chObj.keyHash && hashChannelKey(suppliedKey) === chObj.keyHash) {
+        const nl = identity.nick.toLowerCase();
+        if (!chObj.unlockedNicks.includes(nl)) {
+          chObj.unlockedNicks.push(nl);
+          writeChatState(chat);
+        }
+      }
+      sendJSON(req, res, 200, {
+        success: true,
+        channel: chObj.name,
+        chat: buildPublicChatPayload(chat, identity, ip, chObj.name)
+      }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname.startsWith('/api/chat/channels/') && method === 'DELETE') {
+      const sessionUser = getSessionUser(req);
+      if (!sessionUser) {
+        sendJSON(req, res, 401, { error: 'Inicia sesión para gestionar canales.' }, {}, { noStore: true });
+        return;
+      }
+      const rawName = decodeURIComponent(pathname.replace('/api/chat/channels/', ''));
+      const chName = sanitizeIrcChannel(rawName);
+      if (chName.toLowerCase() === '#cyberpolis') {
+        sendJSON(req, res, 400, { error: 'No se puede eliminar el canal principal #cyberpolis.' }, {}, { noStore: true });
+        return;
+      }
+      const chat = readChatState();
+      const chObj = getChannelObject(chat, chName);
+      if (!chObj) {
+        sendJSON(req, res, 404, { error: 'Canal no encontrado.' }, {}, { noStore: true });
+        return;
+      }
+      const actorNick = sanitizeIrcNick(sessionUser.username || sessionUser.displayName, 'usuario');
+      if (sessionUser.role !== 'admin' && chObj.owner.toLowerCase() !== actorNick.toLowerCase()) {
+        sendJSON(req, res, 403, { error: 'Solo el creador del canal o el Administrador pueden eliminarlo.' }, {}, { noStore: true });
+        return;
+      }
+      disconnectMatchingChatClients({
+        channel: chObj.name,
+        reason: `Canal ${chObj.name} cerrado por @${actorNick}`
+      });
+      delete chat.channels[chObj.name.toLowerCase()];
+      const saved = writeChatState(chat);
+      const identity = resolveChatIdentity(req, actorNick, saved);
+      sendJSON(req, res, 200, {
+        success: true,
+        deleted: chObj.name,
+        channels: listAccessibleChannels(saved, identity)
+      }, {}, { noStore: true });
       return;
     }
 
     if (pathname === '/api/chat/whois' && method === 'GET') {
       const chat = readChatState();
       const targetNick = sanitizeIrcNick((parsedUrl.query && parsedUrl.query.nick) || '', '');
+      const requestedCh = (parsedUrl.query && parsedUrl.query.channel) || '';
+      const chObj = getChannelObject(chat, requestedCh) || getChannelObject(chat);
       if (!targetNick) {
         sendJSON(req, res, 400, { error: 'Nick inválido.' }, {}, { noStore: true });
         return;
       }
       const lower = targetNick.toLowerCase();
-      const onlineMatch = getOnlineChatNicks().find(u => u.nick.toLowerCase() === lower);
+      const onlineMatch = getOnlineChatNicks(chObj.name, chat).find(u => u.nick.toLowerCase() === lower);
       const isSiteAdmin = isRegisteredAdminNick(targetNick);
-      const isOp = isSiteAdmin || isNickChannelOp(chat, targetNick);
-      const isVoice = !isOp && (isNickChannelVoice(chat, targetNick) || !!(onlineMatch && onlineMatch.prefix === '+'));
-      const userMsgs = (chat.messages || []).filter(m => m.type !== 'system' && String(m.nick || '').toLowerCase() === lower);
+      const isOp = isSiteAdmin || isNickChannelOp(chObj, targetNick) || (onlineMatch && onlineMatch.role === 'bot');
+      const isVoice = !isOp && (isNickChannelVoice(chObj, targetNick) || !!(onlineMatch && onlineMatch.prefix === '+'));
+      const userMsgs = (chObj.messages || []).filter(m => m.type !== 'system' && String(m.nick || '').toLowerCase() === lower);
       const lastMsg = userMsgs.length > 0 ? userMsgs[userMsgs.length - 1] : null;
       sendJSON(req, res, 200, {
         nick: onlineMatch ? onlineMatch.nick : targetNick,
@@ -4182,11 +4742,12 @@ const server = http.createServer(async (req, res) => {
         isSiteAdmin,
         isChannelOp: isOp,
         isVoice,
-        isMuted: !!findChatMute(chat, targetNick),
-        isBanned: !!findChatBan(chat, targetNick, ''),
+        isBot: !!(onlineMatch && onlineMatch.role === 'bot'),
+        isMuted: !!findChatMute(chObj, targetNick),
+        isBanned: !!findChatBan(chObj, targetNick, ''),
         messageCount: userMsgs.length,
         lastSeen: lastMsg ? lastMsg.ts : null,
-        channel: chat.channel
+        channel: chObj.name
       }, {}, { noStore: true });
       return;
     }
@@ -4199,15 +4760,28 @@ const server = http.createServer(async (req, res) => {
       }
 
       const requestedNick = (parsedUrl.query && parsedUrl.query.nick) || '';
-      const identity = resolveChatIdentity(req, requestedNick, chat);
+      const requestedCh = (parsedUrl.query && parsedUrl.query.channel) || '';
+      const suppliedKey = (parsedUrl.query && parsedUrl.query.key) || '';
+      const chObj = getChannelObject(chat, requestedCh);
+      if (requestedCh && !chObj) {
+        sendJSON(req, res, 404, { error: 'Canal IRC no encontrado.' }, {}, { noStore: true });
+        return;
+      }
+      const targetCh = chObj || getChannelObject(chat);
+      const identity = resolveChatIdentity(req, requestedNick, chat, targetCh.name);
       if (!identity.ok) {
         sendJSON(req, res, identity.status || 403, { error: identity.error }, {}, { noStore: true });
         return;
       }
 
-      const ban = findChatBan(chat, identity.nick, ip);
+      if (!canUserAccessChannel(targetCh, identity, suppliedKey)) {
+        sendJSON(req, res, 403, { error: `Acceso privado restringido en ${targetCh.name}.` }, {}, { noStore: true });
+        return;
+      }
+
+      const ban = findChatBan(targetCh, identity.nick, ip);
       if (ban) {
-        sendJSON(req, res, 403, { error: `Acceso denegado en ${chat.channel}: ${ban.reason || 'Baneado por @op'}` }, {}, { noStore: true });
+        sendJSON(req, res, 403, { error: `Acceso denegado en ${targetCh.name}: ${ban.reason || 'Baneado por @op'}` }, {}, { noStore: true });
         return;
       }
 
@@ -4223,24 +4797,35 @@ const server = http.createServer(async (req, res) => {
       };
       res.writeHead(200, headers);
 
+      const isOpScoped = identity.isSiteAdmin || (targetCh.owner && targetCh.owner.toLowerCase() === identity.nick.toLowerCase()) || isNickChannelOp(targetCh, identity.nick);
+      const isVoiceScoped = !isOpScoped && (identity.authenticated || isNickChannelVoice(targetCh, identity.nick));
+      const clientPrefix = isOpScoped ? '@' : (isVoiceScoped ? '+' : '');
+
       chatSseClients.set(clientId, {
         id: clientId,
         res,
+        channel: targetCh.name.toLowerCase(),
         nick: identity.nick,
-        prefix: identity.prefix,
+        prefix: clientPrefix,
         role: identity.role,
         ip,
         connectedAt: Date.now()
       });
 
-      const initPayload = buildPublicChatPayload(chat, identity, ip);
+      const initPayload = buildPublicChatPayload(chat, identity, ip, targetCh.name);
       res.write(`event: init\ndata: ${JSON.stringify(initPayload)}\n\n`);
-      broadcastChatEvent('presence', { onlineUsers: getOnlineChatNicks() });
+      broadcastChatEvent('presence', {
+        channel: targetCh.name,
+        onlineUsers: getOnlineChatNicks(targetCh.name, chat)
+      }, targetCh.name);
 
       const cleanupClient = () => {
         if (chatSseClients.has(clientId)) {
           chatSseClients.delete(clientId);
-          broadcastChatEvent('presence', { onlineUsers: getOnlineChatNicks() });
+          broadcastChatEvent('presence', {
+            channel: targetCh.name,
+            onlineUsers: getOnlineChatNicks(targetCh.name, readChatState())
+          }, targetCh.name);
         }
       };
       req.on('close', cleanupClient);
@@ -4256,35 +4841,47 @@ const server = http.createServer(async (req, res) => {
       }
 
       const body = await parseBody(req);
-      const identity = resolveChatIdentity(req, body.nick || '', chat);
+      const requestedCh = body.channel || '';
+      const chObj = getChannelObject(chat, requestedCh);
+      if (requestedCh && !chObj) {
+        sendJSON(req, res, 404, { error: 'Canal IRC no encontrado.' }, {}, { noStore: true });
+        return;
+      }
+      const targetCh = chObj || getChannelObject(chat);
+      const identity = resolveChatIdentity(req, body.nick || '', chat, targetCh.name);
       if (!identity.ok) {
         sendJSON(req, res, identity.status || 403, { error: identity.error }, {}, { noStore: true });
         return;
       }
 
-      if (!identity.authenticated && !chat.allowGuests) {
-        sendJSON(req, res, 401, { error: 'Debes iniciar sesión para escribir en este canal IRC.' }, {}, { noStore: true });
+      if (!canUserAccessChannel(targetCh, identity, body.key || '')) {
+        sendJSON(req, res, 403, { error: `No tienes acceso al canal privado ${targetCh.name}.` }, {}, { noStore: true });
         return;
       }
 
-      const ban = findChatBan(chat, identity.nick, ip);
+      if (!identity.authenticated && !targetCh.allowGuests) {
+        sendJSON(req, res, 401, { error: `Debes iniciar sesión para escribir en ${targetCh.name}.` }, {}, { noStore: true });
+        return;
+      }
+
+      const ban = findChatBan(targetCh, identity.nick, ip);
       if (ban) {
-        sendJSON(req, res, 403, { error: `Estás baneado en ${chat.channel}: ${ban.reason || 'Baneado por @op'}` }, {}, { noStore: true });
+        sendJSON(req, res, 403, { error: `Estás baneado en ${targetCh.name}: ${ban.reason || 'Baneado por @op'}` }, {}, { noStore: true });
         return;
       }
 
-      const mute = findChatMute(chat, identity.nick);
+      const mute = findChatMute(targetCh, identity.nick);
       if (mute) {
-        sendJSON(req, res, 403, { error: `Estás silenciado en ${chat.channel} por un operador (@).` }, {}, { noStore: true });
+        sendJSON(req, res, 403, { error: `Estás silenciado en ${targetCh.name} por un operador (@).` }, {}, { noStore: true });
         return;
       }
 
-      if (chat.moderatedMode && !identity.isChannelOp && identity.prefix !== '+' && identity.role !== 'admin' && identity.role !== 'analyst') {
-        sendJSON(req, res, 403, { error: 'Canal en modo moderado (+m): solo @ops y +voces pueden hablar.' }, {}, { noStore: true });
+      if (targetCh.moderatedMode && !identity.isChannelOp && identity.prefix !== '+' && identity.role !== 'admin' && identity.role !== 'analyst') {
+        sendJSON(req, res, 403, { error: `Canal ${targetCh.name} en modo moderado (+m): solo @ops y +voces pueden hablar.` }, {}, { noStore: true });
         return;
       }
 
-      if (!checkRateLimit(`chat:${ip}`, 20, 30000)) {
+      if (!checkRateLimit(`chat:${ip}`, 25, 30000)) {
         sendJSON(req, res, 429, { error: 'Flood protection: espera unos segundos antes de enviar otro mensaje.' }, {}, { noStore: true });
         return;
       }
@@ -4315,35 +4912,41 @@ const server = http.createServer(async (req, res) => {
             prefix: identity.prefix,
             role: identity.role,
             text: actionText
-          });
+          }, targetCh);
           sendJSON(req, res, 201, { success: true, message: msg }, {}, { noStore: true });
           return;
         }
 
         if (identity.isChannelOp) {
           if (cmd === '/topic' && arg) {
-            chat.topic = sanitizeInput(arg, 180);
+            targetCh.topic = sanitizeInput(arg, 180);
             const msg = appendChatMessage(chat, {
               type: 'system',
               nick: identity.nick,
               prefix: '@',
               role: 'system',
-              text: `* @${identity.nick} changes topic to '${chat.topic}'`
-            });
-            syncOnlineClientPrefixes(chat);
-            sendJSON(req, res, 200, { success: true, topic: chat.topic, message: msg }, {}, { noStore: true });
+              text: `* @${identity.nick} changes topic to '${targetCh.topic}'`
+            }, targetCh);
+            syncOnlineClientPrefixes(chat, targetCh);
+            sendJSON(req, res, 200, { success: true, topic: targetCh.topic, message: msg }, {}, { noStore: true });
             return;
           }
 
           if (cmd === '/clear') {
-            const out = executeIrcModAction(chat, identity, { action: 'clear' });
+            const out = executeIrcModAction(chat, identity, { action: 'clear', channel: targetCh.name });
             sendJSON(req, res, out.status, { success: true }, {}, { noStore: true });
             return;
           }
 
           if (cmd === '/notice' && arg) {
-            const out = executeIrcModAction(chat, identity, { action: 'notice', text: arg });
+            const out = executeIrcModAction(chat, identity, { action: 'notice', text: arg, channel: targetCh.name });
             sendJSON(req, res, out.status, out.ok ? { success: true, message: out.message } : { error: out.error }, {}, { noStore: true });
+            return;
+          }
+
+          if (cmd === '/invite' && arg) {
+            const out = executeIrcModAction(chat, identity, { action: 'invite', nick: arg.split(/\s+/)[0], channel: targetCh.name });
+            sendJSON(req, res, out.status, out.ok ? { success: true, chat: out.chatPayload } : { error: out.error }, {}, { noStore: true });
             return;
           }
 
@@ -4358,18 +4961,38 @@ const server = http.createServer(async (req, res) => {
               '+b': 'ban', '-b': 'unban'
             };
             if (modeFlag === '+m' || modeFlag === '-m') {
-              if ((modeFlag === '+m') !== !!chat.moderatedMode) {
-                executeIrcModAction(chat, identity, { action: 'toggle_moderated' });
+              if ((modeFlag === '+m') !== !!targetCh.moderatedMode) {
+                executeIrcModAction(chat, identity, { action: 'toggle_moderated', channel: targetCh.name });
               }
               sendJSON(req, res, 200, { success: true }, {}, { noStore: true });
               return;
             }
-            const mappedAction = modeMap[modeFlag];
-            if (!mappedAction || !modeTarget) {
-              sendJSON(req, res, 400, { error: 'Uso: /mode +o|-o|+v|-v|+q|-q|+b|-b <nick> o /mode +m|-m' }, {}, { noStore: true });
+            if ((modeFlag === '+p' || modeFlag === '-p' || modeFlag === '+i' || modeFlag === '-i' || modeFlag === '+k' || modeFlag === '-k' || modeFlag === '+s' || modeFlag === '-s') && targetCh.name.toLowerCase() !== '#cyberpolis') {
+              if (modeFlag === '+p') targetCh.isPrivate = true;
+              if (modeFlag === '-p') targetCh.isPrivate = false;
+              if (modeFlag === '+s') targetCh.secret = true;
+              if (modeFlag === '-s') targetCh.secret = false;
+              if (modeFlag === '+i') { targetCh.inviteOnly = true; targetCh.isPrivate = true; }
+              if (modeFlag === '-i') targetCh.inviteOnly = false;
+              if (modeFlag === '+k' && modeTarget) { targetCh.keyHash = hashChannelKey(modeTarget); targetCh.isPrivate = true; }
+              if (modeFlag === '-k') targetCh.keyHash = '';
+              appendChatMessage(chat, {
+                type: 'system',
+                nick: identity.nick,
+                prefix: '@',
+                role: 'system',
+                text: `* @${identity.nick} sets mode ${modeFlag} on ${targetCh.name}`
+              }, targetCh);
+              syncOnlineClientPrefixes(chat, targetCh);
+              sendJSON(req, res, 200, { success: true, chat: buildPublicChatPayload(chat, identity, ip, targetCh.name) }, {}, { noStore: true });
               return;
             }
-            const out = executeIrcModAction(chat, identity, { action: mappedAction, nick: modeTarget });
+            const mappedAction = modeMap[modeFlag];
+            if (!mappedAction || !modeTarget) {
+              sendJSON(req, res, 400, { error: 'Uso: /mode +o|-o|+v|-v|+q|-q|+b|-b <nick> · /mode +m|-m|+p|-p|+i|-i|+k <clave>|-k' }, {}, { noStore: true });
+              return;
+            }
+            const out = executeIrcModAction(chat, identity, { action: mappedAction, nick: modeTarget, channel: targetCh.name });
             sendJSON(req, res, out.status, out.ok ? { success: true } : { error: out.error }, {}, { noStore: true });
             return;
           }
@@ -4383,11 +5006,17 @@ const server = http.createServer(async (req, res) => {
             const parts = arg.split(/\s+/);
             const targetNick = sanitizeIrcNick(parts[0], '');
             const reason = parts.slice(1).join(' ').trim() || 'Moderación @op';
-            const out = executeIrcModAction(chat, identity, { action: cmdActionMap[cmd], nick: targetNick, reason });
+            const out = executeIrcModAction(chat, identity, { action: cmdActionMap[cmd], nick: targetNick, reason, channel: targetCh.name });
             sendJSON(req, res, out.status, out.ok ? { success: true } : { error: out.error }, {}, { noStore: true });
             return;
           }
         }
+      }
+
+      const botResult = evaluateCyberBotModeration(chat, targetCh, identity, rawText);
+      if (botResult.blocked) {
+        sendJSON(req, res, 403, { error: botResult.error }, {}, { noStore: true });
+        return;
       }
 
       const savedMsg = appendChatMessage(chat, {
@@ -4396,14 +5025,27 @@ const server = http.createServer(async (req, res) => {
         prefix: identity.prefix,
         role: identity.role,
         text: rawText
-      });
+      }, targetCh);
+
+      if (botResult.warn) {
+        appendChatMessage(chat, {
+          type: 'system',
+          nick: (chat.botConfig && chat.botConfig.nick) || 'CyberBot',
+          prefix: '@',
+          role: 'bot',
+          text: botResult.warn
+        }, targetCh);
+      }
+
+      handleCyberBotTrigger(chat, targetCh, rawText);
       sendJSON(req, res, 201, { success: true, message: savedMsg }, {}, { noStore: true });
       return;
     }
 
     if (pathname.startsWith('/api/chat/messages/') && method === 'DELETE') {
       const chat = readChatState();
-      const identity = resolveChatIdentity(req, (parsedUrl.query && parsedUrl.query.actorNick) || '', chat);
+      const chObj = getChannelObject(chat, (parsedUrl.query && parsedUrl.query.channel) || '') || getChannelObject(chat);
+      const identity = resolveChatIdentity(req, (parsedUrl.query && parsedUrl.query.actorNick) || '', chat, chObj.name);
       const isAdminOrOp = identity.ok && (identity.role === 'admin' || identity.isChannelOp);
       if (!isAdminOrOp) {
         sendJSON(req, res, 403, { error: 'Solo el Administrador o un @op puede borrar mensajes del IRC' }, {}, { noStore: true });
@@ -4411,14 +5053,14 @@ const server = http.createServer(async (req, res) => {
       }
 
       const msgId = decodeURIComponent(pathname.replace('/api/chat/messages/', ''));
-      const existed = chat.messages.some(m => m.id === msgId);
+      const existed = (chObj.messages || []).some(m => m.id === msgId);
       if (!existed) {
         sendJSON(req, res, 404, { error: 'Mensaje no encontrado' }, {}, { noStore: true });
         return;
       }
-      chat.messages = chat.messages.filter(m => m.id !== msgId);
+      chObj.messages = chObj.messages.filter(m => m.id !== msgId);
       writeChatState(chat);
-      broadcastChatEvent('delete', { id: msgId });
+      broadcastChatEvent('delete', { id: msgId, channel: chObj.name }, chObj.name);
       sendJSON(req, res, 200, { success: true, id: msgId }, {}, { noStore: true });
       return;
     }
@@ -4426,7 +5068,8 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/chat/op-action' && method === 'POST') {
       const body = await parseBody(req);
       const chat = readChatState();
-      const identity = resolveChatIdentity(req, body.actorNick || '', chat);
+      const chObj = getChannelObject(chat, body.channel || '') || getChannelObject(chat);
+      const identity = resolveChatIdentity(req, body.actorNick || '', chat, chObj.name);
       if (!identity.ok || (!identity.isSiteAdmin && !identity.isChannelOp)) {
         sendJSON(req, res, 403, { error: 'Requiere privilegios de Operador (@) en el canal.' }, {}, { noStore: true });
         return;
@@ -4437,19 +5080,19 @@ const server = http.createServer(async (req, res) => {
           sendJSON(req, res, 400, { error: 'El topic no puede estar vacío.' }, {}, { noStore: true });
           return;
         }
-        chat.topic = nextTopic;
+        chObj.topic = nextTopic;
         appendChatMessage(chat, {
           type: 'system',
           nick: identity.nick,
           prefix: '@',
           role: 'system',
-          text: `* @${identity.nick} changes topic to '${chat.topic}'`
-        });
-        syncOnlineClientPrefixes(chat);
-        sendJSON(req, res, 200, { success: true, chat: buildPublicChatPayload(chat, identity, ip) }, {}, { noStore: true });
+          text: `* @${identity.nick} changes topic to '${chObj.topic}'`
+        }, chObj);
+        syncOnlineClientPrefixes(chat, chObj);
+        sendJSON(req, res, 200, { success: true, chat: buildPublicChatPayload(chat, identity, ip, chObj.name) }, {}, { noStore: true });
         return;
       }
-      const out = executeIrcModAction(chat, identity, body);
+      const out = executeIrcModAction(chat, identity, { ...body, channel: chObj.name });
       sendJSON(req, res, out.status, out.ok ? {
         success: true,
         mutedNicks: out.mutedNicks,
@@ -4468,15 +5111,17 @@ const server = http.createServer(async (req, res) => {
 
       const body = await parseBody(req);
       const chat = readChatState();
-      const prevTopic = chat.topic;
+      const mainCh = getChannelObject(chat);
+      const prevTopic = mainCh.topic;
+      if (body.topic !== undefined) mainCh.topic = sanitizeInput(body.topic, 180) || mainCh.topic;
+      if (body.allowGuests !== undefined) mainCh.allowGuests = !!body.allowGuests;
+      if (body.moderatedMode !== undefined) mainCh.moderatedMode = !!body.moderatedMode;
+
       const next = writeChatState({
         ...chat,
         enabled: body.enabled !== undefined ? !!body.enabled : chat.enabled,
-        allowGuests: body.allowGuests !== undefined ? !!body.allowGuests : chat.allowGuests,
-        moderatedMode: body.moderatedMode !== undefined ? !!body.moderatedMode : chat.moderatedMode,
         theme: body.theme !== undefined ? (body.theme === 'mirc-dark' ? 'mirc-dark' : 'mirc-classic') : chat.theme,
-        channel: body.channel !== undefined ? body.channel : chat.channel,
-        topic: body.topic !== undefined ? body.topic : chat.topic
+        botConfig: body.botConfig ? sanitizeBotConfig(body.botConfig, chat.botConfig) : chat.botConfig
       });
 
       const opNick = sanitizeIrcNick(currentUser.username || currentUser.displayName, 'admin');
@@ -4487,17 +5132,14 @@ const server = http.createServer(async (req, res) => {
           prefix: '@',
           role: 'system',
           text: `* @${opNick} changes topic to '${next.topic}'`
-        });
+        }, getChannelObject(next));
       }
-      broadcastChatEvent('config', {
-        channel: next.channel,
-        topic: next.topic,
-        enabled: next.enabled,
-        allowGuests: next.allowGuests,
-        moderatedMode: next.moderatedMode,
-        theme: next.theme
-      });
-      sendJSON(req, res, 200, { success: true, config: buildPublicChatPayload(next) }, {}, { noStore: true });
+      syncOnlineClientPrefixes(next, getChannelObject(next));
+      sendJSON(req, res, 200, {
+        success: true,
+        config: buildPublicChatPayload(next),
+        botConfig: next.botConfig
+      }, {}, { noStore: true });
       return;
     }
 
@@ -4508,17 +5150,21 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const chat = readChatState();
+      const chObj = getChannelObject(chat, (parsedUrl.query && parsedUrl.query.channel) || '') || getChannelObject(chat);
+      const adminNick = sanitizeIrcNick(currentUser.username || currentUser.displayName, 'admin');
       sendJSON(req, res, 200, {
-        channel: chat.channel,
-        topic: chat.topic,
+        channel: chObj.name,
+        topic: chObj.topic,
         enabled: chat.enabled,
-        allowGuests: chat.allowGuests,
-        moderatedMode: chat.moderatedMode,
+        allowGuests: chObj.allowGuests,
+        moderatedMode: chObj.moderatedMode,
         theme: chat.theme,
-        onlineUsers: getOnlineChatNicks(),
-        recentMessages: chat.messages.slice(-80),
-        mutedNicks: chat.mutedNicks,
-        bannedEntries: chat.bannedEntries
+        botConfig: chat.botConfig || DEFAULT_BOT_CONFIG,
+        channels: listAccessibleChannels(chat, { ok: true, isSiteAdmin: true, nick: adminNick }),
+        onlineUsers: getOnlineChatNicks(chObj.name, chat),
+        recentMessages: (chObj.messages || []).slice(-80),
+        mutedNicks: chObj.mutedNicks || [],
+        bannedEntries: chObj.bannedEntries || []
       }, {}, { noStore: true });
       return;
     }

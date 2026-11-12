@@ -74,6 +74,13 @@
       enabled: true,
       allowGuests: true,
       moderatedMode: false,
+      isPrivate: false,
+      secret: false,
+      inviteOnly: false,
+      hasKey: false,
+      channels: [],
+      channelKeys: {},
+      bot: { enabled: true, nick: 'CyberBot' },
       theme: 'mirc-classic',
       messages: [],
       onlineUsers: [],
@@ -435,10 +442,18 @@
     countBookmarks: document.getElementById('countBookmarks'),
     countForum: document.getElementById('countForum'),
 
-    // Modal Panel Admin & Transformador
+    // Modal Panel Admin estilo Azure & Transformador
     adminControlModal: document.getElementById('adminControlModal'),
     closeAdminControlBtn: document.getElementById('closeAdminControlBtn'),
     closeAdminModalFooterBtn: document.getElementById('closeAdminModalFooterBtn'),
+    adminNavSearchInput: document.getElementById('adminNavSearchInput'),
+    adminAzureBreadcrumb: document.getElementById('adminAzureBreadcrumb'),
+    adminBladeTitle: document.getElementById('adminBladeTitle'),
+    adminBladeSubtitle: document.getElementById('adminBladeSubtitle'),
+    adminTopModBadge: document.getElementById('adminTopModBadge'),
+    adminSideModCount: document.getElementById('adminSideModCount'),
+    adminRefreshOverviewBtn: document.getElementById('adminRefreshOverviewBtn'),
+    adminTabOverviewBtn: document.getElementById('adminTabOverviewBtn'),
     adminTabFeedsBtn: document.getElementById('adminTabFeedsBtn'),
     adminTabModerationBtn: document.getElementById('adminTabModerationBtn'),
     adminTabMetricsBtn: document.getElementById('adminTabMetricsBtn'),
@@ -447,6 +462,9 @@
     adminTabChatBtn: document.getElementById('adminTabChatBtn'),
     adminTabAdsBtn: document.getElementById('adminTabAdsBtn'),
     adminTabSecurityBtn: document.getElementById('adminTabSecurityBtn'),
+    adminOverviewSection: document.getElementById('adminOverviewSection'),
+    adminOverviewKpiGrid: document.getElementById('adminOverviewKpiGrid'),
+    adminOverviewServicesList: document.getElementById('adminOverviewServicesList'),
     adminFeedsSection: document.getElementById('adminFeedsSection'),
     adminModerationSection: document.getElementById('adminModerationSection'),
     adminMetricsSection: document.getElementById('adminMetricsSection'),
@@ -455,6 +473,17 @@
     adminChatSection: document.getElementById('adminChatSection'),
     adminAdsSection: document.getElementById('adminAdsSection'),
     adminSecuritySection: document.getElementById('adminSecuritySection'),
+    mircChannelTabs: document.getElementById('mircChannelTabs'),
+    ircBrowseChannelsBtn: document.getElementById('ircBrowseChannelsBtn'),
+    ircNewChannelBtn: document.getElementById('ircNewChannelBtn'),
+    mircChannelOverlay: document.getElementById('mircChannelOverlay'),
+    chatBotEnabledToggle: document.getElementById('chatBotEnabledToggle'),
+    chatBotAntiSpamLinksToggle: document.getElementById('chatBotAntiSpamLinksToggle'),
+    chatBotFloodMaxInput: document.getElementById('chatBotFloodMaxInput'),
+    chatBotActionSelect: document.getElementById('chatBotActionSelect'),
+    chatBotBadWordsInput: document.getElementById('chatBotBadWordsInput'),
+    chatBotRulesInput: document.getElementById('chatBotRulesInput'),
+    chatAdminChannelsList: document.getElementById('chatAdminChannelsList'),
     refreshModerationBtn: document.getElementById('refreshModerationBtn'),
     modPolicyForm: document.getElementById('modPolicyForm'),
     modPolicyRequireModeration: document.getElementById('modPolicyRequireModeration'),
@@ -1102,15 +1131,138 @@
     populateAdminAdForm();
 
     DOM.adminControlModal.style.display = 'flex';
-    switchAdminTab('feeds');
+    switchAdminTab('overview');
   }
 
   function closeAdminControl() {
     DOM.adminControlModal.style.display = 'none';
   }
 
+  const AZURE_BLADE_META = {
+    overview: {
+      crumb: 'Resumen',
+      title: 'Resumen del Sistema CYBERPOLIS',
+      subtitle: 'Supervisión centralizada estilo Azure Portal: recursos, moderación legal, comunidad IRC y telemetría'
+    },
+    moderation: {
+      crumb: 'Moderación y Legal',
+      title: 'Cola de Pre-Moderación, Tokens y Trazabilidad IP',
+      subtitle: 'Aprobación de publicaciones de portada y foro con registro forense SHA-256 + IP'
+    },
+    feeds: {
+      crumb: 'Fuentes RSS',
+      title: 'Sincronización Automática e Inteligencia RSS',
+      subtitle: 'Gestión de medios ciberseguridad en castellano e intervalo de ingesta'
+    },
+    users: {
+      crumb: 'Usuarios y Roles',
+      title: 'Directorio de Usuarios, Tokens de Confianza y Roles',
+      subtitle: 'Control de cuentas verificadas, permisos editoriales y antigüedad'
+    },
+    chat: {
+      crumb: 'IRC mIRC32 y @Bot',
+      title: 'Chat IRC Multi-Canal (mIRC32) y Bot @CyberBot',
+      subtitle: 'Administración de canales públicos/privados (+p/+i/+k), operadores y reglas automáticas'
+    },
+    metrics: {
+      crumb: 'Métricas y Visitas',
+      title: 'Telemetría de Audiencia y Tráfico en Vivo',
+      subtitle: 'Visitas recientes, navegadores, orígenes y artículos con mayor lectura'
+    },
+    ads: {
+      crumb: 'Publicidad',
+      title: 'Campañas y Banner Lateral Flotante',
+      subtitle: 'Configuración de creatividad, temporizador, posición y enlaces patrocinados'
+    },
+    transform: {
+      crumb: 'Apariencia y Marca',
+      title: 'Identidad Visual y Transformador del Portal',
+      subtitle: 'Título, logotipo, color de acento, modo de lectura y correo editorial'
+    },
+    security: {
+      crumb: 'Seguridad y BD',
+      title: 'Infraestructura, Persistencia y Respaldos',
+      subtitle: 'Estado del almacenamiento persistente, respaldos completos y credenciales Admin'
+    }
+  };
+
+  function updateAdminOverview() {
+    const pendingCount = state.adminModeration
+      ? ((state.adminModeration.pendingArticles || []).length +
+         (state.adminModeration.pendingThreads || []).length +
+         (state.adminModeration.pendingReplies || []).length)
+      : state.articles.filter(a => a.status === 'pending').length;
+    const chCount = (state.chat.channels || []).length || 1;
+    const onlineCount = (state.chat.onlineUsers || []).length;
+    const activeFeeds = (state.config.feeds || []).filter(f => f.enabled).length;
+
+    if (DOM.adminSideModCount) {
+      DOM.adminSideModCount.textContent = String(pendingCount);
+      DOM.adminSideModCount.classList.toggle('is-alert', pendingCount > 0);
+    }
+    if (DOM.adminTopModBadge) {
+      DOM.adminTopModBadge.textContent = `⚖️ ${pendingCount} pendiente${pendingCount === 1 ? '' : 's'}`;
+      DOM.adminTopModBadge.classList.toggle('has-pending', pendingCount > 0);
+    }
+
+    if (DOM.adminOverviewKpiGrid) {
+      DOM.adminOverviewKpiGrid.innerHTML = `
+        <div class="azure-kpi-card ${pendingCount > 0 ? 'is-warn' : 'is-ok'}">
+          <span class="azure-kpi-label">Cola de Moderación</span>
+          <span class="azure-kpi-value">${pendingCount}</span>
+          <span class="azure-kpi-sub">${pendingCount > 0 ? 'Requiere revisión Admin' : 'Al día · Sin bloqueos'}</span>
+        </div>
+        <div class="azure-kpi-card">
+          <span class="azure-kpi-label">Despachos Activos</span>
+          <span class="azure-kpi-value">${state.articles.length}</span>
+          <span class="azure-kpi-sub">${activeFeeds} fuentes RSS habilitadas</span>
+        </div>
+        <div class="azure-kpi-card">
+          <span class="azure-kpi-label">Hilos en el Foro</span>
+          <span class="azure-kpi-value">${state.forumThreads.length}</span>
+          <span class="azure-kpi-sub">Comunidad técnica indexada</span>
+        </div>
+        <div class="azure-kpi-card">
+          <span class="azure-kpi-label">Canales IRC mIRC32</span>
+          <span class="azure-kpi-value">${chCount}</span>
+          <span class="azure-kpi-sub">${onlineCount} conectados en ${escapeHtml(state.chat.channel || '#cyberpolis')}</span>
+        </div>
+      `;
+    }
+
+    if (DOM.adminOverviewServicesList) {
+      const botOn = !!(state.chat.bot && state.chat.bot.enabled !== false);
+      DOM.adminOverviewServicesList.innerHTML = `
+        <div class="azure-service-row">
+          <span>⚖️ Pre-moderación Legal + Trazabilidad IP</span>
+          <span class="azure-service-pill">ACTIVA</span>
+        </div>
+        <div class="azure-service-row">
+          <span>🤖 Bot Automático mIRC32 (@${escapeHtml((state.chat.bot && state.chat.bot.nick) || 'CyberBot')})</span>
+          <span class="azure-service-pill ${botOn ? '' : 'warn'}">${botOn ? 'ACTIVO' : 'PAUSADO'}</span>
+        </div>
+        <div class="azure-service-row">
+          <span>📡 Sincronización Automática RSS</span>
+          <span class="azure-service-pill ${state.config.autoSyncEnabled ? '' : 'warn'}">${state.config.autoSyncEnabled ? `CADA ${state.config.syncIntervalMinutes || 30} MIN` : 'MANUAL'}</span>
+        </div>
+        <div class="azure-service-row">
+          <span>💬 Servidor IRC Multi-Canal</span>
+          <span class="azure-service-pill ${state.chat.enabled ? '' : 'warn'}">${state.chat.enabled ? 'EN LÍNEA' : 'DESACTIVADO'}</span>
+        </div>
+      `;
+    }
+  }
+
+  async function loadAdminOverviewBlade() {
+    updateAdminOverview();
+    if (!state.serverMode || !state.currentUser || state.currentUser.role !== 'admin') return;
+    await Promise.allSettled([loadAdminModeration(), loadAdminChatModeration()]);
+    updateAdminOverview();
+  }
+
   function switchAdminTab(tab) {
     const panels = {
+      overview: [DOM.adminTabOverviewBtn, DOM.adminOverviewSection],
       feeds: [DOM.adminTabFeedsBtn, DOM.adminFeedsSection],
       moderation: [DOM.adminTabModerationBtn, DOM.adminModerationSection],
       metrics: [DOM.adminTabMetricsBtn, DOM.adminMetricsSection],
@@ -1125,6 +1277,12 @@
       if (btn) btn.classList.toggle('active', isActive);
       if (sec) sec.style.display = isActive ? 'block' : 'none';
     }
+    const meta = AZURE_BLADE_META[tab] || AZURE_BLADE_META.overview;
+    if (DOM.adminAzureBreadcrumb) DOM.adminAzureBreadcrumb.textContent = `Inicio › Consola Admin › ${meta.crumb}`;
+    if (DOM.adminBladeTitle) DOM.adminBladeTitle.textContent = meta.title;
+    if (DOM.adminBladeSubtitle) DOM.adminBladeSubtitle.textContent = meta.subtitle;
+
+    if (tab === 'overview') loadAdminOverviewBlade();
     if (tab === 'moderation') loadAdminModeration();
     if (tab === 'metrics') loadAdminMetrics();
     if (tab === 'users') loadAdminUsers();
@@ -3007,9 +3165,10 @@
     DOM.backupModalBtn.addEventListener('click', openBackupModal);
     if (DOM.brandResetBtn) DOM.brandResetBtn.addEventListener('click', resetAllFilters);
 
-    // Eventos del Panel Admin
+    // Eventos del Panel Admin estilo Azure Portal
     if (DOM.closeAdminControlBtn) DOM.closeAdminControlBtn.addEventListener('click', closeAdminControl);
     if (DOM.closeAdminModalFooterBtn) DOM.closeAdminModalFooterBtn.addEventListener('click', closeAdminControl);
+    if (DOM.adminTabOverviewBtn) DOM.adminTabOverviewBtn.addEventListener('click', () => switchAdminTab('overview'));
     if (DOM.adminTabFeedsBtn) DOM.adminTabFeedsBtn.addEventListener('click', () => switchAdminTab('feeds'));
     if (DOM.adminTabModerationBtn) DOM.adminTabModerationBtn.addEventListener('click', () => switchAdminTab('moderation'));
     if (DOM.adminTabMetricsBtn) DOM.adminTabMetricsBtn.addEventListener('click', () => switchAdminTab('metrics'));
@@ -3018,6 +3177,34 @@
     if (DOM.adminTabChatBtn) DOM.adminTabChatBtn.addEventListener('click', () => switchAdminTab('chat'));
     if (DOM.adminTabAdsBtn) DOM.adminTabAdsBtn.addEventListener('click', () => switchAdminTab('ads'));
     if (DOM.adminTabSecurityBtn) DOM.adminTabSecurityBtn.addEventListener('click', () => switchAdminTab('security'));
+    if (DOM.adminTopModBadge) DOM.adminTopModBadge.addEventListener('click', () => switchAdminTab('moderation'));
+    if (DOM.adminRefreshOverviewBtn) {
+      DOM.adminRefreshOverviewBtn.addEventListener('click', () => {
+        const activeBtn = document.querySelector('.azure-nav-item.active');
+        if (activeBtn && activeBtn.id === 'adminTabModerationBtn') loadAdminModeration();
+        else if (activeBtn && activeBtn.id === 'adminTabMetricsBtn') loadAdminMetrics();
+        else if (activeBtn && activeBtn.id === 'adminTabUsersBtn') loadAdminUsers();
+        else if (activeBtn && activeBtn.id === 'adminTabChatBtn') loadAdminChatModeration();
+        else if (activeBtn && activeBtn.id === 'adminTabSecurityBtn') loadAdminSystemStatus();
+        else loadAdminOverviewBlade();
+      });
+    }
+    if (DOM.adminNavSearchInput) {
+      DOM.adminNavSearchInput.addEventListener('input', () => {
+        const q = DOM.adminNavSearchInput.value.trim().toLowerCase();
+        document.querySelectorAll('.azure-nav-item').forEach(btn => {
+          const hay = ((btn.dataset.search || '') + ' ' + btn.textContent).toLowerCase();
+          btn.style.display = (!q || hay.includes(q)) ? 'flex' : 'none';
+        });
+      });
+    }
+    const quickActionsWrap = document.getElementById('adminAzureQuickActions');
+    if (quickActionsWrap) {
+      quickActionsWrap.addEventListener('click', e => {
+        const btn = e.target.closest('[data-jump-tab]');
+        if (btn && btn.dataset.jumpTab) switchAdminTab(btn.dataset.jumpTab);
+      });
+    }
 
     if (DOM.refreshModerationBtn) DOM.refreshModerationBtn.addEventListener('click', loadAdminModeration);
     if (DOM.modPolicyForm) DOM.modPolicyForm.addEventListener('submit', handleSaveModPolicy);
@@ -3037,6 +3224,59 @@
 
     // Eventos del Chat IRC Lateral (mIRC32) y Moderación Admin
     if (DOM.ircChatForm) DOM.ircChatForm.addEventListener('submit', handleIrcChatSubmit);
+    if (DOM.ircBrowseChannelsBtn) DOM.ircBrowseChannelsBtn.addEventListener('click', () => openIrcChannelOverlay('list'));
+    if (DOM.ircNewChannelBtn) DOM.ircNewChannelBtn.addEventListener('click', () => openIrcChannelOverlay('create'));
+    if (DOM.mircChannelTabs) {
+      DOM.mircChannelTabs.addEventListener('click', e => {
+        const btn = e.target.closest('[data-irc-join-ch]');
+        if (btn && btn.dataset.ircJoinCh) {
+          switchOrJoinIrcChannel(btn.dataset.ircJoinCh);
+        }
+      });
+    }
+    if (DOM.mircChannelOverlay) {
+      DOM.mircChannelOverlay.addEventListener('click', e => {
+        const closeBtn = e.target.closest('[data-irc-overlay-close]');
+        if (closeBtn) {
+          DOM.mircChannelOverlay.style.display = 'none';
+          return;
+        }
+        const joinBtn = e.target.closest('[data-irc-overlay-join]');
+        if (joinBtn) {
+          const chName = joinBtn.dataset.ircOverlayJoin;
+          const needsKey = joinBtn.dataset.hasKey === '1';
+          const keyInput = needsKey ? DOM.mircChannelOverlay.querySelector(`[data-irc-key-for="${CSS.escape(chName)}"]`) : null;
+          const suppliedKey = keyInput ? keyInput.value.trim() : '';
+          switchOrJoinIrcChannel(chName, suppliedKey, true);
+          return;
+        }
+        const delBtn = e.target.closest('[data-irc-overlay-del]');
+        if (delBtn) {
+          deleteIrcChannel(delBtn.dataset.ircOverlayDel);
+        }
+      });
+      DOM.mircChannelOverlay.addEventListener('submit', e => {
+        if (e.target && e.target.id === 'ircCreateChannelForm') {
+          e.preventDefault();
+          handleCreateIrcChannelForm();
+        }
+      });
+    }
+    if (DOM.chatAdminChannelsList) {
+      DOM.chatAdminChannelsList.addEventListener('click', e => {
+        const delBtn = e.target.closest('[data-admin-del-channel]');
+        if (delBtn && delBtn.dataset.adminDelChannel) {
+          deleteIrcChannel(delBtn.dataset.adminDelChannel);
+          return;
+        }
+        const goBtn = e.target.closest('[data-admin-open-channel]');
+        if (goBtn && goBtn.dataset.adminOpenChannel) {
+          closeAdminControl();
+          openIrcDrawer();
+          switchOrJoinIrcChannel(goBtn.dataset.adminOpenChannel);
+        }
+      });
+    }
     if (DOM.ircPopupToggleBtn) {
       DOM.ircPopupToggleBtn.addEventListener('click', () => {
         state.chat.popupsEnabled = !state.chat.popupsEnabled;
@@ -5268,6 +5508,14 @@
     if (DOM.modPendingCountBadge) {
       DOM.modPendingCountBadge.textContent = String(allPending.length);
     }
+    if (DOM.adminSideModCount) {
+      DOM.adminSideModCount.textContent = String(allPending.length);
+      DOM.adminSideModCount.classList.toggle('is-alert', allPending.length > 0);
+    }
+    if (DOM.adminTopModBadge) {
+      DOM.adminTopModBadge.textContent = `⚖️ ${allPending.length} pendiente${allPending.length === 1 ? '' : 's'}`;
+      DOM.adminTopModBadge.classList.toggle('has-pending', allPending.length > 0);
+    }
 
     if (DOM.adminModPendingList) {
       if (allPending.length === 0) {
@@ -5829,16 +6077,26 @@
     }
   }
 
+  function buildIrcModeString() {
+    let modes = '+nt';
+    if (state.chat.moderatedMode) modes += 'm';
+    if (state.chat.isPrivate) modes += 'p';
+    if (state.chat.secret) modes += 's';
+    if (state.chat.inviteOnly) modes += 'i';
+    if (state.chat.hasKey) modes += 'k';
+    return `[${modes}]`;
+  }
+
   function renderChatHeaderAndTheme() {
     const ch = state.chat.channel || '#cyberpolis';
-    const modeStr = state.chat.moderatedMode ? '[+ntm]' : '[+nt]';
+    const modeStr = buildIrcModeString();
     const unread = state.chat.unreadIds.size;
     if (DOM.ircTitlebarText) {
       const unreadPrefix = unread > 0 ? `(${unread}) ` : '';
       DOM.ircTitlebarText.textContent = `${unreadPrefix}mIRC32 - [${ch}] ${modeStr}`;
     }
     if (DOM.ircChannelBadge) {
-      DOM.ircChannelBadge.textContent = ch;
+      DOM.ircChannelBadge.textContent = ch + (state.chat.isPrivate ? ' 🔒' : '');
     }
     if (DOM.ircTopicText) {
       DOM.ircTopicText.textContent = state.chat.topic || '';
@@ -5854,6 +6112,7 @@
       DOM.ircContextMenu.classList.remove('mirc-classic', 'mirc-dark');
       DOM.ircContextMenu.classList.add(state.chat.theme === 'mirc-dark' ? 'mirc-dark' : 'mirc-classic');
     }
+    renderMircChannelTabs();
     syncIrcPopupToggleUi();
     updateIrcShellLayout();
     syncIrcIdentityUi(false);
@@ -5912,7 +6171,7 @@
       DOM.ircReopenTab.classList.toggle('has-unread', count > 0);
     }
     const ch = state.chat.channel || '#cyberpolis';
-    const modeStr = state.chat.moderatedMode ? '[+ntm]' : '[+nt]';
+    const modeStr = typeof buildIrcModeString === 'function' ? buildIrcModeString() : (state.chat.moderatedMode ? '[+ntm]' : '[+nt]');
     if (DOM.ircTitlebarText) {
       DOM.ircTitlebarText.textContent = `${count > 0 ? `(${count}) ` : ''}mIRC32 - [${ch}] ${modeStr}`;
     }
@@ -6027,11 +6286,12 @@
     const wasNearBottom = (DOM.ircMessagesList.scrollHeight - DOM.ircMessagesList.scrollTop - DOM.ircMessagesList.clientHeight) < 80;
     DOM.ircMessagesList.innerHTML = list.map(m => {
       const ts = formatIrcTimestamp(m.ts);
-      const prefix = m.prefix === '@' ? '@' : (m.prefix === '+' ? '+' : '');
-      const fullNick = `${prefix}${m.nick || 'anon'}`;
-      const nickCls = prefix === '@' ? 'mirc-nick-op' : (prefix === '+' ? 'mirc-nick-voice' : 'mirc-nick-guest');
+      const pfx = m.prefix === '@' ? '@' : (m.prefix === '+' ? '+' : '');
+      const fullNick = `${pfx}${m.nick || 'anon'}`;
+      const isBot = m.role === 'bot';
+      const nickCls = isBot ? 'mirc-nick-bot' : (pfx === '@' ? 'mirc-nick-op' : (pfx === '+' ? 'mirc-nick-voice' : 'mirc-nick-guest'));
       const unreadCls = state.chat.unreadIds.has(m.id) ? ' is-unread' : '';
-      const canModerateMsg = isOpActor && m.role !== 'admin' && m.role !== 'system';
+      const canModerateMsg = isOpActor && m.role !== 'admin' && m.role !== 'system' && !isBot;
       const modBtns = isOpActor ? `
         <span class="mirc-inline-mod">
           <button type="button" class="mirc-mod-mini-btn" data-irc-del="${escapeHtml(m.id)}" title="Borrar mensaje">🗑️</button>
@@ -6041,7 +6301,8 @@
       ` : '';
 
       if (m.type === 'system') {
-        return `<div class="mirc-line mirc-line-system${unreadCls}">${modBtns}<span class="mirc-ts">[${ts}]</span> ${escapeHtml(m.text)}</div>`;
+        const botLineCls = isBot ? ' mirc-msg-bot' : '';
+        return `<div class="mirc-line mirc-line-system${botLineCls}${unreadCls}">${modBtns}<span class="mirc-ts">[${ts}]</span> ${escapeHtml(m.text)}</div>`;
       }
       if (m.type === 'action') {
         return `<div class="mirc-line mirc-line-action${unreadCls}">${modBtns}<span class="mirc-ts">[${ts}]</span> * <span class="mirc-nick ${nickCls}" data-irc-nick="${escapeHtml(m.nick)}" title="Clic derecho para opciones mIRC32">${escapeHtml(fullNick)}</span> ${escapeHtml(m.text)}</div>`;
@@ -6062,10 +6323,215 @@
     }
     const itemsHtml = online.map(u => {
       const pfx = u.prefix === '@' ? '@' : (u.prefix === '+' ? '+' : '');
-      const cls = pfx === '@' ? 'is-op' : (pfx === '+' ? 'is-voice' : '');
-      return `<button type="button" class="mirc-nick-item ${cls}" data-irc-nick="${escapeHtml(u.nick)}" title="${escapeHtml(pfx + u.nick)} · Clic: mencionar | Clic derecho: menú mIRC32">${escapeHtml(pfx + u.nick)}</button>`;
+      const isBot = u.role === 'bot';
+      const cls = isBot ? 'is-op mirc-nick-bot' : (pfx === '@' ? 'is-op' : (pfx === '+' ? 'is-voice' : ''));
+      const label = isBot ? `🤖${pfx}${u.nick}` : `${pfx}${u.nick}`;
+      return `<button type="button" class="mirc-nick-item ${cls}" data-irc-nick="${escapeHtml(u.nick)}" title="${escapeHtml(pfx + u.nick)} · Clic: mencionar | Clic derecho: menú mIRC32">${escapeHtml(label)}</button>`;
     }).join('');
     DOM.ircNickList.innerHTML = `<div class="mirc-nicklist-head">Nicks (${online.length})</div>${itemsHtml || '<div class="mirc-ts" style="padding:3px;">Conectando...</div>'}`;
+  }
+
+  function renderMircChannelTabs() {
+    if (!DOM.mircChannelTabs) return;
+    const activeLower = (state.chat.channel || '#cyberpolis').toLowerCase();
+    const list = Array.isArray(state.chat.channels) && state.chat.channels.length
+      ? state.chat.channels
+      : [{ name: state.chat.channel || '#cyberpolis', isPrivate: false, hasKey: false }];
+    DOM.mircChannelTabs.innerHTML = list.slice(0, 10).map(ch => {
+      const isActive = (ch.name || '').toLowerCase() === activeLower;
+      const lockIco = (ch.isPrivate || ch.hasKey || ch.inviteOnly) ? '🔒' : '';
+      return `<button type="button" class="mirc-ch-tab ${isActive ? 'active' : ''}" data-irc-join-ch="${escapeHtml(ch.name)}" title="${escapeHtml(ch.topic || ch.name)} (${escapeHtml(ch.modes || '+nt')})">${lockIco}${escapeHtml(ch.name)}</button>`;
+    }).join('');
+  }
+
+  async function switchOrJoinIrcChannel(channelName, suppliedKey = '', fromOverlay = false) {
+    if (!channelName || !state.serverMode) return;
+    const cleanCh = channelName.startsWith('#') || channelName.startsWith('&') ? channelName : ('#' + channelName);
+    const chLower = cleanCh.toLowerCase();
+    const keyToUse = suppliedKey || state.chat.channelKeys[chLower] || '';
+    try {
+      const res = await apiFetch('/api/chat/channels/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          channel: cleanCh,
+          key: keyToUse,
+          nick: getEffectiveIrcNick()
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 403 && data.requiresKey && !fromOverlay) {
+          const entered = window.prompt(`Canal privado ${cleanCh} (+k). Introduce la clave del canal:`);
+          if (entered !== null && entered.trim()) {
+            return switchOrJoinIrcChannel(cleanCh, entered.trim(), true);
+          }
+          return;
+        }
+        showToast(data.error || `No se pudo entrar en ${cleanCh}.`, 'error');
+        return;
+      }
+      if (keyToUse) state.chat.channelKeys[chLower] = keyToUse;
+      state.chat.seenIds.clear();
+      state.chat.bootstrapped = false;
+      if (DOM.mircChannelOverlay) DOM.mircChannelOverlay.style.display = 'none';
+      if (data.chat) applyChatPayload(data.chat);
+      connectChatStream();
+      scrollIrcLogToBottom();
+    } catch (err) {
+      showToast('Error al cambiar de canal IRC.', 'error');
+    }
+  }
+
+  async function openIrcChannelOverlay(mode = 'list') {
+    if (!DOM.mircChannelOverlay) return;
+    if (DOM.mircChannelOverlay.style.display === 'block' && DOM.mircChannelOverlay.dataset.mode === mode) {
+      DOM.mircChannelOverlay.style.display = 'none';
+      return;
+    }
+    DOM.mircChannelOverlay.dataset.mode = mode;
+    DOM.mircChannelOverlay.style.display = 'block';
+
+    if (mode === 'create') {
+      if (!state.currentUser) {
+        DOM.mircChannelOverlay.innerHTML = `
+          <div class="mirc-overlay-head">
+            <span>➕ Crear Canal IRC (Público o Privado)</span>
+            <button type="button" class="mirc-ch-action-btn" data-irc-overlay-close="1">✕</button>
+          </div>
+          <p style="margin:6px 0;">Debes <strong>iniciar sesión</strong> para crear nuevos canales IRC públicos o privados (+p/+k).</p>
+        `;
+        return;
+      }
+      DOM.mircChannelOverlay.innerHTML = `
+        <div class="mirc-overlay-head">
+          <span>➕ Crear Nuevo Canal IRC</span>
+          <button type="button" class="mirc-ch-action-btn" data-irc-overlay-close="1">✕</button>
+        </div>
+        <form id="ircCreateChannelForm" style="display:flex; flex-direction:column; gap:6px;">
+          <input type="text" id="ircNewChName" class="hud-input" placeholder="#nombre_canal (ej: #pentest)" required maxlength="32" style="padding:5px 8px; font-size:0.78rem;">
+          <input type="text" id="ircNewChTopic" class="hud-input" placeholder="Topic del canal..." maxlength="180" style="padding:5px 8px; font-size:0.78rem;">
+          <input type="password" id="ircNewChKey" class="hud-input" placeholder="Clave opcional (+k) para hacerlo privado..." maxlength="40" style="padding:5px 8px; font-size:0.78rem;">
+          <div style="display:flex; gap:10px; flex-wrap:wrap; font-size:0.73rem;">
+            <label><input type="checkbox" id="ircNewChPrivate"> 🔒 Privado (+p)</label>
+            <label><input type="checkbox" id="ircNewChInvite"> ✉️ Solo invitación (+i)</label>
+            <label><input type="checkbox" id="ircNewChGuests" checked> 👤 Permitir invitados</label>
+          </div>
+          <button type="submit" class="mirc-ch-action-btn primary" style="padding:5px 10px;">Crear y Entrar al Canal</button>
+        </form>
+      `;
+      return;
+    }
+
+    let channels = state.chat.channels || [];
+    if (state.serverMode) {
+      try {
+        const res = await apiFetch(`/api/chat/channels?nick=${encodeURIComponent(getEffectiveIrcNick())}`);
+        if (res.ok) {
+          const data = await res.json();
+          channels = data.channels || channels;
+          state.chat.channels = channels;
+        }
+      } catch (e) {}
+    }
+
+    const myNick = getEffectiveIrcNick().toLowerCase();
+    const isAdmin = !!(state.currentUser && state.currentUser.role === 'admin');
+    const rows = channels.map(ch => {
+      const isCur = (ch.name || '').toLowerCase() === (state.chat.channel || '').toLowerCase();
+      const canDel = !ch.isMain && (isAdmin || (ch.owner && ch.owner.toLowerCase() === myNick));
+      return `
+        <div class="mirc-ch-list-row">
+          <div style="min-width:0; flex:1;">
+            <strong>${ch.isPrivate || ch.hasKey ? '🔒' : '📺'} ${escapeHtml(ch.name)}</strong>
+            <span style="opacity:0.75;">(${escapeHtml(ch.modes || '+nt')}) · ${ch.onlineCount || 0} online</span>
+            <div style="font-size:0.71rem; opacity:0.85; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(ch.topic || '')}</div>
+            ${ch.hasKey && !ch.canAccess ? `<input type="password" class="hud-input" data-irc-key-for="${escapeHtml(ch.name)}" placeholder="Clave +k..." style="margin-top:4px; padding:3px 6px; font-size:0.72rem;">` : ''}
+          </div>
+          <div style="display:flex; gap:4px; flex-shrink:0;">
+            <button type="button" class="mirc-ch-action-btn primary" data-irc-overlay-join="${escapeHtml(ch.name)}" data-has-key="${ch.hasKey && !ch.canAccess ? '1' : '0'}">${isCur ? 'Activo' : 'Entrar'}</button>
+            ${canDel ? `<button type="button" class="mirc-ch-action-btn" data-irc-overlay-del="${escapeHtml(ch.name)}" title="Eliminar canal">🗑️</button>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    DOM.mircChannelOverlay.innerHTML = `
+      <div class="mirc-overlay-head">
+        <span>📋 Directorio de Canales IRC (${channels.length})</span>
+        <button type="button" class="mirc-ch-action-btn" data-irc-overlay-close="1">✕</button>
+      </div>
+      ${rows || '<p>No hay canales disponibles.</p>'}
+    `;
+  }
+
+  async function handleCreateIrcChannelForm() {
+    if (!state.serverMode || !state.currentUser) return;
+    const chInput = document.getElementById('ircNewChName');
+    const topicInput = document.getElementById('ircNewChTopic');
+    const keyInput = document.getElementById('ircNewChKey');
+    const privChk = document.getElementById('ircNewChPrivate');
+    const invChk = document.getElementById('ircNewChInvite');
+    const guestsChk = document.getElementById('ircNewChGuests');
+    const rawName = chInput ? chInput.value.trim() : '';
+    const keyVal = keyInput ? keyInput.value.trim() : '';
+    if (!rawName) return;
+
+    try {
+      const res = await apiFetch('/api/chat/channels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          channel: rawName,
+          topic: topicInput ? topicInput.value.trim() : '',
+          key: keyVal,
+          isPrivate: !!(privChk && privChk.checked) || !!keyVal || !!(invChk && invChk.checked),
+          inviteOnly: !!(invChk && invChk.checked),
+          allowGuests: guestsChk ? !!guestsChk.checked : true
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || 'No se pudo crear el canal.', 'error');
+        return;
+      }
+      if (keyVal && data.channel) state.chat.channelKeys[data.channel.toLowerCase()] = keyVal;
+      state.chat.seenIds.clear();
+      state.chat.bootstrapped = false;
+      if (DOM.mircChannelOverlay) DOM.mircChannelOverlay.style.display = 'none';
+      if (data.chat) applyChatPayload(data.chat);
+      connectChatStream();
+      showToast(`Canal ${data.channel} creado y activo.`);
+    } catch (err) {
+      showToast('Error al crear canal IRC.', 'error');
+    }
+  }
+
+  async function deleteIrcChannel(channelName) {
+    if (!channelName || !state.serverMode) return;
+    try {
+      const res = await apiFetch(`/api/chat/channels/${encodeURIComponent(channelName)}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || 'No se pudo eliminar el canal.', 'error');
+        return;
+      }
+      if (Array.isArray(data.channels)) state.chat.channels = data.channels;
+      if ((state.chat.channel || '').toLowerCase() === channelName.toLowerCase()) {
+        await switchOrJoinIrcChannel('#cyberpolis');
+      } else {
+        renderMircChannelTabs();
+      }
+      if (DOM.mircChannelOverlay && DOM.mircChannelOverlay.style.display === 'block') {
+        openIrcChannelOverlay('list');
+      }
+      if (DOM.adminChatSection && DOM.adminChatSection.style.display === 'block') {
+        loadAdminChatModeration();
+      }
+      showToast(`Canal ${channelName} eliminado.`);
+    } catch (err) {
+      showToast('Error eliminando canal.', 'error');
+    }
   }
 
   function appendLocalSystemNotice(text) {
@@ -6089,6 +6555,12 @@
     if (payload.enabled !== undefined) state.chat.enabled = !!payload.enabled;
     if (payload.allowGuests !== undefined) state.chat.allowGuests = !!payload.allowGuests;
     if (payload.moderatedMode !== undefined) state.chat.moderatedMode = !!payload.moderatedMode;
+    if (payload.isPrivate !== undefined) state.chat.isPrivate = !!payload.isPrivate;
+    if (payload.secret !== undefined) state.chat.secret = !!payload.secret;
+    if (payload.inviteOnly !== undefined) state.chat.inviteOnly = !!payload.inviteOnly;
+    if (payload.hasKey !== undefined) state.chat.hasKey = !!payload.hasKey;
+    if (Array.isArray(payload.channels)) state.chat.channels = payload.channels;
+    if (payload.bot && typeof payload.bot === 'object') state.chat.bot = payload.bot;
     if (payload.theme) state.chat.theme = payload.theme;
     if (Array.isArray(payload.opNickNames)) state.chat.opNickNames = payload.opNickNames;
     if (Array.isArray(payload.voiceNickNames)) state.chat.voiceNickNames = payload.voiceNickNames;
@@ -6119,7 +6591,10 @@
     if (!state.serverMode || !state.chat.enabled || typeof window.EventSource !== 'function') return;
 
     const nick = getEffectiveIrcNick();
-    const es = new EventSource(`/api/chat/stream?nick=${encodeURIComponent(nick)}`);
+    const ch = state.chat.channel || '#cyberpolis';
+    const key = state.chat.channelKeys[ch.toLowerCase()] || '';
+    const qs = `nick=${encodeURIComponent(nick)}&channel=${encodeURIComponent(ch)}${key ? `&key=${encodeURIComponent(key)}` : ''}`;
+    const es = new EventSource(`/api/chat/stream?${qs}`);
     state.chat.sse = es;
 
     const setLiveStatus = (live) => {
@@ -6227,7 +6702,10 @@
   async function loadChatStateFallback() {
     if (!state.serverMode) return;
     try {
-      const res = await fetch(`/api/chat/state?nick=${encodeURIComponent(getEffectiveIrcNick())}`);
+      const ch = state.chat.channel || '#cyberpolis';
+      const key = state.chat.channelKeys[ch.toLowerCase()] || '';
+      const qs = `nick=${encodeURIComponent(getEffectiveIrcNick())}&channel=${encodeURIComponent(ch)}${key ? `&key=${encodeURIComponent(key)}` : ''}`;
+      const res = await fetch(`/api/chat/state?${qs}`);
       if (res.ok) {
         const data = await res.json();
         applyChatPayload(data);
@@ -6268,10 +6746,36 @@
 
     if (raw.toLowerCase() === '/help') {
       DOM.ircChatInput.value = '';
-      appendLocalSystemNotice('*** Comandos IRC: /me <acción> | /slap <nick> | /whois <nick> | /nick <nuevo_nick>');
+      appendLocalSystemNotice('*** Comandos IRC: /join #canal [clave] | /part | /list | /me <acción> | /slap <nick> | /whois <nick> | /nick <nuevo>');
+      appendLocalSystemNotice('*** Bot @CyberBot: !help | !reglas | !canales | !noticias | !ping');
       if (isCurrentUserIrcOp()) {
-        appendLocalSystemNotice('*** Comandos @OP: /topic <texto> | /notice <aviso> | /op <nick> | /deop <nick> | /voice <nick> | /devoice <nick> | /mute <nick> | /unmute <nick> | /kick <nick> | /ban <nick> | /kickban <nick> | /unban <nick> | /mode +m|-m|+o|-o|+v|-v | /clear');
+        appendLocalSystemNotice('*** Comandos @OP: /invite <nick> | /topic <texto> | /notice <aviso> | /mode +m|-m|+p|-p|+i|-i|+k clave|-k|+o|-o|+v|-v | /kick | /ban | /clear');
       }
+      return;
+    }
+
+    if (raw.toLowerCase() === '/list') {
+      DOM.ircChatInput.value = '';
+      openIrcChannelOverlay('list');
+      return;
+    }
+
+    if (raw.toLowerCase() === '/part' || raw.toLowerCase().startsWith('/part ')) {
+      DOM.ircChatInput.value = '';
+      if ((state.chat.channel || '#cyberpolis').toLowerCase() === '#cyberpolis') {
+        appendLocalSystemNotice('*** No puedes abandonar el canal principal #cyberpolis.');
+        return;
+      }
+      await switchOrJoinIrcChannel('#cyberpolis');
+      return;
+    }
+
+    if (raw.toLowerCase().startsWith('/join ')) {
+      DOM.ircChatInput.value = '';
+      const parts = raw.slice(6).trim().split(/\s+/);
+      const targetCh = parts[0] || '#cyberpolis';
+      const targetKey = parts[1] || '';
+      await switchOrJoinIrcChannel(targetCh, targetKey, !!targetKey);
       return;
     }
 
@@ -6308,11 +6812,15 @@
 
     DOM.ircChatInput.value = '';
     try {
+      const ch = state.chat.channel || '#cyberpolis';
+      const chKey = state.chat.channelKeys[ch.toLowerCase()] || '';
       const res = await apiFetch('/api/chat/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           nick: getEffectiveIrcNick(),
+          channel: ch,
+          key: chKey,
           text: raw
         })
       });
@@ -6334,7 +6842,8 @@
     if (!msgId || !state.serverMode) return;
     try {
       const actorNick = getEffectiveIrcNick();
-      const res = await apiFetch(`/api/chat/messages/${encodeURIComponent(msgId)}?actorNick=${encodeURIComponent(actorNick)}`, { method: 'DELETE' });
+      const ch = state.chat.channel || '#cyberpolis';
+      const res = await apiFetch(`/api/chat/messages/${encodeURIComponent(msgId)}?actorNick=${encodeURIComponent(actorNick)}&channel=${encodeURIComponent(ch)}`, { method: 'DELETE' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         showToast(data.error || 'No se pudo eliminar el mensaje.', 'error');
@@ -6490,13 +6999,15 @@
   async function performIrcWhois(nick) {
     if (!nick || !state.serverMode) return;
     try {
-      const res = await apiFetch(`/api/chat/whois?nick=${encodeURIComponent(nick)}`);
+      const ch = state.chat.channel || '#cyberpolis';
+      const res = await apiFetch(`/api/chat/whois?nick=${encodeURIComponent(nick)}&channel=${encodeURIComponent(ch)}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         appendLocalSystemNotice(`*** Whois error: ${data.error || 'No disponible'}`);
         return;
       }
       const roles = [];
+      if (data.isBot) roles.push('Bot Moderación');
       if (data.isSiteAdmin) roles.push('Admin Portal');
       if (data.isChannelOp) roles.push('Operador (@)');
       if (data.isVoice && !data.isChannelOp) roles.push('Voz (+)');
@@ -6534,6 +7045,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action,
+          channel: opts.channel || state.chat.channel || '#cyberpolis',
           actorNick: getEffectiveIrcNick(),
           nick,
           reason: opts.reason || '',
@@ -6692,6 +7204,33 @@
       if (DOM.chatAdminThemeSelect) DOM.chatAdminThemeSelect.value = data.theme === 'mirc-dark' ? 'mirc-dark' : 'mirc-classic';
       if (DOM.chatAdminTopicInput) DOM.chatAdminTopicInput.value = data.topic || '';
 
+      const bot = data.botConfig || {};
+      if (DOM.chatBotEnabledToggle) DOM.chatBotEnabledToggle.checked = bot.enabled !== false;
+      if (DOM.chatBotAntiSpamLinksToggle) DOM.chatBotAntiSpamLinksToggle.checked = bot.antiSpamLinks !== false;
+      if (DOM.chatBotFloodMaxInput) DOM.chatBotFloodMaxInput.value = Number(bot.antiFloodMaxMsgs || 5);
+      if (DOM.chatBotActionSelect) DOM.chatBotActionSelect.value = bot.badWordAction || 'mute';
+      if (DOM.chatBotBadWordsInput) DOM.chatBotBadWordsInput.value = Array.isArray(bot.badWords) ? bot.badWords.join(', ') : '';
+      if (DOM.chatBotRulesInput) DOM.chatBotRulesInput.value = bot.welcomeRules || '';
+
+      if (DOM.chatAdminChannelsList) {
+        const chs = Array.isArray(data.channels) ? data.channels : [];
+        if (chs.length) state.chat.channels = chs;
+        DOM.chatAdminChannelsList.innerHTML = chs.length
+          ? chs.map(c => `
+              <div class="admin-chat-mod-row">
+                <div class="admin-chat-mod-text">
+                  <strong>${c.isPrivate || c.hasKey ? '🔒' : '📺'} ${escapeHtml(c.name)}</strong>
+                  <small>(${escapeHtml(c.modes || '+nt')}) · Creador: ${escapeHtml(c.owner || 'admin')} · ${c.onlineCount || 0} online · ${c.msgCount || 0} msgs</small>
+                </div>
+                <div class="admin-chat-mod-actions">
+                  <button type="button" class="admin-chat-mini-btn" data-admin-open-channel="${escapeHtml(c.name)}" title="Entrar al canal">↗ Abrir</button>
+                  ${!c.isMain ? `<button type="button" class="admin-chat-mini-btn" data-admin-del-channel="${escapeHtml(c.name)}" title="Eliminar canal">🗑️</button>` : ''}
+                </div>
+              </div>
+            `).join('')
+          : '<p class="admin-help-text">Sin canales configurados.</p>';
+      }
+
       if (DOM.chatAdminMessagesList) {
         const msgs = (data.recentMessages || []).slice().reverse();
         DOM.chatAdminMessagesList.innerHTML = msgs.length
@@ -6753,7 +7292,15 @@
           moderatedMode: DOM.chatAdminModeratedToggle ? DOM.chatAdminModeratedToggle.checked : false,
           channel: DOM.chatAdminChannelInput ? DOM.chatAdminChannelInput.value.trim() : '#cyberpolis',
           theme: DOM.chatAdminThemeSelect ? DOM.chatAdminThemeSelect.value : 'mirc-classic',
-          topic: DOM.chatAdminTopicInput ? DOM.chatAdminTopicInput.value.trim() : ''
+          topic: DOM.chatAdminTopicInput ? DOM.chatAdminTopicInput.value.trim() : '',
+          botConfig: {
+            enabled: DOM.chatBotEnabledToggle ? DOM.chatBotEnabledToggle.checked : true,
+            antiSpamLinks: DOM.chatBotAntiSpamLinksToggle ? DOM.chatBotAntiSpamLinksToggle.checked : true,
+            antiFloodMaxMsgs: DOM.chatBotFloodMaxInput ? Number(DOM.chatBotFloodMaxInput.value) || 5 : 5,
+            badWordAction: DOM.chatBotActionSelect ? DOM.chatBotActionSelect.value : 'mute',
+            badWords: DOM.chatBotBadWordsInput ? DOM.chatBotBadWordsInput.value : '',
+            welcomeRules: DOM.chatBotRulesInput ? DOM.chatBotRulesInput.value.trim() : ''
+          }
         })
       });
       const data = await res.json().catch(() => ({}));
@@ -6762,7 +7309,7 @@
         return;
       }
       if (data.config) applyChatPayload(data.config);
-      showToast('Configuración del chat IRC guardada y aplicada en vivo.');
+      showToast('Configuración IRC y @CyberBot guardada y aplicada en vivo.');
       loadAdminChatModeration();
     } catch (err) {
       showToast('Error guardando ajustes del chat IRC.', 'error');
@@ -6775,7 +7322,7 @@
       const res = await apiFetch('/api/admin/chat/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, nick, reason, text, id })
+        body: JSON.stringify({ action, channel: state.chat.channel || '#cyberpolis', nick, reason, text, id })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {

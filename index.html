@@ -59,7 +59,7 @@
 
   <link rel="icon" type="image/png" href="assets/silverbot-unix-logo.png">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
-  <link rel="stylesheet" href="css/styles.css?v=7.8.0">
+  <link rel="stylesheet" href="css/styles.css?v=7.9.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
@@ -248,6 +248,16 @@
             </div>
           </div>
 
+          <div class="mirc-channel-bar" id="mircChannelBar" aria-label="Canales IRC activos">
+            <div class="mirc-channel-tabs" id="mircChannelTabs"></div>
+            <div class="mirc-channel-actions">
+              <button type="button" class="mirc-ch-action-btn" id="ircBrowseChannelsBtn" title="Explorar canales (/list)">📋 Salas</button>
+              <button type="button" class="mirc-ch-action-btn primary" id="ircNewChannelBtn" title="Crear canal público o privado (+p/+k)">+ Canal</button>
+            </div>
+          </div>
+
+          <div class="mirc-channel-overlay" id="mircChannelOverlay" style="display: none;"></div>
+
           <div class="mirc-topicbar" id="ircTopicBar">
             <span class="mirc-topic-label" id="ircChannelBadge">#cyberpolis</span>
             <span class="mirc-topic-text" id="ircTopicText" title="Topic del canal">Bienvenidos a #cyberpolis — Hacknoticiero &amp; Debate IRC en vivo</span>
@@ -329,31 +339,120 @@
 
   <!-- ==================== MODALES ==================== -->
 
-  <!-- Modal 1: PANEL DE CONTROL ADMIN & TRANSFORMADOR DE LA WEB -->
+  <!-- Modal 1: CONSOLA DE ADMINISTRACIÓN ESTILO AZURE PORTAL -->
   <div class="hud-modal-overlay" id="adminControlModal" style="display: none;">
-    <div class="hud-modal-window modal-wide">
-      <div class="hud-modal-head admin-head">
-        <div class="modal-head-title">
-          <span class="modal-glyph">⚙️</span>
-          <h3>PANEL DE CONTROL ADMIN & TRANSFORMADOR DE LA WEB</h3>
+    <div class="hud-modal-window modal-wide admin-azure-window">
+      <!-- Barra de Comandos Superior Azure -->
+      <div class="azure-topbar" id="adminAzureTopbar">
+        <div class="azure-topbar-left">
+          <span class="azure-brand-pill">CYBERPOLIS · AZURE CONSOLE</span>
+          <span class="azure-breadcrumb" id="adminAzureBreadcrumb">Inicio › Consola Admin › Resumen</span>
         </div>
-        <button class="modal-x-btn" id="closeAdminControlBtn">&times;</button>
+        <div class="azure-topbar-center">
+          <input type="search" id="adminNavSearchInput" class="azure-search-input" placeholder="Buscar servicio, moderación, usuarios, IRC..." aria-label="Filtrar menú de administración">
+        </div>
+        <div class="azure-topbar-right">
+          <button type="button" class="azure-top-alert-pill" id="adminTopModBadge" title="Ir a la cola de moderación">⚖️ 0 pendientes</button>
+          <span class="azure-health-dot" title="Consola operativa">● Operativo</span>
+          <button class="modal-x-btn azure-close-btn" id="closeAdminControlBtn" title="Cerrar consola">&times;</button>
+        </div>
       </div>
 
-      <!-- Pestañas del Panel Admin -->
-      <div class="auth-tabs-bar admin-tabs-bar">
-        <button class="auth-tab-btn active" id="adminTabFeedsBtn">📡 FUENTES RSS</button>
-        <button class="auth-tab-btn" id="adminTabModerationBtn">⚖️ MODERACIÓN</button>
-        <button class="auth-tab-btn" id="adminTabMetricsBtn">📊 MÉTRICAS Y VISITAS</button>
-        <button class="auth-tab-btn" id="adminTabUsersBtn">👥 USUARIOS</button>
-        <button class="auth-tab-btn" id="adminTabTransformBtn">🎨 APARIENCIA</button>
-        <button class="auth-tab-btn" id="adminTabChatBtn">💬 CHAT IRC</button>
-        <button class="auth-tab-btn" id="adminTabAdsBtn">📣 PUBLICIDAD</button>
-        <button class="auth-tab-btn" id="adminTabSecurityBtn">🛡️ SEGURIDAD Y BD</button>
-      </div>
+      <!-- Shell de Dos Paneles: Menú Gestionado Izquierdo + Blade Activo Derecho -->
+      <div class="azure-shell" id="adminAzureShell">
+        <nav class="azure-sidebar" id="adminAzureSidebar" aria-label="Menú gestionado de administración">
+          <div class="azure-nav-group" data-group="principal">
+            <div class="azure-nav-group-label">PRINCIPAL</div>
+            <button type="button" class="auth-tab-btn azure-nav-item active" id="adminTabOverviewBtn" data-search="resumen inicio panel estado kpi">
+              <span class="azure-nav-ico">⊞</span>
+              <span class="azure-nav-txt">Resumen y Estado</span>
+            </button>
+          </div>
+
+          <div class="azure-nav-group" data-group="contenido">
+            <div class="azure-nav-group-label">MODERACIÓN Y CONTENIDO</div>
+            <button type="button" class="auth-tab-btn azure-nav-item" id="adminTabModerationBtn" data-search="moderacion cola tokens auditoria ip legal aprobar">
+              <span class="azure-nav-ico">⚖️</span>
+              <span class="azure-nav-txt">Moderación y Legal</span>
+              <span class="azure-nav-badge" id="adminSideModCount">0</span>
+            </button>
+            <button type="button" class="auth-tab-btn azure-nav-item" id="adminTabFeedsBtn" data-search="fuentes rss sincronizacion noticias">
+              <span class="azure-nav-ico">📡</span>
+              <span class="azure-nav-txt">Fuentes RSS</span>
+            </button>
+          </div>
+
+          <div class="azure-nav-group" data-group="comunidad">
+            <div class="azure-nav-group-label">COMUNIDAD EN VIVO</div>
+            <button type="button" class="auth-tab-btn azure-nav-item" id="adminTabUsersBtn" data-search="usuarios cuentas roles verificados tokens">
+              <span class="azure-nav-ico">👥</span>
+              <span class="azure-nav-txt">Usuarios y Roles</span>
+            </button>
+            <button type="button" class="auth-tab-btn azure-nav-item" id="adminTabChatBtn" data-search="chat irc mirc32 canales privados bot moderacion cyberbot">
+              <span class="azure-nav-ico">💬</span>
+              <span class="azure-nav-txt">IRC mIRC32 y @Bot</span>
+            </button>
+          </div>
+
+          <div class="azure-nav-group" data-group="sistema">
+            <div class="azure-nav-group-label">SISTEMA Y PORTAL</div>
+            <button type="button" class="auth-tab-btn azure-nav-item" id="adminTabMetricsBtn" data-search="metricas visitas audiencia trafico estadisticas">
+              <span class="azure-nav-ico">📊</span>
+              <span class="azure-nav-txt">Métricas y Visitas</span>
+            </button>
+            <button type="button" class="auth-tab-btn azure-nav-item" id="adminTabAdsBtn" data-search="publicidad anuncios banners">
+              <span class="azure-nav-ico">📣</span>
+              <span class="azure-nav-txt">Publicidad</span>
+            </button>
+            <button type="button" class="auth-tab-btn azure-nav-item" id="adminTabTransformBtn" data-search="apariencia logo tema marca diseño">
+              <span class="azure-nav-ico">🎨</span>
+              <span class="azure-nav-txt">Apariencia y Marca</span>
+            </button>
+            <button type="button" class="auth-tab-btn azure-nav-item" id="adminTabSecurityBtn" data-search="seguridad base datos persistence correo smtp backup">
+              <span class="azure-nav-ico">🛡️</span>
+              <span class="azure-nav-txt">Seguridad y BD</span>
+            </button>
+          </div>
+        </nav>
+
+        <div class="azure-main" id="adminAzureMain">
+          <div class="azure-blade-header" id="adminBladeHeader">
+            <div>
+              <h3 class="azure-blade-title" id="adminBladeTitle">Resumen del Sistema CYBERPOLIS</h3>
+              <p class="azure-blade-subtitle" id="adminBladeSubtitle">Supervisión centralizada de recursos, moderación legal, comunidad IRC y telemetría</p>
+            </div>
+            <button type="button" class="hud-btn hud-btn-outline" id="adminRefreshOverviewBtn">🔄 Actualizar</button>
+          </div>
+
+          <!-- Blade 0: Resumen estilo Azure Portal -->
+          <div id="adminOverviewSection" class="hud-modal-body azure-blade-body">
+            <div id="adminOverviewKpiGrid" class="azure-kpi-grid">
+              <p class="admin-help-text">Cargando telemetría de la consola...</p>
+            </div>
+
+            <div class="azure-overview-split">
+              <div class="admin-config-card">
+                <h4 class="admin-sub-heading">⚡ Acciones Rápidas de Gestión</h4>
+                <div class="azure-quick-actions" id="adminAzureQuickActions">
+                  <button type="button" class="azure-quick-btn" data-jump-tab="moderation">⚖️ Revisar Cola de Moderación</button>
+                  <button type="button" class="azure-quick-btn" data-jump-tab="chat">🤖 Configurar @CyberBot y Canales IRC</button>
+                  <button type="button" class="azure-quick-btn" data-jump-tab="users">👥 Gestionar Usuarios y Tokens</button>
+                  <button type="button" class="azure-quick-btn" data-jump-tab="feeds">📡 Sincronizar Fuentes RSS</button>
+                  <button type="button" class="azure-quick-btn" data-jump-tab="metrics">📊 Ver Visitas en Tiempo Real</button>
+                  <button type="button" class="azure-quick-btn" data-jump-tab="security">🛡️ Persistencia y Backup</button>
+                </div>
+              </div>
+              <div class="admin-config-card">
+                <h4 class="admin-sub-heading">🌐 Estado de Servicios y Cumplimiento</h4>
+                <div id="adminOverviewServicesList" class="azure-services-list">
+                  <p class="admin-help-text">Comprobando subsistemas...</p>
+                </div>
+              </div>
+            </div>
+          </div>
 
       <!-- Sección 1: Fuentes en Castellano y Sincronización Automática -->
-      <div id="adminFeedsSection" class="hud-modal-body">
+      <div id="adminFeedsSection" class="hud-modal-body azure-blade-body" style="display: none;">
         
         <div class="admin-sync-hero-box">
           <div class="sync-info-col">
@@ -758,7 +857,59 @@
 
         <div class="hud-form-actions admin-transform-actions" style="margin-bottom: 16px;">
           <button type="button" class="hud-btn hud-btn-outline" id="chatAdminRefreshBtn">🔄 Actualizar panel</button>
-          <button type="button" class="hud-btn hud-btn-action" id="chatAdminSaveConfigBtn">💾 Guardar Ajustes IRC</button>
+          <button type="button" class="hud-btn hud-btn-action" id="chatAdminSaveConfigBtn">💾 Guardar Ajustes IRC &amp; Bot</button>
+        </div>
+
+        <div class="admin-config-card" style="margin-bottom: 16px;">
+          <div class="admin-card-row">
+            <div>
+              <strong>🤖 Bot de Moderación Automática (@CyberBot)</strong>
+              <p class="admin-sub-desc">Vigila todos los canales frente a flood, insultos/spam y enlaces no autorizados. Comandos: <code>!help</code>, <code>!reglas</code>, <code>!canales</code>, <code>!noticias</code>.</p>
+            </div>
+            <label class="hud-switch">
+              <input type="checkbox" id="chatBotEnabledToggle" checked>
+              <span class="hud-slider"></span>
+            </label>
+          </div>
+          <div class="admin-card-row" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-hairline);">
+            <div>
+              <strong>Bloquear enlaces externos a invitados</strong>
+              <p class="admin-sub-desc">Solo usuarios registrados o con @op/+voz pueden enviar URLs externas.</p>
+            </div>
+            <label class="hud-switch">
+              <input type="checkbox" id="chatBotAntiSpamLinksToggle" checked>
+              <span class="hud-slider"></span>
+            </label>
+          </div>
+          <div class="form-grid-2" style="margin-top: 12px;">
+            <div class="form-field">
+              <label for="chatBotFloodMaxInput" class="hud-label">LÍMITE ANTI-FLOOD (MSGS / 8S)</label>
+              <input type="number" id="chatBotFloodMaxInput" class="hud-input" min="2" max="20" value="5">
+            </div>
+            <div class="form-field">
+              <label for="chatBotActionSelect" class="hud-label">ACCIÓN ANTE PALABRA PROHIBIDA</label>
+              <select id="chatBotActionSelect" class="hud-select">
+                <option value="mute">Bloquear + Aplicar +q (Mute automático)</option>
+                <option value="delete">Bloquear mensaje con advertencia</option>
+                <option value="warn">Solo advertir en el canal</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-field" style="margin-top: 8px;">
+            <label for="chatBotBadWordsInput" class="hud-label">LISTA DE TÉRMINOS BLOQUEADOS (SEPARADOS POR COMAS)</label>
+            <input type="text" id="chatBotBadWordsInput" class="hud-input" placeholder="spam, scam, phishing, carding...">
+          </div>
+          <div class="form-field" style="margin-top: 8px;">
+            <label for="chatBotRulesInput" class="hud-label">RESPUESTA DEL BOT A !reglas</label>
+            <input type="text" id="chatBotRulesInput" class="hud-input" maxlength="320" placeholder="Reglas CYBERPOLIS...">
+          </div>
+        </div>
+
+        <div class="admin-config-card" style="margin-bottom: 16px;">
+          <h4 class="admin-sub-heading">📺 Canales IRC Activos (Públicos, Privados +p/+i/+k)</h4>
+          <div id="chatAdminChannelsList" class="admin-chat-mod-list" style="max-height: 220px;">
+            <p class="admin-help-text">Cargando canales...</p>
+          </div>
         </div>
 
         <div class="admin-config-card">
@@ -866,6 +1017,8 @@
         </div>
       </div>
 
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1310,6 +1463,6 @@
 
   <!-- Scripts -->
   <script src="js/polygons.js?v=7.0.0"></script>
-  <script src="js/app.js?v=7.8.0"></script>
+  <script src="js/app.js?v=7.9.0"></script>
 </body>
 </html>
