@@ -106,9 +106,16 @@ function resolveEnvPrimaryTenant() {
 }
 
 function resolveActiveTenantConfig(cloudState, requestedTenantId = '') {
+  const cloudGoogle = require('./cloudGoogle');
   const list = Array.isArray(cloudState && cloudState.tenants) ? cloudState.tenants : [];
-  const envTenant = resolveEnvPrimaryTenant();
-  const combined = envTenant ? [envTenant, ...list] : list;
+  const envMs = resolveEnvPrimaryTenant();
+  const envGg = cloudGoogle.resolveEnvGoogleProvider();
+  const combined = [
+    ...(envMs ? [envMs] : []),
+    ...(envGg ? [envGg] : []),
+    ...list
+  ].map(t => ({ ...t, providerType: t.providerType || 'onedrive' }));
+
   if (requestedTenantId) {
     const found = combined.find(t => t && (t.id === requestedTenantId || t.tenantId === requestedTenantId));
     if (found) return found;
@@ -393,18 +400,25 @@ async function sendGraphMail(tenantCfg, { to, subject, htmlBody }, fetchFn = fet
   return { sent: true, provider: 'microsoft-graph' };
 }
 
-function sendRawSmtpMail({ to, subject, textBody }) {
+function sendRawSmtpMail({ to, subject, textBody, htmlBody }, smtpOverride = null) {
   return new Promise((resolve, reject) => {
-    const host = (process.env.SMTP_HOST || '').trim();
-    const port = parseInt(process.env.SMTP_PORT, 10) || 465;
-    const user = (process.env.SMTP_USER || '').trim();
-    const pass = (process.env.SMTP_PASS || '').trim();
-    const from = (process.env.SMTP_FROM || user || 'noreply@cyberpolis.local').trim();
+    const gw = smtpOverride || {};
+    const envGmailUser = (process.env.GMAIL_USER || '').trim();
+    const envGmailPass = (process.env.GMAIL_APP_PASSWORD || '').replace(/\s+/g, '').trim();
+
+    const host = (gw.host || process.env.SMTP_HOST || (envGmailUser ? 'smtp.gmail.com' : '')).trim();
+    const port = parseInt(gw.port, 10) || parseInt(process.env.SMTP_PORT, 10) || 465;
+    const user = (gw.user || process.env.SMTP_USER || envGmailUser).trim();
+    const unsealedGwPass = gw.passSealed ? unsealCloudSecret(gw.passSealed) : (gw.pass || '');
+    const pass = (unsealedGwPass || process.env.SMTP_PASS || envGmailPass).trim();
+    const from = (gw.fromEmail || process.env.SMTP_FROM || user || 'noreply@cyberpolis.local').trim();
+    const fromName = (gw.fromName || process.env.SMTP_FROM_NAME || 'CYBERPOLIS Transfer').replace(/[\r\n<>"]/g, '').trim();
+
     if (!host || !user || !pass) {
-      return reject(new Error('SMTP no configurado'));
+      return reject(new Error('SMTP / Gmail App Password no configurado'));
     }
 
-    const useDirectTls = port === 465 || process.env.SMTP_SECURE === 'true';
+    const useDirectTls = gw.secure !== undefined ? !!gw.secure : (port === 465 || process.env.SMTP_SECURE === 'true');
     const socket = useDirectTls
       ? tls.connect({ host, port, rejectUnauthorized: true })
       : net.connect({ host, port });
@@ -454,14 +468,16 @@ function sendRawSmtpMail({ to, subject, textBody }) {
         socket.write(`DATA\r\n`);
       } else if (step === 7) {
         step = 8;
+        const bodyIsHtml = !!htmlBody;
+        const rawBody = bodyIsHtml ? String(htmlBody) : String(textBody || '');
         const msg = [
-          `From: CYBERPOLIS Transfer <${from}>`,
+          `From: ${fromName} <${from}>`,
           `To: <${to}>`,
-          `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`,
+          `Subject: =?UTF-8?B?${Buffer.from(subject, 'utf8').toString('base64')}?=`,
           'MIME-Version: 1.0',
-          'Content-Type: text/plain; charset=UTF-8',
+          bodyIsHtml ? 'Content-Type: text/html; charset=UTF-8' : 'Content-Type: text/plain; charset=UTF-8',
           '',
-          String(textBody || '').replace(/\n\./g, '\n..'),
+          rawBody.replace(/\n\./g, '\n..'),
           '.'
         ].join('\r\n');
         socket.write(msg + '\r\n');
@@ -469,47 +485,76 @@ function sendRawSmtpMail({ to, subject, textBody }) {
         step = 9;
         socket.write('QUIT\r\n');
         socket.end();
-        resolve({ sent: true, provider: 'smtp' });
+        resolve({ sent: true, provider: gw.mode || 'smtp' });
       }
     });
   });
 }
 
-async function sendTransferNotificationEmail(tenantCfg, { to, subject, htmlBody, textBody }, fetchFn = fetch) {
+async function sendTransferNotificationEmail(tenantCfg, { to, subject, htmlBody, textBody, mailGateway, cloudState }, fetchFn = fetch) {
+  const cloudGoogle = require('./cloudGoogle');
   const targetEmail = String(to || '').trim();
   if (!targetEmail || !targetEmail.includes('@')) {
     return { sent: false, provider: 'none', status: 'invalid_email', to: targetEmail };
   }
-  if (tenantCfg && tenantCfg.sendMailEnabled !== false && tenantCfg.clientId) {
+
+  const gw = mailGateway || cloudGoogle.resolveActiveMailGateway(cloudState || {});
+  const errors = [];
+
+  // 1. Si hay Pasarela SMTP/Gmail configurada explícitamente (App Password o SMTP propio)
+  if (gw && (gw.mode === 'gmail_app_password' || gw.mode === 'custom_smtp') && gw.user) {
+    try {
+      const r = await sendRawSmtpMail({ to: targetEmail, subject, htmlBody, textBody }, gw);
+      return { ...r, status: 'sent', to: targetEmail, ts: new Date().toISOString() };
+    } catch (e) {
+      errors.push(e.message);
+    }
+  }
+
+  // 2. Proveedor Google (Gmail API OAuth2 / Service Account)
+  if (tenantCfg && tenantCfg.providerType === 'google-drive' && tenantCfg.sendMailEnabled !== false) {
+    try {
+      const r = await cloudGoogle.sendGmailApiMail(
+        tenantCfg,
+        { fromEmail: (gw && gw.fromEmail) || tenantCfg.driveUserUpn || '', to: targetEmail, subject, htmlBody, textBody },
+        fetchFn
+      );
+      return { ...r, status: 'sent', to: targetEmail, ts: new Date().toISOString() };
+    } catch (e) {
+      errors.push(`GmailAPI: ${e.message}`);
+    }
+  }
+
+  // 3. Proveedor Microsoft Graph (Mail.Send)
+  if (tenantCfg && (tenantCfg.providerType || 'onedrive') === 'onedrive' && tenantCfg.sendMailEnabled !== false && tenantCfg.clientId) {
     try {
       const r = await sendGraphMail(tenantCfg, { to: targetEmail, subject, htmlBody }, fetchFn);
       return { ...r, status: 'sent', to: targetEmail, ts: new Date().toISOString() };
-    } catch (graphErr) {
-      if (process.env.SMTP_HOST) {
-        try {
-          const s = await sendRawSmtpMail({ to: targetEmail, subject, textBody });
-          return { ...s, status: 'sent', to: targetEmail, ts: new Date().toISOString() };
-        } catch (smtpErr) {
-          return { sent: false, provider: 'graph+smtp', status: 'error', to: targetEmail, error: graphErr.message, ts: new Date().toISOString() };
-        }
-      }
-      return { sent: false, provider: 'microsoft-graph', status: 'error', to: targetEmail, error: graphErr.message, ts: new Date().toISOString() };
+    } catch (e) {
+      errors.push(`Graph: ${e.message}`);
     }
   }
-  if (process.env.SMTP_HOST) {
+
+  // 4. Fallback SMTP / Gmail App Password desde variables de entorno
+  if (process.env.SMTP_HOST || (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD)) {
     try {
-      const s = await sendRawSmtpMail({ to: targetEmail, subject, textBody });
+      const s = await sendRawSmtpMail({ to: targetEmail, subject, htmlBody, textBody }, null);
       return { ...s, status: 'sent', to: targetEmail, ts: new Date().toISOString() };
     } catch (smtpErr) {
-      return { sent: false, provider: 'smtp', status: 'error', to: targetEmail, error: smtpErr.message, ts: new Date().toISOString() };
+      errors.push(`SMTP: ${smtpErr.message}`);
     }
   }
+
+  if (errors.length > 0) {
+    return { sent: false, provider: 'mail-gateway', status: 'error', to: targetEmail, error: errors.join(' | '), ts: new Date().toISOString() };
+  }
+
   return {
     sent: false,
     provider: 'audit-only',
     status: 'queued_no_mailer',
     to: targetEmail,
-    error: 'Sin Microsoft Graph Mail.Send ni SMTP configurado',
+    error: 'Sin pasarela Gmail/SMTP ni Microsoft Graph configurada',
     ts: new Date().toISOString()
   };
 }
@@ -526,5 +571,6 @@ module.exports = {
   uploadBufferToOneDrive,
   downloadBufferFromOneDrive,
   deleteItemFromOneDrive,
+  sendRawSmtpMail,
   sendTransferNotificationEmail
 };

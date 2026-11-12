@@ -59,7 +59,7 @@
 
   <link rel="icon" type="image/png" href="assets/silverbot-unix-logo.png">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
-  <link rel="stylesheet" href="css/styles.css?v=8.0.0">
+  <link rel="stylesheet" href="css/styles.css?v=8.1.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
@@ -415,9 +415,9 @@
               <span class="azure-nav-ico">🛡️</span>
               <span class="azure-nav-txt">Seguridad y BD</span>
             </button>
-            <button type="button" class="auth-tab-btn azure-nav-item" id="adminTabCloudBtn" data-search="onedrive nube 5tb backup azure tenant entra wetransfer restore">
+            <button type="button" class="auth-tab-btn azure-nav-item" id="adminTabCloudBtn" data-search="onedrive google drive 5tb gmail correo smtp nube backup azure tenant entra wetransfer restore">
               <span class="azure-nav-ico">☁️</span>
-              <span class="azure-nav-txt">OneDrive 5TB y Azure</span>
+              <span class="azure-nav-txt">Nubes 5TB y Correo</span>
             </button>
           </div>
         </nav>
@@ -1024,27 +1024,141 @@
         </div>
       </div>
 
-      <!-- Blade Cloud: OneDrive 5TB Backup/Auto-Restore + Multi-Tenant Azure Entra ID + Auditoría Transfer -->
+      <!-- Blade Cloud: OneDrive 5TB + Google Drive 5TB + Pasarela Correo Gmail/SMTP + Auditoría Transfer -->
       <div id="adminCloudSection" class="hud-modal-body azure-blade-body" style="display: none;">
         <div class="admin-panel-toolbar" style="margin-bottom: 14px;">
           <div>
-            <h4 class="admin-panel-heading">☁️ Bóveda OneDrive 5 TB · Auto-Respaldo & Restauración en Arranque</h4>
-            <p class="admin-help-text">Cifrado AES-256-GCM en tu nube Microsoft OneDrive para no perder nunca usuarios, foro, noticias, métricas ni chats en cada compilación/despliegue en Render.</p>
+            <h4 class="admin-panel-heading">☁️ Bóveda Nubes 5 TB (Google Drive & OneDrive) · Auto-Respaldo & Restauración</h4>
+            <p class="admin-help-text">Cifrado AES-256-GCM en tu nube Google Drive (5 TB) o Microsoft OneDrive (5 TB) para no perder nunca usuarios, foro, noticias, métricas ni chats al compilar en Render.</p>
           </div>
           <div class="admin-toolbar-btns">
-            <button type="button" class="hud-btn hud-btn-outline" id="cloudTestBtn">🔌 Probar OneDrive</button>
+            <button type="button" class="hud-btn hud-btn-outline" id="cloudTestBtn">🔌 Probar Nube</button>
             <button type="button" class="hud-btn hud-btn-action" id="cloudBackupNowBtn">☁️ Backup Ahora</button>
-            <button type="button" class="hud-btn hud-btn-outline" id="cloudRestoreNowBtn">📥 Restaurar desde OneDrive</button>
+            <button type="button" class="hud-btn hud-btn-outline" id="cloudRestoreNowBtn">📥 Restaurar desde Nube</button>
           </div>
         </div>
 
         <div id="adminCloudStatusBox" class="admin-storage-banner banner-warn" style="margin-bottom: 14px;">
-          Cargando estado de conexión Microsoft OneDrive / Azure Entra ID...
+          Cargando estado de conexión Google Drive / Microsoft OneDrive...
         </div>
 
+        <!-- Apartado 1: Pasarela de Correo Gmail / SMTP para Envíos y Notificaciones -->
         <div class="admin-config-card" style="margin-bottom: 14px;">
-          <h4 class="admin-sub-heading">🏢 Integración Multi-Tenant Azure Entra ID (Microsoft 365 Empresas)</h4>
-          <p class="admin-help-text">Registra uno o varios Tenants de Azure AD de tu organización o empresas clientes. Las credenciales y tokens se almacenan cifrados AES-256-GCM. Si además añades las variables en <strong>Render → Environment</strong>, cada compilación restaurará todo automáticamente antes de abrir tráfico.</p>
+          <h4 class="admin-sub-heading">✉️ Pasarela de Correo Electrónico (Tu Gmail / Contraseña de Aplicación / SMTP)</h4>
+          <p class="admin-help-text">Configura aquí la dirección de correo saliente para enviar avisos de <strong>CYBERPOLIS Transfer</strong> (archivos enviados/recibidos/links). Si usas tu Gmail personal o de Google One 5 TB, solo activa la verificación en 2 pasos y crea una <strong>Contraseña de Aplicación</strong> de Google (16 caracteres), o usa Gmail API OAuth2 abajo.</p>
+
+          <form id="mailGatewayForm" style="margin-top: 10px;">
+            <div class="form-grid-3">
+              <div class="form-field">
+                <label for="mgModeSelect" class="hud-label">PROVEEDOR / MODO CORREO</label>
+                <select id="mgModeSelect" class="hud-select-full">
+                  <option value="gmail_app_password">Gmail + Contraseña de Aplicación (smtp.gmail.com)</option>
+                  <option value="gmail_oauth2">Gmail API (Google Drive OAuth2 vinculado)</option>
+                  <option value="custom_smtp">SMTP Personalizado (Workspace / Host propio)</option>
+                  <option value="microsoft_graph">Microsoft 365 Graph (Mail.Send)</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label for="mgUserEmail" class="hud-label required">TU DIRECCIÓN DE CORREO (GMAIL / SMTP)</label>
+                <input type="email" id="mgUserEmail" class="hud-input" placeholder="tu.correo@gmail.com">
+              </div>
+              <div class="form-field">
+                <label for="mgPassword" class="hud-label">CONTRASEÑA DE APLICACIÓN / CLAVE SMTP</label>
+                <input type="password" id="mgPassword" class="hud-input" placeholder="16 letras Google App Password (sin espacios)" autocomplete="new-password">
+              </div>
+            </div>
+
+            <div class="form-grid-3" id="mgSmtpAdvancedRow">
+              <div class="form-field">
+                <label for="mgFromName" class="hud-label">NOMBRE DEL REMITENTE</label>
+                <input type="text" id="mgFromName" class="hud-input" value="CYBERPOLIS Transfer">
+              </div>
+              <div class="form-field">
+                <label for="mgHost" class="hud-label">SERVIDOR SMTP HOST</label>
+                <input type="text" id="mgHost" class="hud-input" value="smtp.gmail.com">
+              </div>
+              <div class="form-field">
+                <label for="mgPort" class="hud-label">PUERTO SMTP (465 TLS)</label>
+                <input type="number" id="mgPort" class="hud-input" value="465">
+              </div>
+            </div>
+
+            <div class="admin-users-row" style="gap: 10px; flex-wrap: wrap; margin-top: 8px; align-items: center;">
+              <button type="submit" class="hud-btn hud-btn-action" id="mgSaveBtn">💾 Guardar Pasarela de Correo</button>
+              <input type="email" id="mgTestToInput" class="hud-input" placeholder="Email destino para prueba..." style="max-width: 240px;">
+              <button type="button" class="hud-btn hud-btn-outline" id="mgTestBtn">📧 Enviar Email de Prueba</button>
+              <span id="mgStatusBadge" class="cloud-tenant-meta"></span>
+            </div>
+          </form>
+        </div>
+
+        <!-- Apartado 2: Google Drive 5 TB -->
+        <div class="admin-config-card" style="margin-bottom: 14px;">
+          <h4 class="admin-sub-heading">📁 Conectar Google Drive (5 TB · Google One / Google Workspace)</h4>
+          <p class="admin-help-text">En Google Cloud Console crea unas credenciales OAuth 2.0 (Tipo <em>Aplicación Web</em>) con URI de redirección <code>https://cyberpolis.onrender.com/api/cloud/oauth/callback</code> (o pega un JSON de <em>Service Account</em>). Después guarda abajo y pulsa <strong>"🔑 OAuth2"</strong> en la lista para autorizar tu cuenta de 5 TB.</p>
+
+          <form id="googleDriveForm" style="margin-top: 10px;">
+            <input type="hidden" id="gdRecordId">
+            <div class="form-grid-3">
+              <div class="form-field">
+                <label for="gdName" class="hud-label required">NOMBRE DE BÓVEDA GOOGLE</label>
+                <input type="text" id="gdName" class="hud-input" value="Google Drive 5 TB Principal" required>
+              </div>
+              <div class="form-field">
+                <label for="gdUserEmail" class="hud-label">TU CORREO DE GOOGLE (GMAIL / WORKSPACE)</label>
+                <input type="email" id="gdUserEmail" class="hud-input" placeholder="tu.cuenta@gmail.com">
+              </div>
+              <div class="form-field">
+                <label for="gdAuthMode" class="hud-label">MÉTODO DE CONEXIÓN GOOGLE</label>
+                <select id="gdAuthMode" class="hud-select-full">
+                  <option value="google_oauth2">OAuth2 Cuenta Google / Gmail 5TB (Recomendado · 1-Clic)</option>
+                  <option value="service_account">Service Account JSON (Google Workspace / Servidor)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-grid-3" id="gdOauthFieldsRow">
+              <div class="form-field">
+                <label for="gdClientId" class="hud-label">GOOGLE CLIENT ID (OAuth 2.0)</label>
+                <input type="text" id="gdClientId" class="hud-input" placeholder="xxxxxx.apps.googleusercontent.com">
+              </div>
+              <div class="form-field">
+                <label for="gdClientSecret" class="hud-label">GOOGLE CLIENT SECRET</label>
+                <input type="password" id="gdClientSecret" class="hud-input" placeholder="GOCSPX-..." autocomplete="new-password">
+              </div>
+              <div class="form-field">
+                <label for="gdBaseFolder" class="hud-label">CARPETA BÓVEDA EN DRIVE</label>
+                <input type="text" id="gdBaseFolder" class="hud-input" value="CYBERPOLIS_VAULT">
+              </div>
+            </div>
+
+            <div class="form-field" id="gdSaJsonWrap" style="display: none;">
+              <label for="gdServiceAccountJson" class="hud-label">JSON COMPLETO DE SERVICE ACCOUNT (OPCIONAL SI USAS OAUTH2)</label>
+              <textarea id="gdServiceAccountJson" class="hud-textarea" rows="3" placeholder='{"type":"service_account","project_id":"...","private_key":"-----BEGIN PRIVATE KEY-----..."}'></textarea>
+            </div>
+
+            <div class="admin-users-row" style="gap: 14px; flex-wrap: wrap; margin: 10px 0;">
+              <label class="hud-checkbox-label">
+                <input type="checkbox" id="gdDefaultBackup" checked>
+                <span>⭐ Usar Google Drive 5TB como Backup principal</span>
+              </label>
+              <label class="hud-checkbox-label">
+                <input type="checkbox" id="gdAutoBackup" checked>
+                <span>🔄 Auto-Sync en cada cambio</span>
+              </label>
+              <label class="hud-checkbox-label">
+                <input type="checkbox" id="gdSendMail" checked>
+                <span>✉️ Permitir envío con Gmail API</span>
+              </label>
+              <button type="submit" class="hud-btn hud-btn-action" id="gdSaveBtn">💾 Guardar Google Drive 5TB</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Apartado 3: Microsoft OneDrive 5TB / Multi-Tenant Azure Entra ID -->
+        <div class="admin-config-card" style="margin-bottom: 14px;">
+          <h4 class="admin-sub-heading">🏢 Integración Microsoft OneDrive 5 TB / Multi-Tenant Azure Entra ID</h4>
+          <p class="admin-help-text">Registra uno o varios Tenants de Azure AD (Microsoft 365). Las credenciales y tokens se cifran AES-256-GCM. Abajo se listan todas tus nubes conectadas (**Google Drive 5TB** y **OneDrive 5TB**) para probar cuota, vincular OAuth2 o gestionar.</p>
 
           <form id="cloudTenantForm" style="margin-top: 10px;">
             <input type="hidden" id="ctRecordId">
@@ -1732,6 +1846,6 @@
 
   <!-- Scripts -->
   <script src="js/polygons.js?v=7.0.0"></script>
-  <script src="js/app.js?v=8.0.0"></script>
+  <script src="js/app.js?v=8.1.0"></script>
 </body>
 </html>

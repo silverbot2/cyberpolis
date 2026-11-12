@@ -716,6 +716,32 @@
     cloudTenantsList: document.getElementById('cloudTenantsList'),
     cloudBackupHistoryList: document.getElementById('cloudBackupHistoryList'),
     cloudAdminTransfersAuditList: document.getElementById('cloudAdminTransfersAuditList'),
+    mailGatewayForm: document.getElementById('mailGatewayForm'),
+    mgModeSelect: document.getElementById('mgModeSelect'),
+    mgUserEmail: document.getElementById('mgUserEmail'),
+    mgPassword: document.getElementById('mgPassword'),
+    mgSmtpAdvancedRow: document.getElementById('mgSmtpAdvancedRow'),
+    mgFromName: document.getElementById('mgFromName'),
+    mgHost: document.getElementById('mgHost'),
+    mgPort: document.getElementById('mgPort'),
+    mgSaveBtn: document.getElementById('mgSaveBtn'),
+    mgTestToInput: document.getElementById('mgTestToInput'),
+    mgTestBtn: document.getElementById('mgTestBtn'),
+    mgStatusBadge: document.getElementById('mgStatusBadge'),
+    googleDriveForm: document.getElementById('googleDriveForm'),
+    gdRecordId: document.getElementById('gdRecordId'),
+    gdName: document.getElementById('gdName'),
+    gdUserEmail: document.getElementById('gdUserEmail'),
+    gdAuthMode: document.getElementById('gdAuthMode'),
+    gdClientId: document.getElementById('gdClientId'),
+    gdClientSecret: document.getElementById('gdClientSecret'),
+    gdBaseFolder: document.getElementById('gdBaseFolder'),
+    gdSaJsonWrap: document.getElementById('gdSaJsonWrap'),
+    gdServiceAccountJson: document.getElementById('gdServiceAccountJson'),
+    gdDefaultBackup: document.getElementById('gdDefaultBackup'),
+    gdAutoBackup: document.getElementById('gdAutoBackup'),
+    gdSendMail: document.getElementById('gdSendMail'),
+    gdSaveBtn: document.getElementById('gdSaveBtn'),
 
     // CYBERPOLIS Transfer (WeTransfer OneDrive Cifrado)
     transferModal: document.getElementById('transferModal'),
@@ -7748,6 +7774,7 @@
       }
       state.cloud.storage = data.storage || {};
       state.cloud.tenants = Array.isArray(data.tenants) ? data.tenants : [];
+      state.cloud.mailGateway = data.mailGateway || null;
       state.cloud.backupHistory = Array.isArray(data.backupHistory) ? data.backupHistory : [];
       renderAdminCloudUi();
 
@@ -7768,38 +7795,54 @@
   function renderAdminCloudUi() {
     const st = state.cloud.storage || {};
     const linked = !!st.oneDriveLinked;
+    const isGooglePrimary = st.cloudProviderType === 'google-drive';
     if (DOM.adminCloudStatusBox) {
       DOM.adminCloudStatusBox.className = `admin-storage-banner ${linked ? 'banner-ok' : 'banner-warn'}`;
       DOM.adminCloudStatusBox.innerHTML = linked ? `
-        <strong>☁️ OneDrive Auto-Backup Conectado (${escapeHtml(st.oneDriveTenantName || 'Tenant Azure')})</strong><br>
+        <strong>${isGooglePrimary ? '📁' : '☁️'} Bóveda Nube Auto-Backup Conectada (${escapeHtml(st.oneDriveTenantName || 'Nube 5 TB')})</strong><br>
         Cada cambio en usuarios, foro, noticias o WeTransfer se replica cifrado con AES-256-GCM en tu nube y se restaura en arranque si Render reconstruye el contenedor.
       ` : `
-        <strong>⚠️ OneDrive 5 TB aún no vinculado en Render Environment</strong><br>
-        En Render actualmente solo están activas variables básicas, por lo que al compilar se reinicia el disco local. Para <strong>auto-restaurar automáticamente al arrancar</strong> tras cada deploy, registra tu App en Azure AD / Microsoft Entra y añade en <em>Render → Environment</em>:
+        <strong>⚠️ Nube 5 TB (Google Drive u OneDrive) aún no vinculada en Render Environment</strong><br>
+        Para <strong>auto-restaurar automáticamente al arrancar</strong> tras cada deploy, configura Google Drive o OneDrive abajo y añade las variables en <em>Render → Environment</em>:
         <div class="admin-code-box" style="margin-top:8px;">
-          MS_TENANT_ID=tu-tenant-id-azure<br>
-          MS_CLIENT_ID=tu-client-id-app<br>
-          MS_CLIENT_SECRET=tu-client-secret<br>
-          ONEDRIVE_USER_UPN=tu_cuenta@tudominio.com<br>
+          <strong>Opción Google Drive 5 TB + Gmail:</strong><br>
+          GOOGLE_CLIENT_ID=... · GOOGLE_CLIENT_SECRET=... · GOOGLE_REFRESH_TOKEN=... (o GOOGLE_SERVICE_ACCOUNT_JSON)<br>
+          GMAIL_USER=tucorreo@gmail.com · GMAIL_APP_PASSWORD=tu_clave_aplicacion_16_letras<br><br>
+          <strong>Opción Microsoft OneDrive 5 TB:</strong><br>
+          MS_TENANT_ID=... · MS_CLIENT_ID=... · MS_CLIENT_SECRET=... · ONEDRIVE_USER_UPN=tu@empresa.com<br>
           PERSIST_SECRET=clave_larga_para_aes_256
         </div>
       `;
     }
 
+    const gw = state.cloud.mailGateway || {};
+    if (DOM.mgModeSelect && gw.mode && gw.mode !== 'none') DOM.mgModeSelect.value = gw.mode;
+    if (DOM.mgUserEmail && gw.user) DOM.mgUserEmail.value = gw.user;
+    if (DOM.mgFromName && gw.fromName) DOM.mgFromName.value = gw.fromName;
+    if (DOM.mgHost && gw.host) DOM.mgHost.value = gw.host;
+    if (DOM.mgPort && gw.port) DOM.mgPort.value = String(gw.port);
+    if (DOM.mgStatusBadge) {
+      DOM.mgStatusBadge.textContent = gw.mode && gw.mode !== 'none'
+        ? `✓ Activa (${gw.mode}${gw.user ? ` · ${gw.user}` : ''}${gw.hasPassword ? ' · Clave guardada' : ''})`
+        : 'Sin pasarela de correo guardada todavía.';
+    }
+
     if (DOM.cloudTenantsList) {
       DOM.cloudTenantsList.innerHTML = state.cloud.tenants.length ? state.cloud.tenants.map(t => {
+        const isGoogle = t.providerType === 'google-drive';
         const pct = t.quotaTotalBytes > 0 ? Math.min(100, Math.round((t.quotaUsedBytes / t.quotaTotalBytes) * 100)) : 0;
+        const icon = isGoogle ? '📁' : '🏢';
         return `
           <div class="cloud-tenant-card" data-tenant-id="${escapeHtml(t.id)}">
             <div class="cloud-tenant-top">
               <div>
-                <div class="cloud-tenant-title">🏢 ${escapeHtml(t.name)} ${t.isDefaultForBackup ? '<span class="transfer-badge ok">PRINCIPAL BACKUP</span>' : ''} ${t.fromEnv ? '<span class="transfer-badge">RENDER ENV</span>' : ''}</div>
+                <div class="cloud-tenant-title">${icon} ${escapeHtml(t.name)} <span class="transfer-badge">${isGoogle ? 'GOOGLE DRIVE' : 'AZURE ONEDRIVE'}</span> ${t.isDefaultForBackup ? '<span class="transfer-badge ok">PRINCIPAL BACKUP</span>' : ''} ${t.fromEnv ? '<span class="transfer-badge">RENDER ENV</span>' : ''}</div>
                 <div class="cloud-tenant-meta">
-                  Tenant: ${escapeHtml(t.tenantId)} · Client: ${escapeHtml(t.clientId)} · Modo: ${escapeHtml(t.authMode)}
-                  ${t.driveUserUpn ? ` · UPN: ${escapeHtml(t.driveUserUpn)}` : ''} · Carpeta: /${escapeHtml(t.baseFolder || 'CYBERPOLIS_VAULT')}
+                  ${isGoogle ? 'Proveedor: Google Drive v3' : `Tenant: ${escapeHtml(t.tenantId)}`} · Client: ${escapeHtml(t.clientId || (t.serviceAccountEmail || 'Service Account'))} · Modo: ${escapeHtml(t.authMode)}
+                  ${t.driveUserUpn ? ` · Cuenta: ${escapeHtml(t.driveUserUpn)}` : ''} · Carpeta: /${escapeHtml(t.baseFolder || 'CYBERPOLIS_VAULT')}
                 </div>
                 <div class="cloud-tenant-meta">
-                  Secreto: ${t.hasClientSecret ? '✓ Guardado AES-256' : 'Pendiente'} · Refresh Token: ${t.hasRefreshToken ? '✓ Vinculado OAuth2' : 'No (App-Only)'}
+                  Credencial: ${(t.hasClientSecret || t.hasServiceAccount) ? '✓ Guardada AES-256' : 'Pendiente'} · OAuth2 Token: ${t.hasRefreshToken ? '✓ Vinculado' : (t.hasServiceAccount ? 'Service Account' : 'Pendiente')}
                   ${t.quotaTotalBytes > 0 ? ` · Espacio: ${escapeHtml(formatBytesHuman(t.quotaUsedBytes))} / ${escapeHtml(formatBytesHuman(t.quotaTotalBytes))} (${pct}%)` : ''}
                 </div>
                 ${t.quotaTotalBytes > 0 ? `<div class="cloud-quota-bar"><div class="cloud-quota-fill" style="width:${pct}%"></div></div>` : ''}
@@ -7807,7 +7850,7 @@
               <div class="transfer-actions-row">
                 <button type="button" class="hud-btn hud-btn-outline" data-cloud-test-id="${escapeHtml(t.id)}">🔌 Probar</button>
                 ${!t.fromEnv ? `
-                  <button type="button" class="hud-btn hud-btn-outline" data-cloud-oauth-id="${escapeHtml(t.id)}">🔑 OAuth2 M365</button>
+                  <button type="button" class="hud-btn hud-btn-outline" data-cloud-oauth-id="${escapeHtml(t.id)}">${isGoogle ? '🔑 OAuth2 Google' : '🔑 OAuth2 M365'}</button>
                   <button type="button" class="hud-btn hud-btn-outline" data-cloud-edit-id="${escapeHtml(t.id)}">✏️ Editar</button>
                   <button type="button" class="hud-btn hud-btn-danger" data-cloud-del-id="${escapeHtml(t.id)}">🗑️</button>
                 ` : ''}
@@ -7815,15 +7858,15 @@
             </div>
           </div>
         `;
-      }).join('') : '<p class="admin-help-text">Sin tenants configurados todavía. Añade tu Tenant arriba.</p>';
+      }).join('') : '<p class="admin-help-text">Sin nubes configuradas todavía. Añade tu Google Drive 5TB o Azure OneDrive arriba.</p>';
     }
 
     if (DOM.cloudBackupHistoryList) {
       DOM.cloudBackupHistoryList.innerHTML = state.cloud.backupHistory.length ? state.cloud.backupHistory.slice(0, 15).map(b => `
         <div class="audit-log-row">
-          <strong>${escapeHtml(b.status || 'ok')}</strong> · ${escapeHtml(b.remotePath || '—')} · ${escapeHtml(formatBytesHuman(b.size || 0))} · ${escapeHtml(b.at ? new Date(b.at).toLocaleString('es-ES') : '')}
+          <strong>${escapeHtml(b.action || b.status || 'backup')}</strong> (${escapeHtml(b.tenantName || 'Nube')}) · ${escapeHtml(b.remotePath || '—')} · ${escapeHtml(formatBytesHuman(b.size || 0))} · ${escapeHtml((b.ts || b.at) ? new Date(b.ts || b.at).toLocaleString('es-ES') : '')}
         </div>
-      `).join('') : '<p class="admin-help-text">Aún no se han ejecutado copias hacia OneDrive.</p>';
+      `).join('') : '<p class="admin-help-text">Aún no se han ejecutado copias hacia la nube.</p>';
     }
   }
 
@@ -8042,7 +8085,108 @@
     handleTransferContainerActions(DOM.transferModal, false);
     handleTransferContainerActions(DOM.transferLinkModalBody, true);
 
-    // Admin Cloud Blade Actions
+    // Mail Gateway + Google Drive 5TB Admin Forms
+    if (DOM.gdAuthMode && DOM.gdSaJsonWrap) {
+      DOM.gdAuthMode.addEventListener('change', () => {
+        DOM.gdSaJsonWrap.style.display = DOM.gdAuthMode.value === 'service_account' ? 'block' : 'none';
+      });
+    }
+    if (DOM.mailGatewayForm) {
+      DOM.mailGatewayForm.addEventListener('submit', async e => {
+        e.preventDefault();
+        try {
+          const res = await apiFetch('/api/admin/cloud/mail-gateway', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              mode: DOM.mgModeSelect ? DOM.mgModeSelect.value : 'gmail_app_password',
+              user: DOM.mgUserEmail ? DOM.mgUserEmail.value.trim() : '',
+              fromEmail: DOM.mgUserEmail ? DOM.mgUserEmail.value.trim() : '',
+              password: DOM.mgPassword ? DOM.mgPassword.value.trim() : '',
+              fromName: DOM.mgFromName ? DOM.mgFromName.value.trim() : 'CYBERPOLIS Transfer',
+              host: DOM.mgHost ? DOM.mgHost.value.trim() : 'smtp.gmail.com',
+              port: DOM.mgPort ? Number(DOM.mgPort.value) || 465 : 465
+            })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showToast(data.error || 'No se pudo guardar la pasarela de correo.', 'error');
+            return;
+          }
+          if (DOM.mgPassword) DOM.mgPassword.value = '';
+          showToast('✉️ Pasarela de correo guardada con contraseña cifrada AES-256.');
+          loadAdminCloudStatus();
+        } catch (err) {
+          showToast('Error guardando pasarela de correo.', 'error');
+        }
+      });
+    }
+    if (DOM.mgTestBtn) {
+      DOM.mgTestBtn.addEventListener('click', async () => {
+        const to = DOM.mgTestToInput ? DOM.mgTestToInput.value.trim() : (DOM.mgUserEmail ? DOM.mgUserEmail.value.trim() : '');
+        if (!to) {
+          showToast('Escribe una dirección de correo destino para probar el envío.', 'error');
+          return;
+        }
+        showToast('Enviando correo de prueba por pasarela...', 'info');
+        try {
+          const res = await apiFetch('/api/admin/cloud/mail-test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showToast(data.error || 'Error enviando correo de prueba.', 'error');
+            return;
+          }
+          showToast(`✅ Email de prueba enviado correctamente vía ${data.provider || 'pasarela'} a ${to}.`);
+        } catch (err) {
+          showToast('Error de red al probar pasarela de correo.', 'error');
+        }
+      });
+    }
+    if (DOM.googleDriveForm) {
+      DOM.googleDriveForm.addEventListener('submit', async e => {
+        e.preventDefault();
+        try {
+          const res = await apiFetch('/api/admin/cloud/tenants', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: DOM.gdRecordId ? DOM.gdRecordId.value.trim() : '',
+              providerType: 'google-drive',
+              name: DOM.gdName ? DOM.gdName.value.trim() : 'Google Drive 5 TB',
+              companyDomain: 'google.com',
+              tenantId: 'google',
+              driveUserUpn: DOM.gdUserEmail ? DOM.gdUserEmail.value.trim() : '',
+              authMode: DOM.gdAuthMode ? DOM.gdAuthMode.value : 'google_oauth2',
+              clientId: DOM.gdClientId ? DOM.gdClientId.value.trim() : '',
+              clientSecret: DOM.gdClientSecret ? DOM.gdClientSecret.value.trim() : '',
+              baseFolder: DOM.gdBaseFolder ? DOM.gdBaseFolder.value.trim() : 'CYBERPOLIS_VAULT',
+              serviceAccountJson: DOM.gdServiceAccountJson ? DOM.gdServiceAccountJson.value.trim() : '',
+              isDefaultForBackup: DOM.gdDefaultBackup ? DOM.gdDefaultBackup.checked : true,
+              autoBackupEnabled: DOM.gdAutoBackup ? DOM.gdAutoBackup.checked : true,
+              sendMailEnabled: DOM.gdSendMail ? DOM.gdSendMail.checked : true
+            })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showToast(data.error || 'Error guardando Google Drive 5 TB.', 'error');
+            return;
+          }
+          if (DOM.gdRecordId) DOM.gdRecordId.value = '';
+          if (DOM.gdClientSecret) DOM.gdClientSecret.value = '';
+          if (DOM.gdServiceAccountJson) DOM.gdServiceAccountJson.value = '';
+          showToast('📁 Google Drive 5 TB guardado. Pulsa "🔑 OAuth2 Google" si usas OAuth o "🔌 Probar".');
+          loadAdminCloudStatus();
+        } catch (err) {
+          showToast('Error guardando Google Drive 5 TB.', 'error');
+        }
+      });
+    }
+
+    // Admin Cloud Blade Actions (OneDrive / Multi-Tenant Azure)
     if (DOM.ctResetFormBtn && DOM.cloudTenantForm) {
       DOM.ctResetFormBtn.addEventListener('click', () => {
         DOM.cloudTenantForm.reset();
@@ -8177,18 +8321,32 @@
         if (editBtn) {
           const found = (state.cloud.tenants || []).find(t => t.id === editBtn.dataset.cloudEditId);
           if (found) {
-            if (DOM.ctRecordId) DOM.ctRecordId.value = found.id;
-            if (DOM.ctName) DOM.ctName.value = found.name || '';
-            if (DOM.ctCompanyDomain) DOM.ctCompanyDomain.value = found.companyDomain || '';
-            if (DOM.ctTenantId) DOM.ctTenantId.value = found.tenantId || '';
-            if (DOM.ctClientId) DOM.ctClientId.value = found.clientId || '';
-            if (DOM.ctClientSecret) DOM.ctClientSecret.value = '';
-            if (DOM.ctAuthMode) DOM.ctAuthMode.value = found.authMode || 'client_credentials';
-            if (DOM.ctDriveUpn) DOM.ctDriveUpn.value = found.driveUserUpn || '';
-            if (DOM.ctBaseFolder) DOM.ctBaseFolder.value = found.baseFolder || 'CYBERPOLIS_VAULT';
-            if (DOM.ctDefaultBackup) DOM.ctDefaultBackup.checked = !!found.isDefaultForBackup;
-            if (DOM.ctAutoBackup) DOM.ctAutoBackup.checked = !!found.autoBackupEnabled;
-            if (DOM.ctSendMail) DOM.ctSendMail.checked = !!found.sendMailEnabled;
+            if (found.providerType === 'google-drive') {
+              if (DOM.gdRecordId) DOM.gdRecordId.value = found.id;
+              if (DOM.gdName) DOM.gdName.value = found.name || '';
+              if (DOM.gdUserEmail) DOM.gdUserEmail.value = found.driveUserUpn || '';
+              if (DOM.gdAuthMode) DOM.gdAuthMode.value = found.authMode || 'google_oauth2';
+              if (DOM.gdClientId) DOM.gdClientId.value = found.clientId || '';
+              if (DOM.gdClientSecret) DOM.gdClientSecret.value = '';
+              if (DOM.gdBaseFolder) DOM.gdBaseFolder.value = found.baseFolder || 'CYBERPOLIS_VAULT';
+              if (DOM.gdDefaultBackup) DOM.gdDefaultBackup.checked = !!found.isDefaultForBackup;
+              if (DOM.gdAutoBackup) DOM.gdAutoBackup.checked = !!found.autoBackupEnabled;
+              if (DOM.gdSendMail) DOM.gdSendMail.checked = !!found.sendMailEnabled;
+              if (DOM.gdSaJsonWrap) DOM.gdSaJsonWrap.style.display = found.authMode === 'service_account' ? 'block' : 'none';
+            } else {
+              if (DOM.ctRecordId) DOM.ctRecordId.value = found.id;
+              if (DOM.ctName) DOM.ctName.value = found.name || '';
+              if (DOM.ctCompanyDomain) DOM.ctCompanyDomain.value = found.companyDomain || '';
+              if (DOM.ctTenantId) DOM.ctTenantId.value = found.tenantId || '';
+              if (DOM.ctClientId) DOM.ctClientId.value = found.clientId || '';
+              if (DOM.ctClientSecret) DOM.ctClientSecret.value = '';
+              if (DOM.ctAuthMode) DOM.ctAuthMode.value = found.authMode || 'client_credentials';
+              if (DOM.ctDriveUpn) DOM.ctDriveUpn.value = found.driveUserUpn || '';
+              if (DOM.ctBaseFolder) DOM.ctBaseFolder.value = found.baseFolder || 'CYBERPOLIS_VAULT';
+              if (DOM.ctDefaultBackup) DOM.ctDefaultBackup.checked = !!found.isDefaultForBackup;
+              if (DOM.ctAutoBackup) DOM.ctAutoBackup.checked = !!found.autoBackupEnabled;
+              if (DOM.ctSendMail) DOM.ctSendMail.checked = !!found.sendMailEnabled;
+            }
           }
           return;
         }

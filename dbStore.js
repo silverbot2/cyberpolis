@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const cloudOneDrive = require('./cloudOneDrive');
+const cloudGoogle = require('./cloudGoogle');
 
 const SEED_DATA_DIR = path.join(__dirname, 'data');
 
@@ -154,7 +155,8 @@ class CyberpolisStore {
       this.mode = 'github-gist';
       await this.initGist();
     } else if (this.getActiveOneDriveTenant()) {
-      this.mode = 'onedrive';
+      const activeCloud = this.getActiveOneDriveTenant();
+      this.mode = activeCloud.providerType === 'google-drive' ? 'google-drive' : 'onedrive';
       await this.initOneDrive();
     } else if (path.resolve(this.dataDir) !== path.resolve(this.seedDir) || process.env.PERSISTENT_DISK === 'true') {
       this.mode = 'persistent-disk';
@@ -179,6 +181,10 @@ class CyberpolisStore {
   }
 
   async initOneDrive() {
+    const activeCloud = this.getActiveOneDriveTenant();
+    const label = activeCloud && activeCloud.providerType === 'google-drive'
+      ? 'Google Drive (5 TB)'
+      : 'Microsoft OneDrive (5 TB)';
     try {
       const result = await this.restoreFromOneDriveSnapshot();
       if (!result.restored) {
@@ -186,11 +192,25 @@ class CyberpolisStore {
       }
       this.lastRemoteSyncAt = new Date().toISOString();
       this.lastError = null;
-      console.log('☁️ Persistencia Microsoft OneDrive (5 TB) conectada y restaurada.');
+      console.log(`☁️ Persistencia ${label} conectada y restaurada.`);
     } catch (err) {
-      this.lastError = `OneDrive error: ${err.message}`;
-      console.error('⚠️ Error conectando OneDrive (usando caché local):', err.message);
+      this.lastError = `${label} error: ${err.message}`;
+      console.error(`⚠️ Error conectando ${label} (usando caché local):`, err.message);
     }
+  }
+
+  uploadSnapshotBufferToProvider(tenantCfg, relPath, buf, mime, fetchFn) {
+    if (tenantCfg && tenantCfg.providerType === 'google-drive') {
+      return cloudGoogle.uploadBufferToGoogleDrive(tenantCfg, relPath, buf, mime, fetchFn);
+    }
+    return cloudOneDrive.uploadBufferToOneDrive(tenantCfg, relPath, buf, mime, fetchFn);
+  }
+
+  downloadSnapshotBufferFromProvider(tenantCfg, relPath, fetchFn) {
+    if (tenantCfg && tenantCfg.providerType === 'google-drive') {
+      return cloudGoogle.downloadBufferFromGoogleDrive(tenantCfg, relPath, fetchFn);
+    }
+    return cloudOneDrive.downloadBufferFromOneDrive(tenantCfg, relPath, fetchFn);
   }
 
   async pushOneDriveSnapshot(tenantOverride = null) {
@@ -200,7 +220,7 @@ class CyberpolisStore {
     }
     const tenantCfg = tenantOverride || this.getActiveOneDriveTenant();
     if (!tenantCfg) {
-      throw new Error('No hay ningún Tenant de Azure / OneDrive configurado.');
+      throw new Error('No hay ninguna Nube (OneDrive o Google Drive) configurada.');
     }
     this.oneDriveFlushPromise = (async () => {
       let lastUpload = null;
@@ -215,7 +235,7 @@ class CyberpolisStore {
           }
           const encryptedStr = encryptSnapshotIfConfigured(JSON.stringify(payloadObj), this.getOneDriveCryptoSecret());
           const buf = Buffer.from(encryptedStr, 'utf8');
-          lastUpload = await cloudOneDrive.uploadBufferToOneDrive(
+          lastUpload = await this.uploadSnapshotBufferToProvider(
             activeTenant,
             'backups/cyberpolis-latest.enc.json',
             buf,
@@ -225,7 +245,7 @@ class CyberpolisStore {
           const dayKey = new Date().toISOString().slice(0, 10);
           if (this.lastDailyOneDriveDay !== dayKey) {
             this.lastDailyOneDriveDay = dayKey;
-            await cloudOneDrive.uploadBufferToOneDrive(
+            await this.uploadSnapshotBufferToProvider(
               activeTenant,
               `backups/cyberpolis-${dayKey}.enc.json`,
               buf,
@@ -238,8 +258,8 @@ class CyberpolisStore {
         } while (this.oneDriveDirtyDuringFlush);
         return lastUpload;
       } catch (err) {
-        this.lastError = `OneDrive write: ${err.message}`;
-        console.error('Error sincronizando backup OneDrive:', err.message);
+        this.lastError = `Cloud write: ${err.message}`;
+        console.error('Error sincronizando backup Cloud:', err.message);
         throw err;
       } finally {
         this.oneDriveFlushPromise = null;
@@ -251,10 +271,10 @@ class CyberpolisStore {
   async restoreFromOneDriveSnapshot(tenantOverride = null) {
     const tenantCfg = tenantOverride || this.getActiveOneDriveTenant();
     if (!tenantCfg) {
-      throw new Error('No hay ningún Tenant de Azure / OneDrive configurado.');
+      throw new Error('No hay ninguna Nube (OneDrive o Google Drive) configurada.');
     }
     const fetchFn = this.options.fetch || fetch;
-    const buf = await cloudOneDrive.downloadBufferFromOneDrive(
+    const buf = await this.downloadSnapshotBufferFromProvider(
       tenantCfg,
       'backups/cyberpolis-latest.enc.json',
       fetchFn
@@ -510,7 +530,7 @@ class CyberpolisStore {
         this.gistTimer = null;
       }
       await this.pushGistSnapshot();
-    } else if (this.mode === 'onedrive') {
+    } else if (this.mode === 'onedrive' || this.mode === 'google-drive') {
       if (this.oneDriveTimer) {
         clearTimeout(this.oneDriveTimer);
         this.oneDriveTimer = null;
@@ -538,6 +558,7 @@ class CyberpolisStore {
       'persistent-disk': 'Disco Persistente (Montaje externo)',
       'github-gist': 'GitHub Gist Privado (Persistente)',
       'onedrive': 'Microsoft OneDrive 5 TB (Persistente Cifrado)',
+      'google-drive': 'Google Drive 5 TB (Persistente Cifrado)',
       'ephemeral': 'Disco Efímero del Contenedor (Sin DB externa)'
     };
     const oneDriveTenant = this.getActiveOneDriveTenant();
@@ -548,6 +569,7 @@ class CyberpolisStore {
       dataDir: this.mode === 'persistent-disk' ? this.dataDir : undefined,
       oneDriveLinked: !!oneDriveTenant,
       oneDriveTenantName: oneDriveTenant ? oneDriveTenant.name : null,
+      cloudProviderType: oneDriveTenant ? (oneDriveTenant.providerType || 'onedrive') : null,
       lastRemoteSyncAt: this.lastRemoteSyncAt,
       lastError: this.lastError
     };

@@ -12,6 +12,7 @@ const net = require('net');
 const { exec } = require('child_process');
 const { CyberpolisStore } = require('./dbStore');
 const cloudOneDrive = require('./cloudOneDrive');
+const cloudGoogle = require('./cloudGoogle');
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const DATA_DIR = path.join(__dirname, 'data');
@@ -2677,45 +2678,72 @@ function handleCyberBotTrigger(chat, chObj, rawText) {
 const cloudOAuthStates = new Map();
 
 function readCloudStore() {
-  const raw = readJSON(CLOUD_FILE, { tenants: [], backupHistory: [] });
+  const raw = readJSON(CLOUD_FILE, { tenants: [], backupHistory: [], mailGateway: null });
   return {
     tenants: Array.isArray(raw.tenants) ? raw.tenants : [],
-    backupHistory: Array.isArray(raw.backupHistory) ? raw.backupHistory.slice(-40) : []
+    backupHistory: Array.isArray(raw.backupHistory) ? raw.backupHistory.slice(-40) : [],
+    mailGateway: raw.mailGateway && typeof raw.mailGateway === 'object' ? raw.mailGateway : null
   };
 }
 
 function writeCloudStore(next) {
   const normalized = {
     tenants: Array.isArray(next.tenants) ? next.tenants.slice(0, 25) : [],
-    backupHistory: Array.isArray(next.backupHistory) ? next.backupHistory.slice(-40) : []
+    backupHistory: Array.isArray(next.backupHistory) ? next.backupHistory.slice(-40) : [],
+    mailGateway: next.mailGateway && typeof next.mailGateway === 'object' ? next.mailGateway : null
   };
   writeJSON(CLOUD_FILE, normalized, { critical: true });
   return normalized;
 }
 
+function sanitizeMailGatewayPublic(gw) {
+  if (!gw || typeof gw !== 'object') {
+    return { mode: 'none', host: '', port: 465, secure: true, user: '', fromEmail: '', fromName: 'CYBERPOLIS Transfer', hasPassword: false, fromEnv: false };
+  }
+  return {
+    mode: gw.mode || 'none',
+    host: gw.host || '',
+    port: Number(gw.port) || 465,
+    secure: gw.secure !== false,
+    user: gw.user || '',
+    fromEmail: gw.fromEmail || gw.user || '',
+    fromName: gw.fromName || 'CYBERPOLIS Transfer',
+    hasPassword: !!gw.passSealed,
+    fromEnv: !!gw.fromEnv,
+    updatedAt: gw.updatedAt || null
+  };
+}
+
 function sanitizeTenantPublic(t, isAdmin = false) {
   if (!t || typeof t !== 'object') return null;
+  const providerType = t.providerType || 'onedrive';
+  const isGoogle = providerType === 'google-drive';
   const base = {
     id: t.id,
+    providerType,
     name: t.name,
-    companyDomain: t.companyDomain || '',
+    companyDomain: t.companyDomain || (isGoogle ? 'google.com' : ''),
     isDefaultForBackup: !!t.isDefaultForBackup,
-    connected: !!(t.clientId && (t.clientSecretSealed || t.refreshTokenSealed)),
+    connected: isGoogle
+      ? !!(t.serviceAccountJsonSealed || (t.clientId && t.refreshTokenSealed))
+      : !!(t.clientId && (t.clientSecretSealed || t.refreshTokenSealed)),
     fromEnv: !!t.fromEnv
   };
   if (!isAdmin) return base;
   return {
     ...base,
-    tenantId: t.tenantId || 'common',
+    tenantId: t.tenantId || (isGoogle ? 'google' : 'common'),
     clientId: t.clientId || '',
-    authMode: t.authMode || 'client_credentials',
+    authMode: t.authMode || (isGoogle ? 'google_oauth2' : 'client_credentials'),
     driveUserUpn: t.driveUserUpn || '',
     driveId: t.driveId || '',
     baseFolder: t.baseFolder || '/CYBERPOLIS_VAULT',
+    serviceAccountEmail: t.serviceAccountEmail || '',
     autoBackupEnabled: t.autoBackupEnabled !== false,
     sendMailEnabled: t.sendMailEnabled !== false,
     hasClientSecret: !!t.clientSecretSealed,
     hasRefreshToken: !!t.refreshTokenSealed,
+    hasServiceAccount: !!t.serviceAccountJsonSealed,
     lastTestedAt: t.lastTestedAt || null,
     quotaTotalBytes: Number(t.quotaTotalBytes) || 0,
     quotaUsedBytes: Number(t.quotaUsedBytes) || 0
@@ -2818,13 +2846,11 @@ async function storeEncryptedTransferFile(blobId, rawBuffer, fileName, mimeType,
 
   if (tenantCfg) {
     try {
-      const up = await cloudOneDrive.uploadBufferToOneDrive(
-        tenantCfg,
-        `transfers/${blobId}.enc`,
-        encryptedBuf,
-        'application/octet-stream'
-      );
-      storageLocation = 'onedrive';
+      const isGoogle = tenantCfg.providerType === 'google-drive';
+      const up = isGoogle
+        ? await cloudGoogle.uploadBufferToGoogleDrive(tenantCfg, `transfers/${blobId}.enc`, encryptedBuf, 'application/octet-stream')
+        : await cloudOneDrive.uploadBufferToOneDrive(tenantCfg, `transfers/${blobId}.enc`, encryptedBuf, 'application/octet-stream');
+      storageLocation = isGoogle ? 'google-drive' : 'onedrive';
       oneDrivePath = up.remotePath;
       oneDriveItemId = up.itemId || '';
     } catch (err) {
@@ -2832,7 +2858,7 @@ async function storeEncryptedTransferFile(blobId, rawBuffer, fileName, mimeType,
     }
   }
 
-  if (storageLocation !== 'onedrive') {
+  if (storageLocation !== 'onedrive' && storageLocation !== 'google-drive') {
     if (!fs.existsSync(VAULT_DIR)) fs.mkdirSync(VAULT_DIR, { recursive: true });
     fs.writeFileSync(path.join(VAULT_DIR, `${blobId}.enc`), encryptedBuf);
   }
@@ -2853,8 +2879,10 @@ async function storeEncryptedTransferFile(blobId, rawBuffer, fileName, mimeType,
 async function loadDecryptedTransferFile(fileMeta, tenantCfg, keySalt) {
   if (!fileMeta || !fileMeta.blobId) return null;
   let cipherBuf = null;
-  if (fileMeta.storageLocation === 'onedrive' && fileMeta.oneDrivePath && tenantCfg) {
-    cipherBuf = await cloudOneDrive.downloadBufferFromOneDrive(tenantCfg, fileMeta.oneDrivePath);
+  if (fileMeta.storageLocation === 'google-drive' && fileMeta.oneDrivePath && tenantCfg) {
+    cipherBuf = await cloudGoogle.downloadBufferFromGoogleDrive(tenantCfg, fileMeta.oneDrivePath).catch(() => null);
+  } else if (fileMeta.storageLocation === 'onedrive' && fileMeta.oneDrivePath && tenantCfg) {
+    cipherBuf = await cloudOneDrive.downloadBufferFromOneDrive(tenantCfg, fileMeta.oneDrivePath).catch(() => null);
   }
   if (!cipherBuf) {
     const localPath = path.join(VAULT_DIR, `${path.basename(fileMeta.blobId)}.enc`);
@@ -5437,7 +5465,12 @@ const server = http.createServer(async (req, res) => {
       }
       const cloud = readCloudStore();
       const envT = cloudOneDrive.resolveEnvPrimaryTenant();
-      const list = [...(envT ? [envT] : []), ...cloud.tenants].map(t => sanitizeTenantPublic(t, false)).filter(Boolean);
+      const envG = cloudGoogle.resolveEnvGoogleProvider();
+      const list = [
+        ...(envT ? [envT] : []),
+        ...(envG ? [envG] : []),
+        ...cloud.tenants
+      ].map(t => sanitizeTenantPublic(t, false)).filter(Boolean);
       sendJSON(req, res, 200, { tenants: list }, {}, { noStore: true });
       return;
     }
@@ -5450,36 +5483,126 @@ const server = http.createServer(async (req, res) => {
       }
       const cloud = readCloudStore();
       const envT = cloudOneDrive.resolveEnvPrimaryTenant();
-      const all = [...(envT ? [envT] : []), ...cloud.tenants].map(t => sanitizeTenantPublic(t, true)).filter(Boolean);
+      const envG = cloudGoogle.resolveEnvGoogleProvider();
+      const all = [
+        ...(envT ? [envT] : []),
+        ...(envG ? [envG] : []),
+        ...cloud.tenants
+      ].map(t => sanitizeTenantPublic(t, true)).filter(Boolean);
       const storageStatus = store.getStatus();
+      const activeGw = cloudGoogle.resolveActiveMailGateway(cloud);
       sendJSON(req, res, 200, {
         storage: storageStatus,
         tenants: all,
+        mailGateway: sanitizeMailGatewayPublic(activeGw),
         backupHistory: cloud.backupHistory || []
       }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname === '/api/admin/cloud/mail-gateway' && method === 'POST') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Solo el Administrador puede configurar la pasarela de correo.' }, {}, { noStore: true });
+        return;
+      }
+      const body = await parseBody(req);
+      const mode = ['gmail_app_password', 'custom_smtp', 'gmail_oauth2', 'microsoft_graph', 'none'].includes(body.mode)
+        ? body.mode
+        : 'gmail_app_password';
+      const cloud = readCloudStore();
+      const prevGw = cloud.mailGateway || {};
+      const userEmail = sanitizeInput(body.user || body.fromEmail || '', 160);
+      const rawPass = String(body.password || '').replace(/\s+/g, '').trim();
+      const host = sanitizeInput(body.host || (mode === 'gmail_app_password' ? 'smtp.gmail.com' : ''), 160);
+      const port = parseInt(body.port, 10) || 465;
+
+      if ((mode === 'gmail_app_password' || mode === 'custom_smtp') && (!userEmail || (!rawPass && !prevGw.passSealed))) {
+        sendJSON(req, res, 400, { error: 'Indica tu dirección de correo Gmail / SMTP y la contraseña de aplicación.' }, {}, { noStore: true });
+        return;
+      }
+
+      const nextGw = {
+        mode,
+        host: mode === 'gmail_app_password' ? 'smtp.gmail.com' : host,
+        port,
+        secure: body.secure !== undefined ? !!body.secure : (port === 465),
+        user: userEmail,
+        passSealed: rawPass ? cloudOneDrive.sealCloudSecret(rawPass) : (prevGw.passSealed || ''),
+        fromEmail: sanitizeInput(body.fromEmail || userEmail, 160),
+        fromName: sanitizeInput(body.fromName || 'CYBERPOLIS Transfer', 80) || 'CYBERPOLIS Transfer',
+        updatedAt: new Date().toISOString()
+      };
+      cloud.mailGateway = nextGw;
+      writeCloudStore(cloud);
+
+      recordLegalAudit({
+        action: 'cloud_mail_gateway_update',
+        targetType: 'mail_gateway',
+        targetId: nextGw.mode,
+        summary: `Pasarela de correo actualizada (${nextGw.mode}: ${nextGw.fromEmail || nextGw.user || 'auto'})`,
+        currentUser,
+        ip,
+        req
+      });
+      sendJSON(req, res, 200, { success: true, mailGateway: sanitizeMailGatewayPublic(nextGw) }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname === '/api/admin/cloud/mail-test' && method === 'POST') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Acceso restringido al Administrador' }, {}, { noStore: true });
+        return;
+      }
+      const body = await parseBody(req).catch(() => ({}));
+      const toEmail = sanitizeInput(body.to || '', 160);
+      if (!toEmail || !toEmail.includes('@')) {
+        sendJSON(req, res, 400, { error: 'Indica un correo destino válido para la prueba.' }, {}, { noStore: true });
+        return;
+      }
+      const cloud = readCloudStore();
+      const activeGw = cloudGoogle.resolveActiveMailGateway(cloud);
+      const tCfg = cloudOneDrive.resolveActiveTenantConfig(cloud, body.tenantId || '');
+      const resMail = await cloudOneDrive.sendTransferNotificationEmail(tCfg, {
+        to: toEmail,
+        subject: '[CYBERPOLIS] Prueba de Pasarela de Correo Gmail / Cloud',
+        textBody: 'Esta es una confirmación automática de que la pasarela de correo de CYBERPOLIS funciona correctamente.',
+        htmlBody: '<p><strong>✅ CYBERPOLIS</strong>: La pasarela de correo está configurada y enviando notificaciones correctamente.</p>',
+        mailGateway: activeGw,
+        cloudState: cloud
+      });
+      if (!resMail.sent) {
+        sendJSON(req, res, 502, { error: resMail.error || 'No se pudo enviar el correo de prueba.', details: resMail }, {}, { noStore: true });
+        return;
+      }
+      sendJSON(req, res, 200, { success: true, ...resMail }, {}, { noStore: true });
       return;
     }
 
     if (pathname === '/api/admin/cloud/tenants' && method === 'POST') {
       const currentUser = getSessionUser(req);
       if (!currentUser || currentUser.role !== 'admin') {
-        sendJSON(req, res, 403, { error: 'Solo el Administrador puede gestionar tenants Azure/OneDrive' }, {}, { noStore: true });
+        sendJSON(req, res, 403, { error: 'Solo el Administrador puede gestionar proveedores nube' }, {}, { noStore: true });
         return;
       }
       const body = await parseBody(req);
-      const name = sanitizeInput(body.name || 'Empresa Azure M365', 80);
-      const tenantId = sanitizeInput(body.tenantId || 'common', 96) || 'common';
-      const clientId = sanitizeInput(body.clientId || '', 96);
+      const providerType = body.providerType === 'google-drive' ? 'google-drive' : 'onedrive';
+      const name = sanitizeInput(body.name || (providerType === 'google-drive' ? 'Google Drive 5 TB' : 'Empresa Azure M365'), 80);
+      const tenantId = sanitizeInput(body.tenantId || (providerType === 'google-drive' ? 'google' : 'common'), 96) || 'common';
+      const clientId = sanitizeInput(body.clientId || '', 160);
       const rawSecret = String(body.clientSecret || '').trim();
+      const rawSaJson = String(body.serviceAccountJson || '').trim();
       const driveUserUpn = sanitizeInput(body.driveUserUpn || '', 140);
       const driveId = sanitizeInput(body.driveId || '', 140);
       const baseFolder = sanitizeInput(body.baseFolder || '/CYBERPOLIS_VAULT', 120) || '/CYBERPOLIS_VAULT';
-      const companyDomain = sanitizeInput(body.companyDomain || (driveUserUpn.includes('@') ? driveUserUpn.split('@')[1] : 'microsoft365'), 80);
-      const authMode = body.authMode === 'delegated_oauth2' ? 'delegated_oauth2' : 'client_credentials';
+      const companyDomain = sanitizeInput(body.companyDomain || (driveUserUpn.includes('@') ? driveUserUpn.split('@')[1] : (providerType === 'google-drive' ? 'google.com' : 'microsoft365')), 80);
 
-      if (!clientId) {
-        sendJSON(req, res, 400, { error: 'El Client ID (Application ID) de Azure Entra ID es obligatorio.' }, {}, { noStore: true });
-        return;
+      let authMode = 'client_credentials';
+      if (providerType === 'google-drive') {
+        authMode = body.authMode === 'service_account' ? 'service_account' : 'google_oauth2';
+      } else {
+        authMode = body.authMode === 'delegated_oauth2' ? 'delegated_oauth2' : 'client_credentials';
       }
 
       const cloud = readCloudStore();
@@ -5489,19 +5612,55 @@ const server = http.createServer(async (req, res) => {
         ? cloudOneDrive.sealCloudSecret(rawSecret)
         : (existing ? existing.clientSecretSealed : '');
 
-      if (authMode === 'client_credentials' && !secretSealed) {
-        sendJSON(req, res, 400, { error: 'En modo App-Only Daemon debes indicar el Client Secret de Azure AD.' }, {}, { noStore: true });
-        return;
+      let saEmail = existing ? (existing.serviceAccountEmail || '') : '';
+      let saJsonSealed = existing ? (existing.serviceAccountJsonSealed || '') : '';
+      if (rawSaJson) {
+        let parsedSa;
+        try {
+          parsedSa = JSON.parse(rawSaJson);
+        } catch (e) {
+          sendJSON(req, res, 400, { error: 'El JSON de Google Service Account no tiene formato JSON válido.' }, {}, { noStore: true });
+          return;
+        }
+        if (!parsedSa.client_email || !parsedSa.private_key) {
+          sendJSON(req, res, 400, { error: 'El JSON de Service Account debe incluir client_email y private_key.' }, {}, { noStore: true });
+          return;
+        }
+        saEmail = sanitizeInput(parsedSa.client_email, 160);
+        saJsonSealed = cloudOneDrive.sealCloudSecret(rawSaJson);
+      }
+
+      if (providerType === 'google-drive') {
+        if (authMode === 'service_account' && !saJsonSealed) {
+          sendJSON(req, res, 400, { error: 'En modo Service Account debes pegar el archivo JSON de Google Cloud.' }, {}, { noStore: true });
+          return;
+        }
+        if (authMode !== 'service_account' && !clientId) {
+          sendJSON(req, res, 400, { error: 'En modo Google OAuth2 debes indicar el Client ID de Google Cloud Console.' }, {}, { noStore: true });
+          return;
+        }
+      } else {
+        if (!clientId) {
+          sendJSON(req, res, 400, { error: 'El Client ID (Application ID) de Azure Entra ID es obligatorio.' }, {}, { noStore: true });
+          return;
+        }
+        if (authMode === 'client_credentials' && !secretSealed) {
+          sendJSON(req, res, 400, { error: 'En modo App-Only Daemon debes indicar el Client Secret de Azure AD.' }, {}, { noStore: true });
+          return;
+        }
       }
 
       const record = {
-        id: existing ? existing.id : ('ten-' + Date.now() + '-' + crypto.randomBytes(2).toString('hex')),
+        id: existing ? existing.id : ((providerType === 'google-drive' ? 'gd-' : 'ten-') + Date.now() + '-' + crypto.randomBytes(2).toString('hex')),
+        providerType,
         name,
         companyDomain,
         tenantId,
         clientId,
         clientSecretSealed: secretSealed,
         refreshTokenSealed: existing ? (existing.refreshTokenSealed || '') : '',
+        serviceAccountJsonSealed: saJsonSealed,
+        serviceAccountEmail: saEmail,
         authMode,
         driveUserUpn,
         driveId,
@@ -5529,7 +5688,7 @@ const server = http.createServer(async (req, res) => {
         action: 'cloud_tenant_upsert',
         targetType: 'cloud_tenant',
         targetId: record.id,
-        summary: `Tenant Azure/OneDrive configurado: ${record.name} (${record.tenantId})`,
+        summary: `Nube (${providerType}) configurada: ${record.name}`,
         currentUser,
         ip,
         req
@@ -5560,29 +5719,38 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/cloud/oauth/start' && method === 'GET') {
       const currentUser = getSessionUser(req);
       if (!currentUser || currentUser.role !== 'admin') {
-        sendJSON(req, res, 403, { error: 'Solo el Administrador puede vincular cuentas Microsoft 365 OAuth2.' }, {}, { noStore: true });
+        sendJSON(req, res, 403, { error: 'Solo el Administrador puede vincular cuentas Cloud OAuth2.' }, {}, { noStore: true });
         return;
       }
       const cloud = readCloudStore();
       const targetId = (parsedUrl.query && parsedUrl.query.tenantRecordId) || '';
       const tCfg = cloudOneDrive.resolveActiveTenantConfig(cloud, targetId);
       if (!tCfg || !tCfg.clientId) {
-        sendJSON(req, res, 400, { error: 'Primero registra el Tenant (Client ID) antes de autorizar por Microsoft OAuth2.' }, {}, { noStore: true });
+        sendJSON(req, res, 400, { error: 'Primero registra el proveedor (Client ID) antes de autorizar por OAuth2.' }, {}, { noStore: true });
         return;
       }
       const stateNonce = crypto.randomBytes(24).toString('hex');
       const proto = isSecureRequest(req) ? 'https' : 'http';
       const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'cyberpolis.onrender.com').split(',')[0].trim();
       const redirectUri = `${proto}://${host}/api/cloud/oauth/callback`;
-      cloudOAuthStates.set(stateNonce, { tenantRecordId: tCfg.id, redirectUri, createdAt: Date.now(), adminId: currentUser.id });
-      const authUrl = `https://login.microsoftonline.com/${encodeURIComponent(tCfg.tenantId || 'common')}/oauth2/v2.0/authorize?` + new URLSearchParams({
-        client_id: tCfg.clientId,
-        response_type: 'code',
-        redirect_uri: redirectUri,
-        response_mode: 'query',
-        scope: 'offline_access Files.ReadWrite.All User.Read Mail.Send',
-        state: stateNonce
-      }).toString();
+      cloudOAuthStates.set(stateNonce, { tenantRecordId: tCfg.id, providerType: tCfg.providerType || 'onedrive', redirectUri, createdAt: Date.now(), adminId: currentUser.id });
+
+      const authUrl = tCfg.providerType === 'google-drive'
+        ? cloudGoogle.buildGoogleOAuthAuthorizeUrl({
+            clientId: tCfg.clientId,
+            redirectUri,
+            state: stateNonce,
+            loginHint: tCfg.driveUserUpn || ''
+          })
+        : `https://login.microsoftonline.com/${encodeURIComponent(tCfg.tenantId || 'common')}/oauth2/v2.0/authorize?` + new URLSearchParams({
+            client_id: tCfg.clientId,
+            response_type: 'code',
+            redirect_uri: redirectUri,
+            response_mode: 'query',
+            scope: 'offline_access Files.ReadWrite.All User.Read Mail.Send',
+            state: stateNonce
+          }).toString();
+
       sendJSON(req, res, 200, { authorizeUrl: authUrl, redirectUri }, {}, { noStore: true });
       return;
     }
@@ -5596,18 +5764,40 @@ const server = http.createServer(async (req, res) => {
 
       if (oauthErr || !st || !code || (Date.now() - st.createdAt > 10 * 60 * 1000)) {
         res.writeHead(400, { 'Content-Type': 'text/html; charset=UTF-8' });
-        res.end(`<h3>Error vinculando Microsoft 365 / OneDrive</h3><p>${escapeHtmlSsr(oauthErr || 'Estado OAuth expirado o inválido.')}</p>`);
+        res.end(`<h3>Error vinculando cuenta Cloud OAuth2</h3><p>${escapeHtmlSsr(oauthErr || 'Estado OAuth expirado o inválido.')}</p>`);
         return;
       }
       const cloud = readCloudStore();
       const idx = cloud.tenants.findIndex(t => t.id === st.tenantRecordId);
       if (idx === -1) {
         res.writeHead(404, { 'Content-Type': 'text/html; charset=UTF-8' });
-        res.end('<h3>Tenant no encontrado.</h3>');
+        res.end('<h3>Proveedor Cloud no encontrado.</h3>');
         return;
       }
       const tCfg = cloud.tenants[idx];
       const clientSecret = cloudOneDrive.unsealCloudSecret(tCfg.clientSecretSealed);
+
+      if (tCfg.providerType === 'google-drive' || st.providerType === 'google-drive') {
+        try {
+          const tokData = await cloudGoogle.exchangeGoogleOAuthCode({
+            clientId: tCfg.clientId,
+            clientSecret,
+            code,
+            redirectUri: st.redirectUri
+          });
+          cloud.tenants[idx].refreshTokenSealed = cloudOneDrive.sealCloudSecret(tokData.refresh_token);
+          cloud.tenants[idx].authMode = 'google_oauth2';
+          cloud.tenants[idx].updatedAt = new Date().toISOString();
+          writeCloudStore(cloud);
+          res.writeHead(302, { 'Location': '/?cloudOAuth=ok' });
+          res.end();
+        } catch (gErr) {
+          res.writeHead(400, { 'Content-Type': 'text/html; charset=UTF-8' });
+          res.end(`<h3>Error intercambiando token Google OAuth2</h3><p>${escapeHtmlSsr(gErr.message)}</p>`);
+        }
+        return;
+      }
+
       const params = new URLSearchParams({
         client_id: tCfg.clientId,
         grant_type: 'authorization_code',
@@ -5633,7 +5823,7 @@ const server = http.createServer(async (req, res) => {
       cloud.tenants[idx].authMode = 'delegated_oauth2';
       cloud.tenants[idx].updatedAt = new Date().toISOString();
       writeCloudStore(cloud);
-      res.writeHead(302, { 'Location': '/?cloudLinked=1' });
+      res.writeHead(302, { 'Location': '/?cloudOAuth=ok' });
       res.end();
       return;
     }
@@ -5648,21 +5838,26 @@ const server = http.createServer(async (req, res) => {
       const cloud = readCloudStore();
       const tCfg = cloudOneDrive.resolveActiveTenantConfig(cloud, body.tenantId || '');
       if (!tCfg) {
-        sendJSON(req, res, 400, { error: 'No hay ningún Tenant Azure/OneDrive configurado todavía.' }, {}, { noStore: true });
+        sendJSON(req, res, 400, { error: 'No hay ningún proveedor OneDrive / Google Drive configurado todavía.' }, {}, { noStore: true });
         return;
       }
       try {
-        const info = await cloudOneDrive.testOneDriveConnection(tCfg);
+        const info = tCfg.providerType === 'google-drive'
+          ? await cloudGoogle.testGoogleDriveConnection(tCfg)
+          : await cloudOneDrive.testOneDriveConnection(tCfg);
         const idx = cloud.tenants.findIndex(t => t.id === tCfg.id);
         if (idx >= 0) {
           cloud.tenants[idx].lastTestedAt = new Date().toISOString();
           cloud.tenants[idx].quotaTotalBytes = info.quotaTotalBytes;
           cloud.tenants[idx].quotaUsedBytes = info.quotaUsedBytes;
+          if (info.ownerEmail && !cloud.tenants[idx].driveUserUpn) {
+            cloud.tenants[idx].driveUserUpn = info.ownerEmail;
+          }
           writeCloudStore(cloud);
         }
         sendJSON(req, res, 200, { success: true, ...info, tenantName: tCfg.name }, {}, { noStore: true });
       } catch (err) {
-        sendJSON(req, res, 502, { error: `Error conectando con Microsoft Graph / OneDrive: ${err.message}` }, {}, { noStore: true });
+        sendJSON(req, res, 502, { error: `Error conectando con Cloud Drive: ${err.message}` }, {}, { noStore: true });
       }
       return;
     }
@@ -5877,7 +6072,9 @@ const server = http.createServer(async (req, res) => {
           to: recipientEmail,
           subject: `[CYBERPOLIS Transfer] ${currentUser.displayName || currentUser.username} te ha enviado: ${title}`,
           textBody: `${currentUser.displayName || currentUser.username} (@${currentUser.username}) te ha compartido un enlace cifrado en CYBERPOLIS.\n\nMensaje:\n${message || '(Sin texto adicional)'}\n\nAccede y agrega tu respuesta o archivos aquí:\n${shareUrl}\n\nCaduca: ${expiresAt}`,
-          htmlBody: `<p><strong>${escapeHtmlSsr(currentUser.displayName || currentUser.username)}</strong> (@${escapeHtmlSsr(currentUser.username)}) ha creado una transferencia cifrada para ti en <strong>CYBERPOLIS</strong>.</p><p><strong>Asunto:</strong> ${escapeHtmlSsr(title)}</p>${message ? `<blockquote style="border-left:3px solid #0078d4;padding-left:10px;">${escapeHtmlSsr(message)}</blockquote>` : ''}<p><a href="${shareUrl}">Abrir transferencia cifrada y responder →</a></p><p><small>Caducidad: ${expiresAt}</small></p>`
+          htmlBody: `<p><strong>${escapeHtmlSsr(currentUser.displayName || currentUser.username)}</strong> (@${escapeHtmlSsr(currentUser.username)}) ha creado una transferencia cifrada para ti en <strong>CYBERPOLIS</strong>.</p><p><strong>Asunto:</strong> ${escapeHtmlSsr(title)}</p>${message ? `<blockquote style="border-left:3px solid #0078d4;padding-left:10px;">${escapeHtmlSsr(message)}</blockquote>` : ''}<p><a href="${shareUrl}">Abrir transferencia cifrada y responder →</a></p><p><small>Caducidad: ${expiresAt}</small></p>`,
+          mailGateway: cloudGoogle.resolveActiveMailGateway(cloud),
+          cloudState: cloud
         });
         emailNotifications.push({ ...notif, trigger: 'created' });
       }
@@ -6157,7 +6354,9 @@ const server = http.createServer(async (req, res) => {
           to: t.senderEmail,
           subject: `[CYBERPOLIS Transfer] Nueva información recibida en: ${t.title}`,
           textBody: `${authorName} ha agregado información${respFileMeta ? ` y adjuntado "${respFileMeta.fileName}"` : ''} en tu transferencia "${t.title}".\n\nTexto:\n${replyText || '(Sin texto)'}`,
-          htmlBody: `<p><strong>${escapeHtmlSsr(authorName)}</strong> ha añadido información en tu transferencia <strong>${escapeHtmlSsr(t.title)}</strong>.</p>${replyText ? `<blockquote style="border-left:3px solid #16a34a;padding-left:10px;">${escapeHtmlSsr(replyText)}</blockquote>` : ''}${respFileMeta ? `<p>📎 Archivo adjunto cifrado: <strong>${escapeHtmlSsr(respFileMeta.fileName)}</strong></p>` : ''}`
+          htmlBody: `<p><strong>${escapeHtmlSsr(authorName)}</strong> ha añadido información en tu transferencia <strong>${escapeHtmlSsr(t.title)}</strong>.</p>${replyText ? `<blockquote style="border-left:3px solid #16a34a;padding-left:10px;">${escapeHtmlSsr(replyText)}</blockquote>` : ''}${respFileMeta ? `<p>📎 Archivo adjunto cifrado: <strong>${escapeHtmlSsr(respFileMeta.fileName)}</strong></p>` : ''}`,
+          mailGateway: cloudGoogle.resolveActiveMailGateway(cloud),
+          cloudState: cloud
         });
         t.emailNotifications = Array.isArray(t.emailNotifications) ? t.emailNotifications : [];
         t.emailNotifications.push({ ...notif, trigger: 'recipient_response' });
