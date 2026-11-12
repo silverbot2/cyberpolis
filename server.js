@@ -1650,7 +1650,7 @@ function normalizeChatStore(raw) {
   const messages = Array.isArray(src.messages)
     ? src.messages
         .filter(m => m && typeof m === 'object' && typeof m.text === 'string')
-        .slice(-200)
+        .slice(-1000)
         .map(m => ({
           id: sanitizeInput(String(m.id || ('irc-' + Date.now())), 64),
           type: ['msg', 'action', 'system'].includes(m.type) ? m.type : 'msg',
@@ -1834,7 +1834,7 @@ function buildPublicChatPayload(chat, identity = null, ip = '') {
     allowGuests: chat.allowGuests,
     moderatedMode: chat.moderatedMode,
     theme: chat.theme,
-    messages: chat.messages.slice(-100),
+    messages: chat.messages.slice(-250),
     onlineUsers: getOnlineChatNicks(),
     mutedNickNames: (chat.mutedNicks || []).map(x => x.nick),
     opNickNames: (chat.opNicks || []).map(x => x.nick),
@@ -2083,8 +2083,8 @@ function appendChatMessage(chat, entry) {
     ts: new Date().toISOString()
   };
   chat.messages.push(msg);
-  if (chat.messages.length > 200) {
-    chat.messages = chat.messages.slice(-200);
+  if (chat.messages.length > 1000) {
+    chat.messages = chat.messages.slice(-1000);
   }
   writeChatState(chat);
   broadcastChatEvent('message', msg);
@@ -2307,6 +2307,11 @@ const server = http.createServer(async (req, res) => {
         }));
         writeJSON(FORUM_FILE, cleanForum, { critical: true });
         restoredSections.push('forum');
+      }
+
+      if (body.chat && typeof body.chat === 'object') {
+        writeChatState(body.chat);
+        restoredSections.push('chat');
       }
 
       if (body.analytics && typeof body.analytics === 'object') {

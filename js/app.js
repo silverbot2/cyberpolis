@@ -83,7 +83,7 @@
       isBanned: false,
       isMuted: false,
       guestNick: localStorage.getItem('cyberpolis_irc_nick') || '',
-      collapsed: localStorage.getItem('cyberpolis_irc_collapsed') === '1',
+      collapsed: true,
       popupsEnabled: localStorage.getItem('cyberpolis_irc_popups') !== '0',
       ignoredNicks: new Set((() => {
         try { return JSON.parse(localStorage.getItem('cyberpolis_irc_ignored') || '[]'); } catch (e) { return []; }
@@ -476,6 +476,8 @@
     ircReopenTab: document.getElementById('ircReopenTab'),
     ircReopenLabel: document.getElementById('ircReopenLabel'),
     ircReopenBadge: document.getElementById('ircReopenBadge'),
+    ircHeaderToggleBtn: document.getElementById('ircHeaderToggleBtn'),
+    ircHeaderBadge: document.getElementById('ircHeaderBadge'),
     ircPopupContainer: document.getElementById('ircPopupContainer'),
     chatAdminEnabledToggle: document.getElementById('chatAdminEnabledToggle'),
     chatAdminAllowGuestsToggle: document.getElementById('chatAdminAllowGuestsToggle'),
@@ -3016,25 +3018,17 @@
     }
     if (DOM.ircCollapseBtn) {
       DOM.ircCollapseBtn.addEventListener('click', () => {
-        if (window.innerWidth <= 1180) {
-          if (DOM.portalChatShell) DOM.portalChatShell.classList.remove('mobile-chat-open');
-          updateIrcShellLayout();
-        } else {
-          setIrcCollapsed(true);
-        }
+        setIrcCollapsed(true);
       });
     }
     if (DOM.ircReopenTab) {
       DOM.ircReopenTab.addEventListener('click', () => {
-        if (window.innerWidth <= 1180) {
-          if (DOM.portalChatShell) DOM.portalChatShell.classList.add('mobile-chat-open');
-          if (DOM.ircReopenTab) DOM.ircReopenTab.style.display = 'none';
-          scrollIrcLogToBottom();
-        } else {
-          setIrcCollapsed(false);
-        }
-        markIrcMessagesRead();
-        if (DOM.ircChatInput && !DOM.ircChatInput.disabled) DOM.ircChatInput.focus();
+        openIrcDrawer();
+      });
+    }
+    if (DOM.ircHeaderToggleBtn) {
+      DOM.ircHeaderToggleBtn.addEventListener('click', () => {
+        toggleIrcDrawer();
       });
     }
     if (DOM.mircWindow) {
@@ -4916,32 +4910,80 @@
     DOM.ircMessagesList.scrollTop = DOM.ircMessagesList.scrollHeight;
   }
 
+  function getIrcCacheKey(channel) {
+    return `cyberpolis_irc_cache_${String(channel || '#cyberpolis').toLowerCase()}`;
+  }
+
+  function saveCachedIrcMessages() {
+    try {
+      const list = Array.isArray(state.chat.messages) ? state.chat.messages.slice(-250) : [];
+      localStorage.setItem(getIrcCacheKey(state.chat.channel), JSON.stringify(list));
+    } catch (e) {}
+  }
+
+  function loadCachedIrcMessages() {
+    try {
+      const raw = localStorage.getItem(getIrcCacheKey(state.chat.channel));
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0 && state.chat.messages.length === 0) {
+        state.chat.messages = parsed.slice(-250);
+        for (const m of state.chat.messages) {
+          if (m && m.id) state.chat.seenIds.add(m.id);
+        }
+        renderChatMessages();
+      }
+    } catch (e) {}
+  }
+
   function updateIrcShellLayout() {
     const enabled = !!state.chat.enabled;
     const isMobile = window.innerWidth <= 1180;
     const collapsed = !!state.chat.collapsed;
     if (DOM.portalChatShell) {
       DOM.portalChatShell.classList.toggle('chat-disabled', !enabled);
-      DOM.portalChatShell.classList.toggle('chat-collapsed', !isMobile && collapsed);
+      DOM.portalChatShell.classList.toggle('chat-collapsed', collapsed);
+      DOM.portalChatShell.classList.toggle('mobile-chat-open', !collapsed);
     }
     if (DOM.ircLateralPanel) {
-      DOM.ircLateralPanel.style.display = enabled ? '' : 'none';
+      DOM.ircLateralPanel.style.display = (enabled && !collapsed) ? 'block' : 'none';
     }
-    const mobileOpen = DOM.portalChatShell && DOM.portalChatShell.classList.contains('mobile-chat-open');
-    const showReopen = enabled && ((!isMobile && collapsed) || (isMobile && !mobileOpen));
+    const showReopen = enabled && collapsed;
     if (DOM.ircReopenTab) {
       DOM.ircReopenTab.style.display = showReopen ? 'inline-flex' : 'none';
     }
     if (DOM.ircReopenLabel) {
-      DOM.ircReopenLabel.textContent = `mIRC ${state.chat.channel || '#cyberpolis'}`;
+      DOM.ircReopenLabel.textContent = 'IRC';
+    }
+    if (DOM.ircHeaderToggleBtn) {
+      DOM.ircHeaderToggleBtn.style.display = enabled ? 'inline-flex' : 'none';
+      DOM.ircHeaderToggleBtn.classList.toggle('is-active', !collapsed);
+      DOM.ircHeaderToggleBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
     }
     document.body.classList.toggle('has-lateral-chat', enabled && !isMobile && !collapsed);
   }
 
   function setIrcCollapsed(collapsed) {
     state.chat.collapsed = !!collapsed;
-    try { localStorage.setItem('cyberpolis_irc_collapsed', collapsed ? '1' : '0'); } catch (e) {}
+    if (state.chat.collapsed) closeIrcContextMenu();
     updateIrcShellLayout();
+  }
+
+  function openIrcDrawer() {
+    setIrcCollapsed(false);
+    markIrcMessagesRead();
+    scrollIrcLogToBottom();
+    if (DOM.ircChatInput && !DOM.ircChatInput.disabled) {
+      DOM.ircChatInput.focus();
+    }
+  }
+
+  function toggleIrcDrawer() {
+    if (state.chat.collapsed) {
+      openIrcDrawer();
+    } else {
+      setIrcCollapsed(true);
+    }
   }
 
   function isNickInList(list, nick) {
@@ -5087,9 +5129,14 @@
 
   function updateIrcUnreadIndicators() {
     const count = state.chat.unreadIds.size;
+    const badgeText = count > 99 ? '99+' : String(count);
     if (DOM.ircReopenBadge) {
-      DOM.ircReopenBadge.textContent = count > 99 ? '99+' : String(count);
+      DOM.ircReopenBadge.textContent = badgeText;
       DOM.ircReopenBadge.style.display = count > 0 ? 'inline-flex' : 'none';
+    }
+    if (DOM.ircHeaderBadge) {
+      DOM.ircHeaderBadge.textContent = badgeText;
+      DOM.ircHeaderBadge.style.display = count > 0 ? 'inline-flex' : 'none';
     }
     if (DOM.ircReopenTab) {
       DOM.ircReopenTab.classList.toggle('has-unread', count > 0);
@@ -5121,17 +5168,7 @@
     if (readerModal && readerModal.style.display !== 'none') {
       readerModal.style.display = 'none';
     }
-    if (window.innerWidth <= 1180) {
-      if (DOM.portalChatShell) DOM.portalChatShell.classList.add('mobile-chat-open');
-      if (DOM.ircReopenTab) DOM.ircReopenTab.style.display = 'none';
-    } else if (state.chat.collapsed) {
-      setIrcCollapsed(false);
-    }
-    markIrcMessagesRead();
-    scrollIrcLogToBottom();
-    if (DOM.ircChatInput && !DOM.ircChatInput.disabled) {
-      DOM.ircChatInput.focus();
-    }
+    openIrcDrawer();
   }
 
   function showIrcMessagePopup(msg) {
@@ -5291,8 +5328,9 @@
       state.chat.identityPrefix = payload.identity.prefix || '';
     }
     if (Array.isArray(payload.messages)) {
-      state.chat.messages = payload.messages;
-      handleIncomingChatMessages(payload.messages);
+      state.chat.messages = payload.messages.slice(-300);
+      saveCachedIrcMessages();
+      handleIncomingChatMessages(state.chat.messages);
     }
     if (Array.isArray(payload.onlineUsers)) state.chat.onlineUsers = payload.onlineUsers;
     if (payload.isBanned !== undefined) state.chat.isBanned = !!payload.isBanned;
@@ -5336,7 +5374,8 @@
         const msg = JSON.parse(ev.data);
         if (!state.chat.messages.some(x => x.id === msg.id)) {
           state.chat.messages.push(msg);
-          if (state.chat.messages.length > 200) state.chat.messages = state.chat.messages.slice(-200);
+          if (state.chat.messages.length > 300) state.chat.messages = state.chat.messages.slice(-300);
+          saveCachedIrcMessages();
           handleIncomingChatMessages([msg]);
           renderChatMessages();
         }
@@ -5347,6 +5386,7 @@
       try {
         const { id } = JSON.parse(ev.data);
         state.chat.messages = state.chat.messages.filter(m => m.id !== id);
+        saveCachedIrcMessages();
         if (state.chat.unreadIds.delete(id)) updateIrcUnreadIndicators();
         if (DOM.ircPopupContainer) {
           const card = DOM.ircPopupContainer.querySelector(`[data-irc-popup-id="${CSS.escape(String(id))}"]`);
@@ -5360,6 +5400,7 @@
       try {
         const data = JSON.parse(ev.data);
         state.chat.messages = Array.isArray(data.messages) ? data.messages : [];
+        saveCachedIrcMessages();
         markIrcMessagesRead();
         renderChatMessages();
       } catch (e) {}
@@ -5425,6 +5466,7 @@
   }
 
   async function initLiveIrcChat() {
+    loadCachedIrcMessages();
     updateIrcShellLayout();
     syncIrcIdentityUi(false);
     if (!state.serverMode) {

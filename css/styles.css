@@ -3716,25 +3716,16 @@ body.theme-accent-indigo { --accent-cyan: #4f46e5; --accent-cyan-glow: rgba(79, 
 }
 
 /* ==========================================
-   V7.3 LATERAL LIVE IRC CHAT (mIRC32 STYLE)
+   V7.3-V7.6 CHAT IRC OCULTO / DESLIZANTE (mIRC32 STYLE)
    ========================================== */
-.hud-container.portal-chat-shell {
-  max-width: 1500px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 348px;
-  gap: 24px;
-  align-items: start;
-}
-
+.hud-container.portal-chat-shell,
 .portal-chat-shell.chat-collapsed,
 .portal-chat-shell.chat-disabled {
   max-width: 1320px;
+  display: grid;
   grid-template-columns: minmax(0, 1fr);
-}
-
-.portal-chat-shell.chat-collapsed .irc-lateral-panel,
-.portal-chat-shell.chat-disabled .irc-lateral-panel {
-  display: none;
+  gap: 24px;
+  align-items: start;
 }
 
 .portal-content-col {
@@ -3742,12 +3733,50 @@ body.theme-accent-indigo { --accent-cyan: #4f46e5; --accent-cyan-glow: rgba(79, 
 }
 
 .irc-lateral-panel {
-  position: sticky;
-  top: 90px;
-  z-index: 30;
-  height: calc(100vh - 118px);
-  min-height: 460px;
-  max-height: 760px;
+  position: fixed;
+  top: 82px;
+  right: 16px;
+  bottom: 18px;
+  width: min(384px, calc(100vw - 24px));
+  z-index: 95;
+  height: auto;
+  min-height: 400px;
+  max-height: calc(100vh - 104px);
+  display: none;
+  box-shadow: 0 22px 48px rgba(15, 23, 42, 0.34);
+}
+
+.portal-chat-shell:not(.chat-collapsed):not(.chat-disabled) .irc-lateral-panel,
+.portal-chat-shell.mobile-chat-open:not(.chat-disabled) .irc-lateral-panel {
+  display: block;
+}
+
+.irc-header-toggle {
+  position: relative;
+}
+
+.irc-header-toggle.is-active {
+  border-color: var(--accent-cyan);
+  background: rgba(14, 165, 233, 0.14);
+}
+
+.irc-header-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #ffffff;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid #ffffff;
 }
 
 .mirc-window {
@@ -4217,22 +4246,36 @@ body.theme-accent-indigo { --accent-cyan: #4f46e5; --accent-cyan-glow: rgba(79, 
 
 .irc-reopen-tab {
   position: fixed;
-  right: 16px;
-  bottom: 18px;
+  right: 0;
+  top: 56%;
+  bottom: auto;
+  transform: translateY(-50%);
   z-index: 64;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 9px 14px;
-  border-radius: 6px;
+  gap: 6px;
+  padding: 7px 9px 7px 10px;
+  border-radius: 8px 0 0 8px;
+  background: rgba(15, 23, 42, 0.82);
+  backdrop-filter: blur(8px);
+  color: #e2e8f0;
+  font-family: 'Courier New', 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-right: none;
+  box-shadow: -4px 6px 18px rgba(15, 23, 42, 0.22);
+  opacity: 0.72;
+  transition: opacity 0.18s ease, transform 0.18s ease, background 0.18s ease;
+  cursor: pointer;
+}
+
+.irc-reopen-tab:hover,
+.irc-reopen-tab.has-unread {
+  opacity: 1;
   background: linear-gradient(90deg, #000080 0%, #1084d0 100%);
   color: #ffffff;
-  font-family: 'Courier New', 'JetBrains Mono', monospace;
-  font-size: 0.78rem;
-  font-weight: 700;
-  border: 2px solid #ffffff;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.35);
-  cursor: pointer;
+  border-color: #ffffff;
 }
 
 .irc-reopen-dot {

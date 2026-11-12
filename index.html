@@ -59,7 +59,7 @@
 
   <link rel="icon" type="image/png" href="assets/silverbot-unix-logo.png">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
-  <link rel="stylesheet" href="css/styles.css?v=7.5.0">
+  <link rel="stylesheet" href="css/styles.css?v=7.6.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
@@ -116,8 +116,12 @@
         </div>
       </div>
 
-      <!-- Controles de Tema -->
+      <!-- Controles de Tema y Acceso Discreto al Chat IRC -->
       <div class="control-actions">
+        <button id="ircHeaderToggleBtn" class="hud-btn hud-btn-icon irc-header-toggle" title="Abrir / ocultar Chat IRC (#cyberpolis)" aria-label="Abrir chat IRC">
+          <span class="icon-glyph">💬</span>
+          <span id="ircHeaderBadge" class="irc-header-badge" style="display: none;">0</span>
+        </button>
         <button id="themeToggleBtn" class="hud-btn hud-btn-icon" title="Cambiar entre tema Claro y Oscuro">
           <span class="icon-glyph">◐</span>
         </button>
@@ -1224,6 +1228,6 @@
 
   <!-- Scripts -->
   <script src="js/polygons.js?v=7.0.0"></script>
-  <script src="js/app.js?v=7.5.0"></script>
+  <script src="js/app.js?v=7.6.0"></script>
 </body>
 </html>
