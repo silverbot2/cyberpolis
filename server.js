@@ -1548,6 +1548,46 @@ function serveStatic(req, res, pathname, query = {}) {
   });
 }
 
+const DEFAULT_AD_BANNER = {
+  enabled: true,
+  title: '¿Quién manda hoy en The Prison?',
+  description: 'Bandas, Alcatraz y clasificaciones en directo.',
+  ctaText: 'Ver Cárceles ↗',
+  targetUrl: 'https://theprison.com/carceles',
+  imageUrl: 'assets/ads/theprison-alcatraz.webp',
+  logoUrl: 'assets/ads/theprison-marca.webp',
+  delaySeconds: 2,
+  durationSeconds: 15,
+  position: 'bottom-right',
+  size: 'compact'
+};
+
+function sanitizeAdBannerConfig(raw, existing = null) {
+  const base = (existing && typeof existing === 'object') ? { ...DEFAULT_AD_BANNER, ...existing } : { ...DEFAULT_AD_BANNER };
+  if (!raw || typeof raw !== 'object') return base;
+
+  const parseClampedInt = (val, min, max, fallback) => {
+    if (val === undefined || val === null || val === '') return fallback;
+    const n = parseInt(val, 10);
+    if (Number.isNaN(n)) return fallback;
+    return Math.max(min, Math.min(max, n));
+  };
+
+  return {
+    enabled: raw.enabled !== undefined ? !!raw.enabled : !!base.enabled,
+    title: sanitizeInput(raw.title !== undefined ? raw.title : base.title, 90) || DEFAULT_AD_BANNER.title,
+    description: sanitizeInput(raw.description !== undefined ? raw.description : base.description, 180),
+    ctaText: sanitizeInput(raw.ctaText !== undefined ? raw.ctaText : base.ctaText, 40) || 'Abrir ↗',
+    targetUrl: sanitizeExternalUrl(raw.targetUrl !== undefined ? raw.targetUrl : base.targetUrl) || DEFAULT_AD_BANNER.targetUrl,
+    imageUrl: raw.imageUrl === '' ? '' : sanitizeImageUrl(raw.imageUrl !== undefined ? raw.imageUrl : base.imageUrl, DEFAULT_AD_BANNER.imageUrl),
+    logoUrl: raw.logoUrl === '' ? '' : sanitizeImageUrl(raw.logoUrl !== undefined ? raw.logoUrl : base.logoUrl, ''),
+    delaySeconds: parseClampedInt(raw.delaySeconds, 0, 60, base.delaySeconds),
+    durationSeconds: parseClampedInt(raw.durationSeconds, 0, 300, base.durationSeconds),
+    position: raw.position === 'bottom-left' ? 'bottom-left' : (raw.position === 'bottom-right' ? 'bottom-right' : base.position),
+    size: raw.size === 'mini' ? 'mini' : (raw.size === 'compact' ? 'compact' : base.size)
+  };
+}
+
 const server = http.createServer(async (req, res) => {
   const parsedUrl = url.parse(req.url, true);
   const pathname = parsedUrl.pathname || '/';
@@ -1565,7 +1605,10 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/admin/config' && method === 'GET') {
       const config = readJSON(CONFIG_FILE, {});
-      sendJSON(req, res, 200, config);
+      sendJSON(req, res, 200, {
+        ...config,
+        adBanner: sanitizeAdBannerConfig(config.adBanner)
+      });
       return;
     }
 
@@ -1617,6 +1660,7 @@ const server = http.createServer(async (req, res) => {
         portalLogoUrl: body.portalLogoUrl !== undefined ? sanitizeLogoUrl(body.portalLogoUrl) : (currentConfig.portalLogoUrl || 'assets/silverbot-unix-logo.png'),
         contactEmail: body.contactEmail !== undefined ? sanitizeEmail(body.contactEmail) : (currentConfig.contactEmail || ''),
         layoutMode: sanitizeInput(body.layoutMode || currentConfig.layoutMode || 'editorial', 24),
+        adBanner: body.adBanner !== undefined ? sanitizeAdBannerConfig(body.adBanner, currentConfig.adBanner) : sanitizeAdBannerConfig(currentConfig.adBanner),
         feeds: validatedFeeds
       };
 
@@ -1702,7 +1746,8 @@ const server = http.createServer(async (req, res) => {
           portalSubcallsign: body.config.portalSubcallsign !== undefined ? sanitizeInput(body.config.portalSubcallsign, 40) : '',
           portalSubtitle: sanitizeInput(body.config.portalSubtitle || curCfg.portalSubtitle || 'TU HACKNOTICIERO', 80),
           portalLogoUrl: sanitizeLogoUrl(body.config.portalLogoUrl || curCfg.portalLogoUrl),
-          contactEmail: body.config.contactEmail !== undefined ? sanitizeEmail(body.config.contactEmail) : ''
+          contactEmail: body.config.contactEmail !== undefined ? sanitizeEmail(body.config.contactEmail) : '',
+          adBanner: body.config.adBanner !== undefined ? sanitizeAdBannerConfig(body.config.adBanner, curCfg.adBanner) : sanitizeAdBannerConfig(curCfg.adBanner)
         };
         writeJSON(CONFIG_FILE, nextCfg, { critical: true });
         restoredSections.push('config');

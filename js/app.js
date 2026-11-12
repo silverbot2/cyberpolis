@@ -9,6 +9,20 @@
   // ==========================================
   // 1. Estado de la Aplicación
   // ==========================================
+  const DEFAULT_AD_BANNER = {
+    enabled: true,
+    title: '¿Quién manda hoy en The Prison?',
+    description: 'Alcatraz en directo: bandas, poder y Trapicheo 24/7.',
+    ctaText: 'ENTRAR AHORA ↗',
+    targetUrl: 'https://theprison.com/carceles',
+    imageUrl: 'assets/ads/theprison-alcatraz.webp',
+    logoUrl: 'assets/ads/theprison-marca.webp',
+    delaySeconds: 2,
+    durationSeconds: 15,
+    position: 'bottom-right',
+    size: 'compact'
+  };
+
   const state = {
     articles: [],
     currentUser: null,
@@ -24,6 +38,7 @@
       portalLogoUrl: 'assets/silverbot-unix-logo.png',
       contactEmail: '',
       layoutMode: 'editorial',
+      adBanner: { ...DEFAULT_AD_BANNER },
       feeds: [
         { id: "feed-redeszone", name: "RedesZone — Seguridad y Redes", url: "https://www.redeszone.net/feed/", category: "hacking", enabled: true },
         { id: "feed-cybernews-es", name: "CyberSecurity News ES", url: "https://www.cybersecuritynews.es/feed/", category: "hacking", enabled: true },
@@ -45,6 +60,12 @@
     forumFilter: 'Todos',
     activeForumThreadId: null,
     pendingLogoDataUrl: null,
+    pendingAdImageDataUrl: null,
+    adShowTimer: null,
+    adHideTimer: null,
+    adCountdownRemainingMs: 0,
+    adCountdownStartedAt: 0,
+    adLastRenderKey: '',
     adminMetrics: null,
     adminUsers: [],
     systemStatus: null,
@@ -386,12 +407,31 @@
     adminTabMetricsBtn: document.getElementById('adminTabMetricsBtn'),
     adminTabUsersBtn: document.getElementById('adminTabUsersBtn'),
     adminTabTransformBtn: document.getElementById('adminTabTransformBtn'),
+    adminTabAdsBtn: document.getElementById('adminTabAdsBtn'),
     adminTabSecurityBtn: document.getElementById('adminTabSecurityBtn'),
     adminFeedsSection: document.getElementById('adminFeedsSection'),
     adminMetricsSection: document.getElementById('adminMetricsSection'),
     adminUsersSection: document.getElementById('adminUsersSection'),
     adminTransformSection: document.getElementById('adminTransformSection'),
+    adminAdsSection: document.getElementById('adminAdsSection'),
     adminSecuritySection: document.getElementById('adminSecuritySection'),
+    floatingAdBanner: document.getElementById('floatingAdBanner'),
+    adEnabledToggle: document.getElementById('adEnabledToggle'),
+    adDelayInput: document.getElementById('adDelayInput'),
+    adDurationInput: document.getElementById('adDurationInput'),
+    adPositionSelect: document.getElementById('adPositionSelect'),
+    adSizeSelect: document.getElementById('adSizeSelect'),
+    adTitleInput: document.getElementById('adTitleInput'),
+    adDescInput: document.getElementById('adDescInput'),
+    adCtaInput: document.getElementById('adCtaInput'),
+    adTargetUrlInput: document.getElementById('adTargetUrlInput'),
+    adImageUrlInput: document.getElementById('adImageUrlInput'),
+    adImageFile: document.getElementById('adImageFile'),
+    adImagePreview: document.getElementById('adImagePreview'),
+    adLogoUrlInput: document.getElementById('adLogoUrlInput'),
+    adResetBtn: document.getElementById('adResetBtn'),
+    adPreviewBtn: document.getElementById('adPreviewBtn'),
+    adSaveBtn: document.getElementById('adSaveBtn'),
     adminSystemStatusContent: document.getElementById('adminSystemStatusContent'),
     refreshSystemStatusBtn: document.getElementById('refreshSystemStatusBtn'),
     adminOpenChangePassBtn: document.getElementById('adminOpenChangePassBtn'),
@@ -557,7 +597,11 @@
         const res = await fetch('/api/admin/config');
         if (res.ok) {
           const cfg = await res.json();
-          state.config = { ...state.config, ...cfg };
+          state.config = {
+            ...state.config,
+            ...cfg,
+            adBanner: { ...DEFAULT_AD_BANNER, ...(cfg.adBanner || {}) }
+          };
           return;
         }
       } catch (e) {}
@@ -566,7 +610,12 @@
     const localCfg = localStorage.getItem('silverbot_config');
     if (localCfg) {
       try {
-        state.config = { ...state.config, ...JSON.parse(localCfg) };
+        const parsed = JSON.parse(localCfg);
+        state.config = {
+          ...state.config,
+          ...parsed,
+          adBanner: { ...DEFAULT_AD_BANNER, ...(parsed.adBanner || {}) }
+        };
       } catch (e) {}
     }
   }
@@ -644,6 +693,256 @@
       DOM.autoSyncBadge.textContent = cfg.autoSyncEnabled ? '📡 AUTO-SYNC: ON' : '📡 AUTO-SYNC: OFF';
       DOM.autoSyncBadge.style.color = cfg.autoSyncEnabled ? 'var(--accent-cyan)' : 'var(--text-muted)';
     }
+
+    // 6. Banner Publicitario Lateral Flotante y Temporal
+    renderFloatingAdBanner(false, cfg.adBanner);
+  }
+
+  function safeAdMediaSrc(raw, fallback = '') {
+    if (!raw || typeof raw !== 'string') return fallback;
+    const trimmed = raw.trim();
+    if (!trimmed) return fallback;
+    if (/^data:image\/(png|jpeg|jpg|webp|gif);base64,[a-zA-Z0-9+/=]+$/i.test(trimmed)) {
+      return trimmed;
+    }
+    const href = safeHref(trimmed);
+    return href || fallback;
+  }
+
+  function getNormalizedAdBanner(override = null) {
+    const src = override && typeof override === 'object' ? override : (state.config.adBanner || {});
+    const rawDelay = src.delaySeconds !== undefined && src.delaySeconds !== '' ? Number(src.delaySeconds) : DEFAULT_AD_BANNER.delaySeconds;
+    const rawDuration = src.durationSeconds !== undefined && src.durationSeconds !== '' ? Number(src.durationSeconds) : DEFAULT_AD_BANNER.durationSeconds;
+    return {
+      enabled: src.enabled !== false,
+      title: String(src.title ?? DEFAULT_AD_BANNER.title).trim().slice(0, 90) || DEFAULT_AD_BANNER.title,
+      description: String(src.description ?? DEFAULT_AD_BANNER.description).trim().slice(0, 160),
+      ctaText: String(src.ctaText ?? DEFAULT_AD_BANNER.ctaText).trim().slice(0, 40) || DEFAULT_AD_BANNER.ctaText,
+      targetUrl: safeHref(src.targetUrl || '') || DEFAULT_AD_BANNER.targetUrl,
+      imageUrl: safeAdMediaSrc(src.imageUrl, DEFAULT_AD_BANNER.imageUrl),
+      logoUrl: src.logoUrl === '' ? '' : safeAdMediaSrc(src.logoUrl, ''),
+      delaySeconds: Number.isFinite(rawDelay) ? Math.max(0, Math.min(60, Math.round(rawDelay))) : DEFAULT_AD_BANNER.delaySeconds,
+      durationSeconds: Number.isFinite(rawDuration) ? Math.max(0, Math.min(300, Math.round(rawDuration))) : DEFAULT_AD_BANNER.durationSeconds,
+      position: src.position === 'bottom-left' ? 'bottom-left' : 'bottom-right',
+      size: src.size === 'mini' ? 'mini' : 'compact'
+    };
+  }
+
+  function clearAdBannerTimers() {
+    if (state.adShowTimer) {
+      clearTimeout(state.adShowTimer);
+      state.adShowTimer = null;
+    }
+    if (state.adHideTimer) {
+      clearTimeout(state.adHideTimer);
+      state.adHideTimer = null;
+    }
+  }
+
+  function hideFloatingAdBanner(dismissForSession = false) {
+    clearAdBannerTimers();
+    state.adCountdownRemainingMs = 0;
+    state.adCountdownStartedAt = 0;
+    if (dismissForSession) {
+      try { sessionStorage.setItem('cyberpolis_ad_dismissed', '1'); } catch (e) {}
+    }
+    if (!DOM.floatingAdBanner) return;
+    DOM.floatingAdBanner.classList.remove('is-visible');
+    setTimeout(() => {
+      if (DOM.floatingAdBanner && !DOM.floatingAdBanner.classList.contains('is-visible')) {
+        DOM.floatingAdBanner.style.display = 'none';
+      }
+    }, 300);
+  }
+
+  function startAdAutoHideCountdown(ms) {
+    if (state.adHideTimer) {
+      clearTimeout(state.adHideTimer);
+      state.adHideTimer = null;
+    }
+    if (!Number.isFinite(ms) || ms <= 0 || !DOM.floatingAdBanner) return;
+    state.adCountdownRemainingMs = ms;
+    state.adCountdownStartedAt = Date.now();
+    const bar = DOM.floatingAdBanner.querySelector('.floating-ad-progress-bar');
+    if (bar) {
+      const totalDurationMs = Math.max(ms, 1000);
+      bar.style.transition = 'none';
+      const curScale = Math.max(0.02, Math.min(1, ms / (state.adTotalDurationMs || totalDurationMs)));
+      bar.style.transform = `scaleX(${curScale})`;
+      void bar.offsetWidth;
+      bar.style.transition = `transform ${ms}ms linear`;
+      bar.style.transform = 'scaleX(0)';
+    }
+    state.adHideTimer = setTimeout(() => hideFloatingAdBanner(false), ms);
+  }
+
+  function pauseAdAutoHideCountdown() {
+    if (!state.adHideTimer || !state.adCountdownStartedAt) return;
+    const elapsed = Date.now() - state.adCountdownStartedAt;
+    state.adCountdownRemainingMs = Math.max(400, state.adCountdownRemainingMs - elapsed);
+    clearTimeout(state.adHideTimer);
+    state.adHideTimer = null;
+    state.adCountdownStartedAt = 0;
+    if (DOM.floatingAdBanner && state.adTotalDurationMs > 0) {
+      const bar = DOM.floatingAdBanner.querySelector('.floating-ad-progress-bar');
+      if (bar) {
+        const frac = Math.max(0, Math.min(1, state.adCountdownRemainingMs / state.adTotalDurationMs));
+        bar.style.transition = 'none';
+        bar.style.transform = `scaleX(${frac})`;
+      }
+    }
+  }
+
+  function renderFloatingAdBanner(forceShow = false, overrideCfg = null) {
+    const el = DOM.floatingAdBanner;
+    if (!el) return;
+    const ad = getNormalizedAdBanner(overrideCfg);
+    const renderKey = JSON.stringify(ad);
+
+    if (!ad.enabled && !forceShow) {
+      state.adLastRenderKey = renderKey;
+      hideFloatingAdBanner(false);
+      return;
+    }
+
+    let dismissed = false;
+    try { dismissed = sessionStorage.getItem('cyberpolis_ad_dismissed') === '1'; } catch (e) {}
+    if (!forceShow && dismissed) {
+      state.adLastRenderKey = renderKey;
+      return;
+    }
+
+    if (!forceShow && state.adLastRenderKey === renderKey) {
+      return;
+    }
+    state.adLastRenderKey = renderKey;
+    clearAdBannerTimers();
+
+    el.className = 'floating-ad-banner';
+    if (ad.position === 'bottom-left') el.classList.add('pos-left');
+    if (ad.size === 'mini') el.classList.add('is-mini');
+
+    const imgHtml = ad.imageUrl
+      ? `<img src="${escapeHtml(ad.imageUrl)}" alt="${escapeHtml(ad.title)}" class="floating-ad-photo ad-banner-img" loading="lazy">`
+      : '';
+    const logoHtml = ad.logoUrl
+      ? `<img src="${escapeHtml(ad.logoUrl)}" alt="" class="floating-ad-logo ad-banner-img" loading="lazy">`
+      : '';
+    const descHtml = ad.description
+      ? `<p class="floating-ad-desc">${escapeHtml(ad.description)}</p>`
+      : '';
+    const progressHtml = ad.durationSeconds > 0
+      ? `<div class="floating-ad-progress"><div class="floating-ad-progress-bar"></div></div>`
+      : '';
+
+    el.innerHTML = `
+      <div class="floating-ad-topbar">
+        <span class="floating-ad-badge">PATROCINADO</span>
+        <button type="button" class="floating-ad-close" aria-label="Cerrar anuncio" title="Cerrar anuncio">&times;</button>
+      </div>
+      <a href="${escapeHtml(ad.targetUrl)}" target="_blank" rel="noopener noreferrer sponsored" class="floating-ad-link" title="${escapeHtml(ad.title)}">
+        <div class="floating-ad-media">
+          ${imgHtml}
+          <div class="floating-ad-scrim"></div>
+          ${logoHtml}
+        </div>
+        <div class="floating-ad-body">
+          <h3 class="floating-ad-title">${escapeHtml(ad.title)}</h3>
+          ${descHtml}
+          <span class="floating-ad-cta">${escapeHtml(ad.ctaText)}</span>
+        </div>
+      </a>
+      ${progressHtml}
+    `;
+
+    const delayMs = forceShow ? 0 : ad.delaySeconds * 1000;
+    const durationMs = ad.durationSeconds > 0 ? ad.durationSeconds * 1000 : 0;
+    state.adTotalDurationMs = durationMs;
+    el.style.display = 'none';
+
+    state.adShowTimer = setTimeout(() => {
+      el.style.display = 'block';
+      void el.offsetWidth;
+      el.classList.add('is-visible');
+      if (durationMs > 0) {
+        startAdAutoHideCountdown(durationMs);
+      }
+    }, delayMs);
+  }
+
+  function populateAdminAdForm(override = null) {
+    const ad = getNormalizedAdBanner(override);
+    state.pendingAdImageDataUrl = null;
+    if (DOM.adEnabledToggle) DOM.adEnabledToggle.checked = !!ad.enabled;
+    if (DOM.adDelayInput) DOM.adDelayInput.value = String(ad.delaySeconds);
+    if (DOM.adDurationInput) DOM.adDurationInput.value = String(ad.durationSeconds);
+    if (DOM.adPositionSelect) DOM.adPositionSelect.value = ad.position;
+    if (DOM.adSizeSelect) DOM.adSizeSelect.value = ad.size;
+    if (DOM.adTitleInput) DOM.adTitleInput.value = ad.title;
+    if (DOM.adDescInput) DOM.adDescInput.value = ad.description;
+    if (DOM.adCtaInput) DOM.adCtaInput.value = ad.ctaText;
+    if (DOM.adTargetUrlInput) DOM.adTargetUrlInput.value = ad.targetUrl;
+    if (DOM.adImageUrlInput) {
+      DOM.adImageUrlInput.value = ad.imageUrl.startsWith('data:image/') ? '[Imagen personalizada cargada]' : ad.imageUrl;
+    }
+    if (DOM.adLogoUrlInput) {
+      DOM.adLogoUrlInput.value = ad.logoUrl.startsWith('data:image/') ? '[Logo personalizado]' : ad.logoUrl;
+    }
+    if (DOM.adImagePreview) {
+      DOM.adImagePreview.style.display = '';
+      DOM.adImagePreview.src = ad.imageUrl || DEFAULT_AD_BANNER.imageUrl;
+    }
+    if (DOM.adImageFile) DOM.adImageFile.value = '';
+  }
+
+  function readAdminAdForm() {
+    const cur = getNormalizedAdBanner();
+    const rawImg = DOM.adImageUrlInput ? DOM.adImageUrlInput.value.trim() : '';
+    let imageUrl = cur.imageUrl;
+    if (state.pendingAdImageDataUrl) {
+      imageUrl = state.pendingAdImageDataUrl;
+    } else if (rawImg && rawImg !== '[Imagen personalizada cargada]' && rawImg !== '[Imagen personalizada lista para guardar]') {
+      imageUrl = safeAdMediaSrc(rawImg, cur.imageUrl);
+    }
+
+    const rawLogo = DOM.adLogoUrlInput ? DOM.adLogoUrlInput.value.trim() : '';
+    let logoUrl = cur.logoUrl;
+    if (rawLogo === '') {
+      logoUrl = '';
+    } else if (rawLogo !== '[Logo personalizado]') {
+      logoUrl = safeAdMediaSrc(rawLogo, '');
+    }
+
+    return getNormalizedAdBanner({
+      enabled: DOM.adEnabledToggle ? DOM.adEnabledToggle.checked : true,
+      delaySeconds: DOM.adDelayInput ? DOM.adDelayInput.value : 2,
+      durationSeconds: DOM.adDurationInput ? DOM.adDurationInput.value : 15,
+      position: DOM.adPositionSelect ? DOM.adPositionSelect.value : 'bottom-right',
+      size: DOM.adSizeSelect ? DOM.adSizeSelect.value : 'compact',
+      title: DOM.adTitleInput ? DOM.adTitleInput.value : DEFAULT_AD_BANNER.title,
+      description: DOM.adDescInput ? DOM.adDescInput.value : '',
+      ctaText: DOM.adCtaInput ? DOM.adCtaInput.value : DEFAULT_AD_BANNER.ctaText,
+      targetUrl: DOM.adTargetUrlInput ? DOM.adTargetUrlInput.value : DEFAULT_AD_BANNER.targetUrl,
+      imageUrl,
+      logoUrl
+    });
+  }
+
+  async function handleSaveAdBannerConfig() {
+    const rawTarget = DOM.adTargetUrlInput ? DOM.adTargetUrlInput.value.trim() : '';
+    if (rawTarget && !safeHref(rawTarget)) {
+      showToast('La URL de destino debe comenzar por https:// o http://.', 'error');
+      return;
+    }
+    const nextAd = readAdminAdForm();
+    state.config.adBanner = nextAd;
+    state.pendingAdImageDataUrl = null;
+    try { sessionStorage.removeItem('cyberpolis_ad_dismissed'); } catch (e) {}
+    state.adLastRenderKey = '';
+    renderFloatingAdBanner(true, nextAd);
+    await saveConfigToServer();
+    showToast('Configuración de publicidad guardada.');
+    closeAdminControl();
   }
 
   // ==========================================
@@ -696,6 +995,9 @@
       btn.classList.toggle('active', btn.dataset.layout === (state.config.layoutMode || 'normal'));
     });
 
+    // Valores de Publicidad Lateral
+    populateAdminAdForm();
+
     DOM.adminControlModal.style.display = 'flex';
     switchAdminTab('feeds');
   }
@@ -710,6 +1012,7 @@
       metrics: [DOM.adminTabMetricsBtn, DOM.adminMetricsSection],
       users: [DOM.adminTabUsersBtn, DOM.adminUsersSection],
       transform: [DOM.adminTabTransformBtn, DOM.adminTransformSection],
+      ads: [DOM.adminTabAdsBtn, DOM.adminAdsSection],
       security: [DOM.adminTabSecurityBtn, DOM.adminSecuritySection]
     };
     for (const [key, [btn, sec]] of Object.entries(panels)) {
@@ -2596,6 +2899,7 @@
     if (DOM.adminTabMetricsBtn) DOM.adminTabMetricsBtn.addEventListener('click', () => switchAdminTab('metrics'));
     if (DOM.adminTabUsersBtn) DOM.adminTabUsersBtn.addEventListener('click', () => switchAdminTab('users'));
     if (DOM.adminTabTransformBtn) DOM.adminTabTransformBtn.addEventListener('click', () => switchAdminTab('transform'));
+    if (DOM.adminTabAdsBtn) DOM.adminTabAdsBtn.addEventListener('click', () => switchAdminTab('ads'));
     if (DOM.adminTabSecurityBtn) DOM.adminTabSecurityBtn.addEventListener('click', () => switchAdminTab('security'));
     if (DOM.refreshSystemStatusBtn) DOM.refreshSystemStatusBtn.addEventListener('click', loadAdminSystemStatus);
     if (DOM.adminOpenChangePassBtn) DOM.adminOpenChangePassBtn.addEventListener('click', openChangePasswordModal);
@@ -2745,6 +3049,87 @@
         if (DOM.adminPortalLogoFile) DOM.adminPortalLogoFile.value = '';
         showToast('Vista previa restaurada al logo original. Aplica para guardar.');
       });
+    }
+
+    // Eventos del Banner Publicitario Flotante y Gestor Admin
+    if (DOM.floatingAdBanner) {
+      DOM.floatingAdBanner.addEventListener('click', e => {
+        const closeBtn = e.target.closest('.floating-ad-close');
+        if (closeBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          hideFloatingAdBanner(true);
+        }
+      });
+      DOM.floatingAdBanner.addEventListener('mouseenter', () => {
+        pauseAdAutoHideCountdown();
+      });
+      DOM.floatingAdBanner.addEventListener('mouseleave', () => {
+        if (!state.adHideTimer && state.adCountdownRemainingMs > 0) {
+          startAdAutoHideCountdown(state.adCountdownRemainingMs);
+        }
+      });
+    }
+    if (DOM.adImageFile) {
+      DOM.adImageFile.addEventListener('change', e => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => {
+          const dataUrl = ev.target.result;
+          if (typeof dataUrl !== 'string') return;
+          const img = new Image();
+          img.onload = () => {
+            const maxDim = 480;
+            const scale = Math.min(1, maxDim / Math.max(img.width || maxDim, img.height || maxDim));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(64, Math.round((img.width || maxDim) * scale));
+            canvas.height = Math.max(48, Math.round((img.height || maxDim) * scale));
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const encoded = canvas.toDataURL('image/jpeg', 0.84);
+            state.pendingAdImageDataUrl = encoded;
+            if (DOM.adImagePreview) {
+              DOM.adImagePreview.style.display = '';
+              DOM.adImagePreview.src = encoded;
+            }
+            if (DOM.adImageUrlInput) DOM.adImageUrlInput.value = '[Imagen personalizada lista para guardar]';
+            showToast('Imagen del anuncio optimizada. Pulsa "Guardar Publicidad".');
+          };
+          img.onerror = () => showToast('No se pudo leer la imagen del anuncio.', 'error');
+          img.src = dataUrl;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+    if (DOM.adImageUrlInput) {
+      DOM.adImageUrlInput.addEventListener('input', () => {
+        const val = DOM.adImageUrlInput.value.trim();
+        if (val && val !== '[Imagen personalizada cargada]' && val !== '[Imagen personalizada lista para guardar]') {
+          state.pendingAdImageDataUrl = null;
+          if (DOM.adImagePreview) {
+            DOM.adImagePreview.style.display = '';
+            DOM.adImagePreview.src = safeAdMediaSrc(val, DEFAULT_AD_BANNER.imageUrl);
+          }
+        }
+      });
+    }
+    if (DOM.adResetBtn) {
+      DOM.adResetBtn.addEventListener('click', () => {
+        populateAdminAdForm(DEFAULT_AD_BANNER);
+        showToast('Campos restaurados a The Prison. Pulsa "Guardar Publicidad" para aplicar.');
+      });
+    }
+    if (DOM.adPreviewBtn) {
+      DOM.adPreviewBtn.addEventListener('click', () => {
+        try { sessionStorage.removeItem('cyberpolis_ad_dismissed'); } catch (e) {}
+        state.adLastRenderKey = '';
+        renderFloatingAdBanner(true, readAdminAdForm());
+        showToast('Vista previa del banner activada en pantalla.');
+      });
+    }
+    if (DOM.adSaveBtn) {
+      DOM.adSaveBtn.addEventListener('click', handleSaveAdBannerConfig);
     }
 
     // Delegación de eventos del Foro & Debate Comunitario

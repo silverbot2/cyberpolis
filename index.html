@@ -59,7 +59,7 @@
 
   <link rel="icon" type="image/png" href="assets/silverbot-unix-logo.png">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
-  <link rel="stylesheet" href="css/styles.css?v=7.1.0">
+  <link rel="stylesheet" href="css/styles.css?v=7.2.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
@@ -189,76 +189,41 @@
 
   <!-- Contenido Central -->
   <main class="hud-main">
-    <div class="hud-container portal-main-layout">
+    <div class="hud-container">
 
-      <div class="portal-main-col">
-        <!-- Noticia Principal de Portada -->
-        <section class="hero-dispatch-section" id="featuredSection"></section>
+      <!-- Noticia Principal de Portada -->
+      <section class="hero-dispatch-section" id="featuredSection"></section>
 
-        <!-- Encabezado de la Sección de Noticias -->
-        <header class="feed-header-module">
-          <div class="feed-header-left">
-            <span class="feed-prefix">SELECCIÓN EDITORIAL</span>
-            <h2 class="feed-title" id="feedTitle">LO MÁS IMPORTANTE HOY</h2>
-          </div>
-          <div class="feed-header-right">
-            <span class="feed-meta" id="feedMeta">Las 8 noticias principales entre todas las fuentes</span>
-          </div>
-        </header>
+      <!-- Encabezado de la Sección de Noticias -->
+      <header class="feed-header-module">
+        <div class="feed-header-left">
+          <span class="feed-prefix">SELECCIÓN EDITORIAL</span>
+          <h2 class="feed-title" id="feedTitle">LO MÁS IMPORTANTE HOY</h2>
+        </div>
+        <div class="feed-header-right">
+          <span class="feed-meta" id="feedMeta">Las 8 noticias principales entre todas las fuentes</span>
+        </div>
+      </header>
 
-        <!-- Malla Editorial de Noticias -->
-        <div class="dispatches-grid" id="articlesGrid"></div>
+      <!-- Malla Editorial de Noticias -->
+      <div class="dispatches-grid" id="articlesGrid"></div>
 
-        <!-- Sección Foro & Debate Comunitario -->
-        <section id="forumSection" class="forum-section" style="display: none;"></section>
+      <!-- Sección Foro & Debate Comunitario -->
+      <section id="forumSection" class="forum-section" style="display: none;"></section>
 
-        <!-- Sección Contacto Editorial -->
-        <section id="contactSection" class="contact-section" style="display: none;"></section>
+      <!-- Sección Contacto Editorial -->
+      <section id="contactSection" class="contact-section" style="display: none;"></section>
 
-        <!-- Estado Vacío -->
-        <div class="empty-intel-box" id="emptyState" style="display: none;">
-          <div class="empty-hud-icon">📰</div>
-          <h3 class="empty-hud-title">Sin noticias coincidentes</h3>
-          <p class="empty-hud-msg" id="emptyMessage">No se han encontrado noticias con los filtros seleccionados.</p>
-          <div class="empty-hud-actions">
-            <button id="resetFiltersBtn" class="hud-btn hud-btn-outline">Ver portada completa</button>
-            <button id="emptyCreateBtn" class="hud-btn hud-btn-action" style="display: none;">+ Publicar noticia</button>
-          </div>
+      <!-- Estado Vacío -->
+      <div class="empty-intel-box" id="emptyState" style="display: none;">
+        <div class="empty-hud-icon">📰</div>
+        <h3 class="empty-hud-title">Sin noticias coincidentes</h3>
+        <p class="empty-hud-msg" id="emptyMessage">No se han encontrado noticias con los filtros seleccionados.</p>
+        <div class="empty-hud-actions">
+          <button id="resetFiltersBtn" class="hud-btn hud-btn-outline">Ver portada completa</button>
+          <button id="emptyCreateBtn" class="hud-btn hud-btn-action" style="display: none;">+ Publicar noticia</button>
         </div>
       </div>
-
-      <!-- Barra Lateral Publicitaria -->
-      <aside class="portal-sidebar" aria-label="Espacio publicitario lateral">
-        <div class="ad-slot-card">
-          <div class="ad-slot-label">
-            <span>PATROCINADO</span>
-            <span>ESPACIO LATERAL</span>
-          </div>
-          <a href="https://theprison.com/carceles" target="_blank" rel="noopener noreferrer sponsored" class="prison-side-banner" title="Explora las cárceles de The Prison">
-            <div class="prison-banner-visual">
-              <img src="assets/ads/theprison-alcatraz.webp" alt="Fortaleza de Alcatraz en The Prison" class="prison-banner-photo ad-banner-img" loading="lazy">
-              <div class="prison-banner-scrim"></div>
-              <div class="prison-banner-brand">
-                <img src="assets/ads/theprison-marca.webp" alt="The Prison" class="prison-banner-logo ad-banner-img" loading="lazy">
-                <span class="prison-live-pill">ALCATRAZ · ACTIVA</span>
-              </div>
-            </div>
-            <div class="prison-banner-body">
-              <span class="prison-banner-eyebrow">🔥 GUERRA DE BANDAS EN TIEMPO REAL</span>
-              <h3 class="prison-banner-title">¿Quién manda hoy en The Prison?</h3>
-              <p class="prison-banner-desc">Descubre qué banda controla Alcatraz, quién acumula más poder y qué se mueve en el Trapicheo.</p>
-              <span class="prison-banner-cta">
-                <span>ENTRAR A LAS CÁRCELES</span>
-                <span>↗</span>
-              </span>
-              <div class="prison-banner-foot">
-                <span>theprison.com/carceles</span>
-                <span>24/7 ONLINE</span>
-              </div>
-            </div>
-          </a>
-        </div>
-      </aside>
 
     </div>
   </main>
@@ -324,6 +289,7 @@
         <button class="auth-tab-btn" id="adminTabMetricsBtn">📊 MÉTRICAS Y VISITAS</button>
         <button class="auth-tab-btn" id="adminTabUsersBtn">👥 USUARIOS</button>
         <button class="auth-tab-btn" id="adminTabTransformBtn">🎨 APARIENCIA</button>
+        <button class="auth-tab-btn" id="adminTabAdsBtn">📣 PUBLICIDAD</button>
         <button class="auth-tab-btn" id="adminTabSecurityBtn">🛡️ SEGURIDAD Y BD</button>
       </div>
 
@@ -574,6 +540,104 @@
         </div>
         <div id="adminSystemStatusContent" class="admin-metrics-content">
           <p class="admin-help-text">Cargando estado de persistencia y seguridad...</p>
+        </div>
+      </div>
+
+      <!-- SECCIÓN 6: GESTOR DE PUBLICIDAD LATERAL -->
+      <div id="adminAdsSection" class="hud-modal-body" style="display: none;">
+        <p class="admin-help-text">Configura el banner lateral flotante y temporal para no ocupar espacio fijo en la portada.</p>
+
+        <div class="admin-config-card">
+          <div class="admin-card-row">
+            <div>
+              <strong>Mostrar Banner Publicitario</strong>
+              <p class="admin-sub-desc">Cuando está activo aparece de forma discreta en una esquina durante los segundos configurados.</p>
+            </div>
+            <label class="hud-switch">
+              <input type="checkbox" id="adEnabledToggle" checked>
+              <span class="hud-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="admin-transform-grid">
+          <div class="form-field">
+            <label for="adDelayInput" class="hud-label">RETARDAR APARICIÓN (SEG.)</label>
+            <input type="number" id="adDelayInput" class="hud-input" min="0" max="60" value="2">
+          </div>
+          <div class="form-field">
+            <label for="adDurationInput" class="hud-label">DURACIÓN VISIBLE (SEG., 0 = FIJO)</label>
+            <input type="number" id="adDurationInput" class="hud-input" min="0" max="300" value="15">
+          </div>
+        </div>
+
+        <div class="admin-transform-grid">
+          <div class="form-field">
+            <label for="adPositionSelect" class="hud-label">POSICIÓN EN PANTALLA</label>
+            <select id="adPositionSelect" class="hud-select">
+              <option value="bottom-right">Esquina inferior derecha</option>
+              <option value="bottom-left">Esquina inferior izquierda</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label for="adSizeSelect" class="hud-label">TAMAÑO DE TARJETA</label>
+            <select id="adSizeSelect" class="hud-select">
+              <option value="compact">Compacto (235 px)</option>
+              <option value="mini">Mini (200 px)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label for="adTitleInput" class="hud-label">TÍTULO DEL ANUNCIO</label>
+          <input type="text" id="adTitleInput" class="hud-input" maxlength="90" placeholder="¿Quién manda hoy en The Prison?">
+        </div>
+
+        <div class="form-field">
+          <label for="adDescInput" class="hud-label">DESCRIPCIÓN CORTA</label>
+          <input type="text" id="adDescInput" class="hud-input" maxlength="160" placeholder="Alcatraz en directo: bandas, poder y Trapicheo 24/7.">
+        </div>
+
+        <div class="admin-transform-grid">
+          <div class="form-field">
+            <label for="adCtaInput" class="hud-label">TEXTO DEL BOTÓN</label>
+            <input type="text" id="adCtaInput" class="hud-input" maxlength="40" placeholder="ENTRAR ↗">
+          </div>
+          <div class="form-field">
+            <label for="adTargetUrlInput" class="hud-label">ENLACE DE DESTINO (HTTPS)</label>
+            <input type="url" id="adTargetUrlInput" class="hud-input" placeholder="https://theprison.com/carceles">
+          </div>
+        </div>
+
+        <div class="admin-transform-grid">
+          <div class="form-field">
+            <label for="adImageUrlInput" class="hud-label">IMAGEN PRINCIPAL (URL O ARCHIVO)</label>
+            <div class="admin-logo-upload-row">
+              <input type="text" id="adImageUrlInput" class="hud-input" placeholder="assets/ads/theprison-alcatraz.webp">
+              <label for="adImageFile" class="hud-btn hud-btn-outline admin-upload-btn" title="Subir imagen desde el equipo">📁 Subir</label>
+              <input type="file" id="adImageFile" accept="image/*" style="display: none;">
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="adLogoUrlInput" class="hud-label">LOGO / MARCA OPCIONAL (URL)</label>
+            <input type="text" id="adLogoUrlInput" class="hud-input" placeholder="assets/ads/theprison-marca.webp">
+          </div>
+        </div>
+
+        <div class="admin-ad-preview-row">
+          <div class="admin-ad-thumb-frame">
+            <img id="adImagePreview" src="assets/ads/theprison-alcatraz.webp" alt="Vista previa del anuncio" class="ad-banner-img">
+          </div>
+          <div class="admin-logo-preview-meta">
+            <strong>Vista previa creativa</strong>
+            <span>Al pasar el ratón sobre el banner flotante se pausa el temporizador de cierre.</span>
+          </div>
+        </div>
+
+        <div class="hud-form-actions admin-transform-actions">
+          <button type="button" class="hud-btn hud-btn-outline" id="adResetBtn">Restaurar The Prison</button>
+          <button type="button" class="hud-btn hud-btn-outline" id="adPreviewBtn">👁️ Probar ahora</button>
+          <button type="button" class="hud-btn hud-btn-action" id="adSaveBtn">💾 Guardar Publicidad</button>
         </div>
       </div>
 
@@ -992,11 +1056,14 @@
     </div>
   </div>
 
+  <!-- Banner Publicitario Lateral Flotante y Temporal -->
+  <aside id="floatingAdBanner" class="floating-ad-banner" aria-label="Espacio publicitario" style="display: none;"></aside>
+
   <!-- Contenedor Toast -->
   <div class="hud-toast-container" id="toastContainer"></div>
 
   <!-- Scripts -->
   <script src="js/polygons.js?v=7.0.0"></script>
-  <script src="js/app.js?v=7.1.0"></script>
+  <script src="js/app.js?v=7.2.0"></script>
 </body>
 </html>
