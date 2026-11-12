@@ -4336,3 +4336,188 @@ body.has-lateral-chat .floating-ad-banner:not(.pos-left) {
     grid-template-columns: 1fr;
   }
 }
+
+/* ==========================================
+   V7.4 POPUPS mIRC32 PARA MENSAJES NO LEÍDOS
+   ========================================== */
+.mirc-line.is-unread {
+  background: rgba(245, 158, 11, 0.16);
+  border-left: 3px solid #f59e0b;
+  padding-left: 5px;
+}
+
+.mirc-win-btn.is-muted-bell {
+  opacity: 0.65;
+  background: #cbd5e1;
+}
+
+.irc-reopen-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.5);
+}
+
+.irc-reopen-tab.has-unread {
+  animation: ircTabPulse 1.6s ease-in-out infinite;
+  border-color: #fde047;
+}
+
+@keyframes ircTabPulse {
+  0%, 100% { box-shadow: 0 10px 24px rgba(15, 23, 42, 0.35); }
+  50% { box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.45), 0 10px 26px rgba(15, 23, 42, 0.45); }
+}
+
+.irc-popup-container {
+  position: fixed;
+  right: 20px;
+  bottom: 66px;
+  z-index: 140;
+  width: min(320px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+body.has-lateral-chat .irc-popup-container {
+  right: 382px;
+  bottom: 20px;
+}
+
+.irc-popup-card {
+  pointer-events: auto;
+  border-radius: 4px;
+  overflow: hidden;
+  font-family: 'Courier New', 'JetBrains Mono', Consolas, monospace;
+  cursor: pointer;
+  animation: ircPopupSlideIn 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  background: #d4d0c8;
+  color: #111827;
+  border-top: 2px solid #ffffff;
+  border-left: 2px solid #ffffff;
+  border-right: 2px solid #404040;
+  border-bottom: 2px solid #404040;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.34);
+}
+
+.irc-popup-card.mirc-dark {
+  background: #0f172a;
+  color: #e2e8f0;
+  border: 1px solid #38bdf8;
+  border-radius: 6px;
+}
+
+@keyframes ircPopupSlideIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.irc-popup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 7px;
+  background: linear-gradient(90deg, #000080 0%, #1084d0 100%);
+  color: #ffffff;
+  font-family: 'Tahoma', 'Inter', sans-serif;
+  font-size: 0.71rem;
+  font-weight: 700;
+}
+
+.irc-popup-card.mirc-dark .irc-popup-head {
+  background: linear-gradient(90deg, #0c4a6e 0%, #0284c7 100%);
+}
+
+.irc-popup-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.irc-popup-unread-tag {
+  background: #dc2626;
+  color: #ffffff;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+.irc-popup-close {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #d4d0c8;
+  color: #111111;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+  border-top: 1px solid #ffffff;
+  border-left: 1px solid #ffffff;
+  border-right: 1px solid #404040;
+  border-bottom: 1px solid #404040;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.irc-popup-close:hover {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.irc-popup-body {
+  margin: 4px;
+  padding: 6px 8px;
+  background: #ffffff;
+  border-top: 1px solid #808080;
+  border-left: 1px solid #808080;
+  border-right: 1px solid #ffffff;
+  border-bottom: 1px solid #ffffff;
+  font-size: 0.76rem;
+  line-height: 1.38;
+  word-break: break-word;
+}
+
+.irc-popup-card.mirc-dark .irc-popup-body {
+  background: #090e1a;
+  border-color: #1e293b;
+}
+
+.irc-popup-foot {
+  padding: 2px 7px 5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: 'Tahoma', 'Inter', sans-serif;
+  font-size: 0.64rem;
+  color: #374151;
+}
+
+.irc-popup-card.mirc-dark .irc-popup-foot {
+  color: #94a3b8;
+}
+
+@media (max-width: 1180px) {
+  body.has-lateral-chat .irc-popup-container,
+  .irc-popup-container {
+    right: 12px;
+    bottom: 66px;
+  }
+}

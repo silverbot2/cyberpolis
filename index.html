@@ -59,7 +59,7 @@
 
   <link rel="icon" type="image/png" href="assets/silverbot-unix-logo.png">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
-  <link rel="stylesheet" href="css/styles.css?v=7.3.0">
+  <link rel="stylesheet" href="css/styles.css?v=7.4.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
@@ -237,6 +237,7 @@
             </div>
             <div class="mirc-titlebar-btns">
               <span class="mirc-live-dot" id="ircLiveBadge" title="Conexión en vivo">● EN VIVO</span>
+              <button type="button" class="mirc-win-btn" id="ircPopupToggleBtn" title="Popups de mensajes no leídos: Activos">🔔</button>
               <button type="button" class="mirc-win-btn" id="ircToggleNicksBtn" title="Mostrar/ocultar lista de nicks">👥</button>
               <button type="button" class="mirc-win-btn" id="ircAdminShortcutBtn" title="Moderar chat IRC (Admin)" style="display: none;">⚙️</button>
               <button type="button" class="mirc-win-btn" id="ircCollapseBtn" title="Minimizar chat IRC">_</button>
@@ -276,6 +277,7 @@
   <button type="button" class="irc-reopen-tab" id="ircReopenTab" style="display: none;" title="Abrir Chat IRC #cyberpolis">
     <span class="irc-reopen-dot" aria-hidden="true">●</span>
     <span id="ircReopenLabel">mIRC #cyberpolis</span>
+    <span class="irc-reopen-badge" id="ircReopenBadge" style="display: none;">0</span>
   </button>
 
   <!-- Pie de Página Minimalista -->
@@ -1208,11 +1210,14 @@
   <!-- Banner Publicitario Lateral Flotante y Temporal -->
   <aside id="floatingAdBanner" class="floating-ad-banner" aria-label="Espacio publicitario" style="display: none;"></aside>
 
+  <!-- Contenedor Popups mIRC32 de Mensajes No Leídos -->
+  <div class="irc-popup-container" id="ircPopupContainer" aria-live="polite"></div>
+
   <!-- Contenedor Toast -->
   <div class="hud-toast-container" id="toastContainer"></div>
 
   <!-- Scripts -->
   <script src="js/polygons.js?v=7.0.0"></script>
-  <script src="js/app.js?v=7.3.0"></script>
+  <script src="js/app.js?v=7.4.0"></script>
 </body>
 </html>

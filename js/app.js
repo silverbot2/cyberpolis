@@ -79,10 +79,15 @@
       isMuted: false,
       guestNick: localStorage.getItem('cyberpolis_irc_nick') || '',
       collapsed: localStorage.getItem('cyberpolis_irc_collapsed') === '1',
+      popupsEnabled: localStorage.getItem('cyberpolis_irc_popups') !== '0',
       hideNicks: false,
       sse: null,
       pollTimer: null,
-      lastSessionKey: ''
+      lastSessionKey: '',
+      bootstrapped: false,
+      seenIds: new Set(),
+      unreadIds: new Set(),
+      lastReadActivityAt: Date.now()
     },
     adminMetrics: null,
     adminUsers: [],
@@ -440,6 +445,7 @@
     mircWindow: document.getElementById('mircWindow'),
     ircTitlebarText: document.getElementById('ircTitlebarText'),
     ircLiveBadge: document.getElementById('ircLiveBadge'),
+    ircPopupToggleBtn: document.getElementById('ircPopupToggleBtn'),
     ircToggleNicksBtn: document.getElementById('ircToggleNicksBtn'),
     ircAdminShortcutBtn: document.getElementById('ircAdminShortcutBtn'),
     ircCollapseBtn: document.getElementById('ircCollapseBtn'),
@@ -456,6 +462,8 @@
     ircSendBtn: document.getElementById('ircSendBtn'),
     ircReopenTab: document.getElementById('ircReopenTab'),
     ircReopenLabel: document.getElementById('ircReopenLabel'),
+    ircReopenBadge: document.getElementById('ircReopenBadge'),
+    ircPopupContainer: document.getElementById('ircPopupContainer'),
     chatAdminEnabledToggle: document.getElementById('chatAdminEnabledToggle'),
     chatAdminAllowGuestsToggle: document.getElementById('chatAdminAllowGuestsToggle'),
     chatAdminModeratedToggle: document.getElementById('chatAdminModeratedToggle'),
@@ -2968,6 +2976,17 @@
 
     // Eventos del Chat IRC Lateral (mIRC32) y Moderación Admin
     if (DOM.ircChatForm) DOM.ircChatForm.addEventListener('submit', handleIrcChatSubmit);
+    if (DOM.ircPopupToggleBtn) {
+      DOM.ircPopupToggleBtn.addEventListener('click', () => {
+        state.chat.popupsEnabled = !state.chat.popupsEnabled;
+        try { localStorage.setItem('cyberpolis_irc_popups', state.chat.popupsEnabled ? '1' : '0'); } catch (e) {}
+        syncIrcPopupToggleUi();
+        if (!state.chat.popupsEnabled && DOM.ircPopupContainer) {
+          DOM.ircPopupContainer.innerHTML = '';
+        }
+        showToast(state.chat.popupsEnabled ? 'Popups mIRC32 activados para mensajes no leídos.' : 'Popups mIRC32 silenciados.');
+      });
+    }
     if (DOM.ircToggleNicksBtn) {
       DOM.ircToggleNicksBtn.addEventListener('click', () => {
         state.chat.hideNicks = !state.chat.hideNicks;
@@ -2999,8 +3018,49 @@
         } else {
           setIrcCollapsed(false);
         }
+        markIrcMessagesRead();
+        if (DOM.ircChatInput && !DOM.ircChatInput.disabled) DOM.ircChatInput.focus();
       });
     }
+    if (DOM.mircWindow) {
+      DOM.mircWindow.addEventListener('focusin', () => {
+        markIrcMessagesRead();
+      });
+      DOM.mircWindow.addEventListener('click', () => {
+        markIrcMessagesRead();
+      });
+    }
+    if (DOM.ircMessagesList) {
+      DOM.ircMessagesList.addEventListener('scroll', () => {
+        const nearBottom = (DOM.ircMessagesList.scrollHeight - DOM.ircMessagesList.scrollTop - DOM.ircMessagesList.clientHeight) < 36;
+        if (nearBottom) {
+          state.chat.lastReadActivityAt = Date.now();
+          if (DOM.mircWindow && DOM.mircWindow.matches(':hover') && state.chat.unreadIds.size > 0) {
+            markIrcMessagesRead();
+          }
+        }
+      });
+    }
+    if (DOM.ircPopupContainer) {
+      DOM.ircPopupContainer.addEventListener('click', e => {
+        const closeBtn = e.target.closest('[data-irc-popup-close]');
+        if (closeBtn) {
+          e.stopPropagation();
+          const card = closeBtn.closest('.irc-popup-card');
+          if (card) card.remove();
+          return;
+        }
+        const card = e.target.closest('.irc-popup-card');
+        if (card) {
+          focusIrcFromPopup();
+        }
+      });
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && DOM.mircWindow && DOM.mircWindow.contains(document.activeElement)) {
+        markIrcMessagesRead();
+      }
+    });
     if (DOM.ircGuestNickInput) {
       DOM.ircGuestNickInput.addEventListener('change', () => {
         const cleaned = sanitizeGuestIrcNick(DOM.ircGuestNickInput.value);
@@ -4843,8 +4903,10 @@
   function renderChatHeaderAndTheme() {
     const ch = state.chat.channel || '#cyberpolis';
     const modeStr = state.chat.moderatedMode ? '[+ntm]' : '[+nt]';
+    const unread = state.chat.unreadIds.size;
     if (DOM.ircTitlebarText) {
-      DOM.ircTitlebarText.textContent = `mIRC32 - [${ch}] ${modeStr}`;
+      const unreadPrefix = unread > 0 ? `(${unread}) ` : '';
+      DOM.ircTitlebarText.textContent = `${unreadPrefix}mIRC32 - [${ch}] ${modeStr}`;
     }
     if (DOM.ircChannelBadge) {
       DOM.ircChannelBadge.textContent = ch;
@@ -4857,8 +4919,168 @@
       DOM.mircWindow.classList.remove('mirc-classic', 'mirc-dark');
       DOM.mircWindow.classList.add(state.chat.theme === 'mirc-dark' ? 'mirc-dark' : 'mirc-classic');
     }
+    syncIrcPopupToggleUi();
     updateIrcShellLayout();
     syncIrcIdentityUi(false);
+    updateIrcUnreadIndicators();
+  }
+
+  function syncIrcPopupToggleUi() {
+    if (!DOM.ircPopupToggleBtn) return;
+    const on = !!state.chat.popupsEnabled;
+    DOM.ircPopupToggleBtn.textContent = on ? '🔔' : '🔕';
+    DOM.ircPopupToggleBtn.classList.toggle('is-muted-bell', !on);
+    DOM.ircPopupToggleBtn.title = on
+      ? 'Popups de mensajes no leídos: Activos (clic para silenciar)'
+      : 'Popups de mensajes no leídos: Silenciados (clic para activar)';
+  }
+
+  function isAnyBlockingModalOpen() {
+    const modalIds = ['readerModal', 'adminControlModal', 'authModal', 'createModal', 'backupModal', 'changePasswordModal', 'linkedInModal', 'legalModal'];
+    return modalIds.some(id => {
+      const el = document.getElementById(id);
+      return el && el.style.display && el.style.display !== 'none';
+    });
+  }
+
+  function isUserReadingIrcNow() {
+    if (document.hidden) return false;
+    if (!state.chat.enabled) return false;
+    const isMobile = window.innerWidth <= 1180;
+    const chatVisible = isMobile
+      ? !!(DOM.portalChatShell && DOM.portalChatShell.classList.contains('mobile-chat-open'))
+      : !state.chat.collapsed;
+    if (!chatVisible) return false;
+    if (isAnyBlockingModalOpen()) return false;
+
+    const nearBottom = !DOM.ircMessagesList || (DOM.ircMessagesList.scrollHeight - DOM.ircMessagesList.scrollTop - DOM.ircMessagesList.clientHeight) < 60;
+    if (!nearBottom) return false;
+
+    const focusedInChat = !!(DOM.mircWindow && DOM.mircWindow.contains(document.activeElement));
+    const hoveredInChat = !!(DOM.mircWindow && DOM.mircWindow.matches(':hover'));
+    const recentlyActive = (Date.now() - (state.chat.lastReadActivityAt || 0)) < 8000;
+    return focusedInChat || hoveredInChat || recentlyActive;
+  }
+
+  function updateIrcUnreadIndicators() {
+    const count = state.chat.unreadIds.size;
+    if (DOM.ircReopenBadge) {
+      DOM.ircReopenBadge.textContent = count > 99 ? '99+' : String(count);
+      DOM.ircReopenBadge.style.display = count > 0 ? 'inline-flex' : 'none';
+    }
+    if (DOM.ircReopenTab) {
+      DOM.ircReopenTab.classList.toggle('has-unread', count > 0);
+    }
+    const ch = state.chat.channel || '#cyberpolis';
+    const modeStr = state.chat.moderatedMode ? '[+ntm]' : '[+nt]';
+    if (DOM.ircTitlebarText) {
+      DOM.ircTitlebarText.textContent = `${count > 0 ? `(${count}) ` : ''}mIRC32 - [${ch}] ${modeStr}`;
+    }
+    const baseTitle = getPortalBrandLabel(true);
+    document.title = count > 0 ? `(${count}) Nuevo en ${ch} — ${baseTitle}` : baseTitle;
+  }
+
+  function markIrcMessagesRead() {
+    state.chat.lastReadActivityAt = Date.now();
+    const hadUnread = state.chat.unreadIds.size > 0;
+    state.chat.unreadIds.clear();
+    if (DOM.ircPopupContainer) {
+      DOM.ircPopupContainer.innerHTML = '';
+    }
+    updateIrcUnreadIndicators();
+    if (hadUnread) {
+      renderChatMessages();
+    }
+  }
+
+  function focusIrcFromPopup() {
+    const readerModal = document.getElementById('readerModal');
+    if (readerModal && readerModal.style.display !== 'none') {
+      readerModal.style.display = 'none';
+    }
+    if (window.innerWidth <= 1180) {
+      if (DOM.portalChatShell) DOM.portalChatShell.classList.add('mobile-chat-open');
+      if (DOM.ircReopenTab) DOM.ircReopenTab.style.display = 'none';
+    } else if (state.chat.collapsed) {
+      setIrcCollapsed(false);
+    }
+    markIrcMessagesRead();
+    scrollIrcLogToBottom();
+    if (DOM.ircChatInput && !DOM.ircChatInput.disabled) {
+      DOM.ircChatInput.focus();
+    }
+  }
+
+  function showIrcMessagePopup(msg) {
+    if (!DOM.ircPopupContainer || !state.chat.popupsEnabled || !msg) return;
+    const isDark = state.chat.theme === 'mirc-dark';
+    const prefix = msg.prefix === '@' ? '@' : (msg.prefix === '+' ? '+' : '');
+    const fullNick = `${prefix}${msg.nick || 'anon'}`;
+    const nickCls = prefix === '@' ? 'mirc-nick-op' : (prefix === '+' ? 'mirc-nick-voice' : 'mirc-nick-guest');
+    const ts = formatIrcTimestamp(msg.ts);
+    const unreadTotal = state.chat.unreadIds.size;
+
+    const existingSame = DOM.ircPopupContainer.querySelector(`[data-irc-popup-id="${CSS.escape(String(msg.id || ''))}"]`);
+    if (existingSame) return;
+
+    while (DOM.ircPopupContainer.children.length >= 3) {
+      DOM.ircPopupContainer.removeChild(DOM.ircPopupContainer.firstElementChild);
+    }
+
+    let bodyHtml = '';
+    if (msg.type === 'system') {
+      bodyHtml = `<span class="mirc-ts">[${ts}]</span> <span class="mirc-line-system">${escapeHtml(msg.text)}</span>`;
+    } else if (msg.type === 'action') {
+      bodyHtml = `<span class="mirc-ts">[${ts}]</span> <span class="mirc-line-action">* <span class="mirc-nick ${nickCls}">${escapeHtml(fullNick)}</span> ${escapeHtml(msg.text)}</span>`;
+    } else {
+      bodyHtml = `<span class="mirc-ts">[${ts}]</span> <span class="mirc-nick ${nickCls}">&lt;${escapeHtml(fullNick)}&gt;</span> <span>${escapeHtml(msg.text)}</span>`;
+    }
+
+    const card = document.createElement('div');
+    card.className = `irc-popup-card ${isDark ? 'mirc-dark' : 'mirc-classic'}`;
+    card.dataset.ircPopupId = String(msg.id || '');
+    card.innerHTML = `
+      <div class="irc-popup-head">
+        <div class="irc-popup-title">
+          <span>⚡ mIRC32 · ${escapeHtml(state.chat.channel || '#cyberpolis')}</span>
+          <span class="irc-popup-unread-tag">${unreadTotal} sin leer</span>
+        </div>
+        <button type="button" class="irc-popup-close" data-irc-popup-close="1" aria-label="Cerrar aviso" title="Cerrar este aviso">&times;</button>
+      </div>
+      <div class="irc-popup-body">${bodyHtml}</div>
+      <div class="irc-popup-foot">
+        <span>Clic para abrir e ir al chat</span>
+        <span>${escapeHtml(fullNick)}</span>
+      </div>
+    `;
+    DOM.ircPopupContainer.appendChild(card);
+  }
+
+  function handleIncomingChatMessages(msgs) {
+    if (!Array.isArray(msgs) || msgs.length === 0) return;
+    if (!state.chat.bootstrapped) {
+      for (const m of msgs) {
+        if (m && m.id) state.chat.seenIds.add(m.id);
+      }
+      state.chat.bootstrapped = true;
+      return;
+    }
+
+    const myNick = getEffectiveIrcNick().toLowerCase();
+    for (const m of msgs) {
+      if (!m || !m.id || state.chat.seenIds.has(m.id)) continue;
+      state.chat.seenIds.add(m.id);
+
+      const isOwn = m.type !== 'system' && String(m.nick || '').toLowerCase() === myNick;
+      if (isOwn || isUserReadingIrcNow()) {
+        state.chat.lastReadActivityAt = Date.now();
+        continue;
+      }
+
+      state.chat.unreadIds.add(m.id);
+      updateIrcUnreadIndicators();
+      showIrcMessagePopup(m);
+    }
   }
 
   function renderChatMessages() {
@@ -4877,6 +5099,7 @@
       const prefix = m.prefix === '@' ? '@' : (m.prefix === '+' ? '+' : '');
       const fullNick = `${prefix}${m.nick || 'anon'}`;
       const nickCls = prefix === '@' ? 'mirc-nick-op' : (prefix === '+' ? 'mirc-nick-voice' : 'mirc-nick-guest');
+      const unreadCls = state.chat.unreadIds.has(m.id) ? ' is-unread' : '';
       const canModerateMsg = isAdmin && m.role !== 'admin' && m.role !== 'system';
       const modBtns = isAdmin ? `
         <span class="mirc-inline-mod">
@@ -4887,12 +5110,12 @@
       ` : '';
 
       if (m.type === 'system') {
-        return `<div class="mirc-line mirc-line-system">${modBtns}<span class="mirc-ts">[${ts}]</span> ${escapeHtml(m.text)}</div>`;
+        return `<div class="mirc-line mirc-line-system${unreadCls}">${modBtns}<span class="mirc-ts">[${ts}]</span> ${escapeHtml(m.text)}</div>`;
       }
       if (m.type === 'action') {
-        return `<div class="mirc-line mirc-line-action">${modBtns}<span class="mirc-ts">[${ts}]</span> * <span class="mirc-nick ${nickCls}">${escapeHtml(fullNick)}</span> ${escapeHtml(m.text)}</div>`;
+        return `<div class="mirc-line mirc-line-action${unreadCls}">${modBtns}<span class="mirc-ts">[${ts}]</span> * <span class="mirc-nick ${nickCls}">${escapeHtml(fullNick)}</span> ${escapeHtml(m.text)}</div>`;
       }
-      return `<div class="mirc-line">${modBtns}<span class="mirc-ts">[${ts}]</span> <span class="mirc-nick ${nickCls}">&lt;${escapeHtml(fullNick)}&gt;</span> <span>${escapeHtml(m.text)}</span></div>`;
+      return `<div class="mirc-line${unreadCls}">${modBtns}<span class="mirc-ts">[${ts}]</span> <span class="mirc-nick ${nickCls}">&lt;${escapeHtml(fullNick)}&gt;</span> <span>${escapeHtml(m.text)}</span></div>`;
     }).join('');
 
     if (wasNearBottom || list.length <= 20) {
@@ -4936,7 +5159,10 @@
     if (payload.allowGuests !== undefined) state.chat.allowGuests = !!payload.allowGuests;
     if (payload.moderatedMode !== undefined) state.chat.moderatedMode = !!payload.moderatedMode;
     if (payload.theme) state.chat.theme = payload.theme;
-    if (Array.isArray(payload.messages)) state.chat.messages = payload.messages;
+    if (Array.isArray(payload.messages)) {
+      state.chat.messages = payload.messages;
+      handleIncomingChatMessages(payload.messages);
+    }
     if (Array.isArray(payload.onlineUsers)) state.chat.onlineUsers = payload.onlineUsers;
     if (payload.isBanned !== undefined) state.chat.isBanned = !!payload.isBanned;
     if (payload.isMuted !== undefined) state.chat.isMuted = !!payload.isMuted;
@@ -4980,6 +5206,7 @@
         if (!state.chat.messages.some(x => x.id === msg.id)) {
           state.chat.messages.push(msg);
           if (state.chat.messages.length > 200) state.chat.messages = state.chat.messages.slice(-200);
+          handleIncomingChatMessages([msg]);
           renderChatMessages();
         }
       } catch (e) {}
@@ -4989,6 +5216,11 @@
       try {
         const { id } = JSON.parse(ev.data);
         state.chat.messages = state.chat.messages.filter(m => m.id !== id);
+        if (state.chat.unreadIds.delete(id)) updateIrcUnreadIndicators();
+        if (DOM.ircPopupContainer) {
+          const card = DOM.ircPopupContainer.querySelector(`[data-irc-popup-id="${CSS.escape(String(id))}"]`);
+          if (card) card.remove();
+        }
         renderChatMessages();
       } catch (e) {}
     });
@@ -4997,6 +5229,7 @@
       try {
         const data = JSON.parse(ev.data);
         state.chat.messages = Array.isArray(data.messages) ? data.messages : [];
+        markIrcMessagesRead();
         renderChatMessages();
       } catch (e) {}
     });
