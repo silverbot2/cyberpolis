@@ -59,7 +59,7 @@
 
   <link rel="icon" type="image/png" href="assets/silverbot-unix-logo.png">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
-  <link rel="stylesheet" href="css/styles.css?v=7.4.0">
+  <link rel="stylesheet" href="css/styles.css?v=7.5.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
@@ -244,9 +244,10 @@
             </div>
           </div>
 
-          <div class="mirc-topicbar">
+          <div class="mirc-topicbar" id="ircTopicBar">
             <span class="mirc-topic-label" id="ircChannelBadge">#cyberpolis</span>
             <span class="mirc-topic-text" id="ircTopicText" title="Topic del canal">Bienvenidos a #cyberpolis — Hacknoticiero &amp; Debate IRC en vivo</span>
+            <input type="text" id="ircTopicInlineInput" class="mirc-topic-inline-input" maxlength="180" style="display: none;" aria-label="Editar topic del canal">
           </div>
 
           <div class="mirc-body" id="ircBody">
@@ -765,10 +766,12 @@
         </div>
 
         <div class="admin-config-card">
-          <label class="hud-label">MODERAR USUARIO (MUTE +q / BAN +b / KICK)</label>
+          <label class="hud-label">MODERAR Y ELEVAR USUARIO (@OP +o / +VOZ +v / MUTE / KICK / BAN)</label>
           <div class="admin-logo-upload-row" style="margin-top: 6px; flex-wrap: wrap;">
             <input type="text" id="chatAdminModNickInput" class="hud-input" style="max-width: 170px;" maxlength="20" placeholder="Nick objetivo">
             <input type="text" id="chatAdminModReasonInput" class="hud-input" maxlength="120" placeholder="Motivo (ej: spam / flood)">
+            <button type="button" class="hud-btn hud-btn-action" id="chatAdminOpBtn">👑 Dar @Op (+o)</button>
+            <button type="button" class="hud-btn hud-btn-outline" id="chatAdminVoiceBtn">🎙️ Dar +Voz</button>
             <button type="button" class="hud-btn hud-btn-outline" id="chatAdminMuteBtn">🔇 Silenciar</button>
             <button type="button" class="hud-btn hud-btn-outline" id="chatAdminKickBtn">👢 Kick</button>
             <button type="button" class="hud-btn hud-btn-danger" id="chatAdminBanBtn">🚫 Banear</button>
@@ -1210,6 +1213,9 @@
   <!-- Banner Publicitario Lateral Flotante y Temporal -->
   <aside id="floatingAdBanner" class="floating-ad-banner" aria-label="Espacio publicitario" style="display: none;"></aside>
 
+  <!-- Menú Contextual Clásico mIRC32 (Clic derecho / botón secundario) -->
+  <div id="ircContextMenu" class="mirc-ctx-menu mirc-classic" role="menu" aria-label="Opciones de mIRC32" style="display: none;"></div>
+
   <!-- Contenedor Popups mIRC32 de Mensajes No Leídos -->
   <div class="irc-popup-container" id="ircPopupContainer" aria-live="polite"></div>
 
@@ -1218,6 +1224,6 @@
 
   <!-- Scripts -->
   <script src="js/polygons.js?v=7.0.0"></script>
-  <script src="js/app.js?v=7.4.0"></script>
+  <script src="js/app.js?v=7.5.0"></script>
 </body>
 </html>

@@ -28,6 +28,8 @@ const STORE_DEFS = {
       moderatedMode: false,
       theme: 'mirc-classic',
       messages: [],
+      opNicks: [],
+      voiceNicks: [],
       mutedNicks: [],
       bannedEntries: []
     }

@@ -1611,6 +1611,8 @@ const DEFAULT_CHAT_STATE = {
       ts: '2026-11-12T09:00:00.000Z'
     }
   ],
+  opNicks: [],
+  voiceNicks: [],
   mutedNicks: [],
   bannedEntries: []
 };
@@ -1660,18 +1662,22 @@ function normalizeChatStore(raw) {
         }))
     : [...DEFAULT_CHAT_STATE.messages];
 
-  const mutedNicks = Array.isArray(src.mutedNicks)
-    ? src.mutedNicks
+  const normalizeNickRoleList = (arr, defaultReason) => Array.isArray(arr)
+    ? arr
         .filter(x => x && typeof x.nick === 'string')
         .slice(-100)
         .map(x => ({
           nick: sanitizeIrcNick(x.nick, ''),
-          reason: sanitizeInput(x.reason || 'Silenciado por @op', 140),
+          reason: sanitizeInput(x.reason || defaultReason, 140),
           createdAt: x.createdAt || new Date().toISOString(),
           createdBy: sanitizeIrcNick(x.createdBy || 'admin', 'admin')
         }))
         .filter(x => !!x.nick)
     : [];
+
+  const opNicks = normalizeNickRoleList(src.opNicks, 'Operador de canal (+o)');
+  const voiceNicks = normalizeNickRoleList(src.voiceNicks, 'Voz de canal (+v)');
+  const mutedNicks = normalizeNickRoleList(src.mutedNicks, 'Silenciado por @op');
 
   const bannedEntries = Array.isArray(src.bannedEntries)
     ? src.bannedEntries
@@ -1696,6 +1702,8 @@ function normalizeChatStore(raw) {
     moderatedMode: !!src.moderatedMode,
     theme: src.theme === 'mirc-dark' ? 'mirc-dark' : 'mirc-classic',
     messages,
+    opNicks,
+    voiceNicks,
     mutedNicks,
     bannedEntries
   };
@@ -1711,17 +1719,44 @@ function writeChatState(nextState) {
   return normalized;
 }
 
-function resolveChatIdentity(req, requestedNick = '') {
+function isNickChannelOp(chat, nick) {
+  const lower = String(nick || '').toLowerCase();
+  return !!(lower && (chat.opNicks || []).some(x => x.nick && x.nick.toLowerCase() === lower));
+}
+
+function isNickChannelVoice(chat, nick) {
+  const lower = String(nick || '').toLowerCase();
+  return !!(lower && (chat.voiceNicks || []).some(x => x.nick && x.nick.toLowerCase() === lower));
+}
+
+function isRegisteredAdminNick(nick) {
+  const lower = String(nick || '').toLowerCase();
+  if (!lower) return false;
+  const users = readJSON(USERS_FILE, []);
+  return users.some(u =>
+    u && u.role === 'admin' && (
+      String(u.username || '').toLowerCase() === lower ||
+      String(u.displayName || '').toLowerCase() === lower
+    )
+  );
+}
+
+function resolveChatIdentity(req, requestedNick = '', chatOverride = null) {
+  const chat = chatOverride || readChatState();
   const user = getSessionUser(req);
   if (user) {
     const cleanNick = sanitizeIrcNick(user.username || user.displayName, 'usuario');
-    const prefix = user.role === 'admin' ? '@' : '+';
+    const isSiteAdmin = user.role === 'admin';
+    const isChannelOp = isSiteAdmin || isNickChannelOp(chat, cleanNick);
+    const prefix = isChannelOp ? '@' : '+';
     return {
       ok: true,
       authenticated: true,
       nick: cleanNick,
       prefix,
-      role: user.role === 'admin' ? 'admin' : 'analyst',
+      role: isSiteAdmin ? 'admin' : 'analyst',
+      isSiteAdmin,
+      isChannelOp,
       user
     };
   }
@@ -1741,12 +1776,16 @@ function resolveChatIdentity(req, requestedNick = '') {
       error: `El nick "${cleanGuest}" está reservado a una cuenta registrada. Inicia sesión o usa otro nick.`
     };
   }
+  const isChannelOp = isNickChannelOp(chat, cleanGuest);
+  const isVoice = !isChannelOp && isNickChannelVoice(chat, cleanGuest);
   return {
     ok: true,
     authenticated: false,
     nick: cleanGuest,
-    prefix: '',
+    prefix: isChannelOp ? '@' : (isVoice ? '+' : ''),
     role: 'guest',
+    isSiteAdmin: false,
+    isChannelOp,
     user: null
   };
 }
@@ -1797,14 +1836,206 @@ function buildPublicChatPayload(chat, identity = null, ip = '') {
     theme: chat.theme,
     messages: chat.messages.slice(-100),
     onlineUsers: getOnlineChatNicks(),
+    mutedNickNames: (chat.mutedNicks || []).map(x => x.nick),
+    opNickNames: (chat.opNicks || []).map(x => x.nick),
+    voiceNickNames: (chat.voiceNicks || []).map(x => x.nick),
     isBanned: !!ban,
     isMuted: !!mute,
     identity: identity && identity.ok ? {
       nick: identity.nick,
       prefix: identity.prefix,
       role: identity.role,
-      authenticated: identity.authenticated
+      authenticated: identity.authenticated,
+      isChannelOp: !!identity.isChannelOp,
+      isSiteAdmin: !!identity.isSiteAdmin
     } : null
+  };
+}
+
+function syncOnlineClientPrefixes(chat) {
+  let changed = false;
+  for (const client of chatSseClients.values()) {
+    const isSiteAdmin = client.role === 'admin';
+    const isOp = isSiteAdmin || isNickChannelOp(chat, client.nick);
+    const isVoice = !isOp && (client.role === 'analyst' || isNickChannelVoice(chat, client.nick));
+    const nextPrefix = isOp ? '@' : (isVoice ? '+' : '');
+    if (client.prefix !== nextPrefix) {
+      client.prefix = nextPrefix;
+      changed = true;
+      try {
+        client.res.write(`event: self_mode\ndata: ${JSON.stringify({
+          nick: client.nick,
+          prefix: nextPrefix,
+          isChannelOp: isOp
+        })}\n\n`);
+      } catch (e) {}
+    }
+  }
+  broadcastChatEvent('config', {
+    channel: chat.channel,
+    topic: chat.topic,
+    enabled: chat.enabled,
+    allowGuests: chat.allowGuests,
+    moderatedMode: chat.moderatedMode,
+    theme: chat.theme,
+    mutedNickNames: (chat.mutedNicks || []).map(x => x.nick),
+    opNickNames: (chat.opNicks || []).map(x => x.nick),
+    voiceNickNames: (chat.voiceNicks || []).map(x => x.nick)
+  });
+  if (changed) {
+    broadcastChatEvent('presence', { onlineUsers: getOnlineChatNicks() });
+  }
+}
+
+function executeIrcModAction(chat, actorIdentity, { action, nick = '', reason = 'Moderación @op', text = '', id = '' }) {
+  const act = String(action || '').toLowerCase();
+  const opNick = sanitizeIrcNick((actorIdentity && actorIdentity.nick) || 'admin', 'admin');
+  const targetNick = nick ? sanitizeIrcNick(nick, '') : '';
+  const cleanReason = sanitizeInput(reason || 'Moderación @op', 140) || 'Moderación @op';
+
+  if (act === 'clear') {
+    chat.messages = [{
+      id: 'irc-' + Date.now(),
+      type: 'system',
+      nick: opNick,
+      prefix: '@',
+      role: 'system',
+      text: `* @${opNick} ha limpiado el historial de ${chat.channel}`,
+      ts: new Date().toISOString()
+    }];
+    writeChatState(chat);
+    broadcastChatEvent('clear', { messages: chat.messages });
+    return { ok: true, status: 200, chatPayload: buildPublicChatPayload(chat) };
+  }
+
+  if (act === 'notice') {
+    const cleanText = sanitizeInput(text || '', 380);
+    if (!cleanText) return { ok: false, status: 400, error: 'Escribe el texto del aviso.' };
+    const msg = appendChatMessage(chat, {
+      type: 'system',
+      nick: opNick,
+      prefix: '@',
+      role: 'system',
+      text: `[AVISO @${opNick}] ${cleanText}`
+    });
+    return { ok: true, status: 201, message: msg };
+  }
+
+  if (act === 'toggle_moderated') {
+    chat.moderatedMode = !chat.moderatedMode;
+    appendChatMessage(chat, {
+      type: 'system',
+      nick: opNick,
+      prefix: '@',
+      role: 'system',
+      text: `* @${opNick} sets mode ${chat.moderatedMode ? '+m (canal moderado)' : '-m (canal abierto)'}`
+    });
+    syncOnlineClientPrefixes(chat);
+    return { ok: true, status: 200, chatPayload: buildPublicChatPayload(chat) };
+  }
+
+  if (act === 'toggle_guests') {
+    chat.allowGuests = !chat.allowGuests;
+    appendChatMessage(chat, {
+      type: 'system',
+      nick: opNick,
+      prefix: '@',
+      role: 'system',
+      text: `* @${opNick} ${chat.allowGuests ? 'habilita' : 'restringe'} el chat para invitados`
+    });
+    syncOnlineClientPrefixes(chat);
+    return { ok: true, status: 200, chatPayload: buildPublicChatPayload(chat) };
+  }
+
+  if (!targetNick && act !== 'unban') {
+    return { ok: false, status: 400, error: 'Debes indicar un nick válido.' };
+  }
+
+  const protectedAdmin = targetNick && (
+    targetNick.toLowerCase() === opNick.toLowerCase() ||
+    isRegisteredAdminNick(targetNick)
+  );
+  if (protectedAdmin && ['mute', 'ban', 'kick', 'kickban', 'deop'].includes(act)) {
+    return { ok: false, status: 403, error: 'No se puede sancionar ni degradar a un Administrador del portal.' };
+  }
+
+  if (act === 'op') {
+    if (!isNickChannelOp(chat, targetNick)) {
+      chat.opNicks.push({ nick: targetNick, reason: 'Elevado a @op', createdAt: new Date().toISOString(), createdBy: opNick });
+    }
+    chat.mutedNicks = chat.mutedNicks.filter(m => m.nick.toLowerCase() !== targetNick.toLowerCase());
+    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} gives channel operator status (@) to ${targetNick}` });
+    syncOnlineClientPrefixes(chat);
+  } else if (act === 'deop') {
+    chat.opNicks = chat.opNicks.filter(x => x.nick.toLowerCase() !== targetNick.toLowerCase());
+    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} removes channel operator status (@) from ${targetNick}` });
+    syncOnlineClientPrefixes(chat);
+  } else if (act === 'voice') {
+    if (!isNickChannelVoice(chat, targetNick)) {
+      chat.voiceNicks.push({ nick: targetNick, reason: 'Voz en canal (+v)', createdAt: new Date().toISOString(), createdBy: opNick });
+    }
+    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} gives voice (+v) to ${targetNick}` });
+    syncOnlineClientPrefixes(chat);
+  } else if (act === 'devoice') {
+    chat.voiceNicks = chat.voiceNicks.filter(x => x.nick.toLowerCase() !== targetNick.toLowerCase());
+    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} removes voice (-v) from ${targetNick}` });
+    syncOnlineClientPrefixes(chat);
+  } else if (act === 'mute') {
+    if (!findChatMute(chat, targetNick)) {
+      chat.mutedNicks.push({ nick: targetNick, reason: cleanReason, createdAt: new Date().toISOString(), createdBy: opNick });
+    }
+    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} sets mode +q on ${targetNick} (${cleanReason})` });
+    syncOnlineClientPrefixes(chat);
+  } else if (act === 'unmute') {
+    chat.mutedNicks = chat.mutedNicks.filter(m => m.nick.toLowerCase() !== targetNick.toLowerCase());
+    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} sets mode -q on ${targetNick}` });
+    syncOnlineClientPrefixes(chat);
+  } else if (act === 'ban' || act === 'kickban') {
+    let targetIp = '';
+    for (const c of chatSseClients.values()) {
+      if (c.nick.toLowerCase() === targetNick.toLowerCase()) targetIp = c.ip;
+    }
+    chat.opNicks = chat.opNicks.filter(x => x.nick.toLowerCase() !== targetNick.toLowerCase());
+    chat.voiceNicks = chat.voiceNicks.filter(x => x.nick.toLowerCase() !== targetNick.toLowerCase());
+    if (!chat.bannedEntries.some(b => b.nick && b.nick.toLowerCase() === targetNick.toLowerCase())) {
+      chat.bannedEntries.push({
+        id: 'ban-' + Date.now(),
+        nick: targetNick,
+        ip: targetIp,
+        reason: cleanReason,
+        createdAt: new Date().toISOString(),
+        createdBy: opNick
+      });
+    }
+    const modeLabel = act === 'kickban' ? 'kick & ban +b' : 'ban +b';
+    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} sets ${modeLabel} on ${targetNick} (${cleanReason})` });
+    syncOnlineClientPrefixes(chat);
+    disconnectMatchingChatClients({ nick: targetNick, ip: targetIp, reason: `Baneado por @${opNick}: ${cleanReason}` });
+  } else if (act === 'unban') {
+    const banId = String(id || '');
+    chat.bannedEntries = chat.bannedEntries.filter(b =>
+      (banId ? b.id !== banId : true) &&
+      (targetNick ? (b.nick || '').toLowerCase() !== targetNick.toLowerCase() : true)
+    );
+    if (targetNick) {
+      appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} sets mode -b on ${targetNick}` });
+    } else {
+      writeChatState(chat);
+    }
+    syncOnlineClientPrefixes(chat);
+  } else if (act === 'kick') {
+    appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* ${targetNick} was kicked by @${opNick} (${cleanReason})` });
+    disconnectMatchingChatClients({ nick: targetNick, reason: `Expulsado por @${opNick}: ${cleanReason}` });
+  } else {
+    return { ok: false, status: 400, error: 'Acción de moderación desconocida.' };
+  }
+
+  return {
+    ok: true,
+    status: 200,
+    mutedNicks: chat.mutedNicks,
+    bannedEntries: chat.bannedEntries,
+    chatPayload: buildPublicChatPayload(chat)
   };
 }
 
@@ -2958,8 +3189,38 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/chat/state' && method === 'GET') {
       const chat = readChatState();
       const requestedNick = (parsedUrl.query && parsedUrl.query.nick) || '';
-      const identity = resolveChatIdentity(req, requestedNick);
+      const identity = resolveChatIdentity(req, requestedNick, chat);
       sendJSON(req, res, 200, buildPublicChatPayload(chat, identity.ok ? identity : null, ip), {}, { noStore: true });
+      return;
+    }
+
+    if (pathname === '/api/chat/whois' && method === 'GET') {
+      const chat = readChatState();
+      const targetNick = sanitizeIrcNick((parsedUrl.query && parsedUrl.query.nick) || '', '');
+      if (!targetNick) {
+        sendJSON(req, res, 400, { error: 'Nick inválido.' }, {}, { noStore: true });
+        return;
+      }
+      const lower = targetNick.toLowerCase();
+      const onlineMatch = getOnlineChatNicks().find(u => u.nick.toLowerCase() === lower);
+      const isSiteAdmin = isRegisteredAdminNick(targetNick);
+      const isOp = isSiteAdmin || isNickChannelOp(chat, targetNick);
+      const isVoice = !isOp && (isNickChannelVoice(chat, targetNick) || !!(onlineMatch && onlineMatch.prefix === '+'));
+      const userMsgs = (chat.messages || []).filter(m => m.type !== 'system' && String(m.nick || '').toLowerCase() === lower);
+      const lastMsg = userMsgs.length > 0 ? userMsgs[userMsgs.length - 1] : null;
+      sendJSON(req, res, 200, {
+        nick: onlineMatch ? onlineMatch.nick : targetNick,
+        prefix: isOp ? '@' : (isVoice ? '+' : ''),
+        isOnline: !!onlineMatch,
+        isSiteAdmin,
+        isChannelOp: isOp,
+        isVoice,
+        isMuted: !!findChatMute(chat, targetNick),
+        isBanned: !!findChatBan(chat, targetNick, ''),
+        messageCount: userMsgs.length,
+        lastSeen: lastMsg ? lastMsg.ts : null,
+        channel: chat.channel
+      }, {}, { noStore: true });
       return;
     }
 
@@ -2971,7 +3232,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       const requestedNick = (parsedUrl.query && parsedUrl.query.nick) || '';
-      const identity = resolveChatIdentity(req, requestedNick);
+      const identity = resolveChatIdentity(req, requestedNick, chat);
       if (!identity.ok) {
         sendJSON(req, res, identity.status || 403, { error: identity.error }, {}, { noStore: true });
         return;
@@ -3028,7 +3289,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       const body = await parseBody(req);
-      const identity = resolveChatIdentity(req, body.nick || '');
+      const identity = resolveChatIdentity(req, body.nick || '', chat);
       if (!identity.ok) {
         sendJSON(req, res, identity.status || 403, { error: identity.error }, {}, { noStore: true });
         return;
@@ -3051,8 +3312,8 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      if (chat.moderatedMode && identity.role !== 'admin' && identity.role !== 'analyst') {
-        sendJSON(req, res, 403, { error: 'Canal en modo moderado (+m): solo @ops y +usuarios registrados pueden hablar.' }, {}, { noStore: true });
+      if (chat.moderatedMode && !identity.isChannelOp && identity.prefix !== '+' && identity.role !== 'admin' && identity.role !== 'analyst') {
+        sendJSON(req, res, 403, { error: 'Canal en modo moderado (+m): solo @ops y +voces pueden hablar.' }, {}, { noStore: true });
         return;
       }
 
@@ -3073,23 +3334,26 @@ const server = http.createServer(async (req, res) => {
         const cmd = (spaceIdx === -1 ? rawText : rawText.slice(0, spaceIdx)).toLowerCase();
         const arg = spaceIdx === -1 ? '' : rawText.slice(spaceIdx + 1).trim();
 
-        if (cmd === '/me') {
+        if (cmd === '/me' || cmd === '/slap') {
           if (!arg) {
-            sendJSON(req, res, 400, { error: 'Uso: /me <acción>' }, {}, { noStore: true });
+            sendJSON(req, res, 400, { error: `Uso: ${cmd} <objetivo o acción>` }, {}, { noStore: true });
             return;
           }
+          const actionText = cmd === '/slap'
+            ? `slaps ${sanitizeIrcNick(arg, arg.slice(0, 24))} around a bit with a large trout`
+            : arg;
           const msg = appendChatMessage(chat, {
             type: 'action',
             nick: identity.nick,
             prefix: identity.prefix,
             role: identity.role,
-            text: arg
+            text: actionText
           });
           sendJSON(req, res, 201, { success: true, message: msg }, {}, { noStore: true });
           return;
         }
 
-        if (identity.role === 'admin') {
+        if (identity.isChannelOp) {
           if (cmd === '/topic' && arg) {
             chat.topic = sanitizeInput(arg, 180);
             const msg = appendChatMessage(chat, {
@@ -3099,80 +3363,61 @@ const server = http.createServer(async (req, res) => {
               role: 'system',
               text: `* @${identity.nick} changes topic to '${chat.topic}'`
             });
-            broadcastChatEvent('config', {
-              channel: chat.channel,
-              topic: chat.topic,
-              enabled: chat.enabled,
-              allowGuests: chat.allowGuests,
-              moderatedMode: chat.moderatedMode,
-              theme: chat.theme
-            });
+            syncOnlineClientPrefixes(chat);
             sendJSON(req, res, 200, { success: true, topic: chat.topic, message: msg }, {}, { noStore: true });
             return;
           }
 
           if (cmd === '/clear') {
-            chat.messages = [{
-              id: 'irc-' + Date.now(),
-              type: 'system',
-              nick: identity.nick,
-              prefix: '@',
-              role: 'system',
-              text: `* @${identity.nick} ha limpiado el historial del canal`,
-              ts: new Date().toISOString()
-            }];
-            writeChatState(chat);
-            broadcastChatEvent('clear', { messages: chat.messages });
-            sendJSON(req, res, 200, { success: true }, {}, { noStore: true });
+            const out = executeIrcModAction(chat, identity, { action: 'clear' });
+            sendJSON(req, res, out.status, { success: true }, {}, { noStore: true });
             return;
           }
 
           if (cmd === '/notice' && arg) {
-            const msg = appendChatMessage(chat, {
-              type: 'system',
-              nick: identity.nick,
-              prefix: '@',
-              role: 'system',
-              text: `[AVISO @${identity.nick}] ${arg}`
-            });
-            sendJSON(req, res, 201, { success: true, message: msg }, {}, { noStore: true });
+            const out = executeIrcModAction(chat, identity, { action: 'notice', text: arg });
+            sendJSON(req, res, out.status, out.ok ? { success: true, message: out.message } : { error: out.error }, {}, { noStore: true });
             return;
           }
 
-          if (['/kick', '/mute', '/unmute', '/ban', '/unban'].includes(cmd) && arg) {
+          if (cmd === '/mode' && arg) {
+            const parts = arg.split(/\s+/);
+            const modeFlag = parts[0] || '';
+            const modeTarget = parts[1] || '';
+            const modeMap = {
+              '+o': 'op', '-o': 'deop',
+              '+v': 'voice', '-v': 'devoice',
+              '+q': 'mute', '-q': 'unmute',
+              '+b': 'ban', '-b': 'unban'
+            };
+            if (modeFlag === '+m' || modeFlag === '-m') {
+              if ((modeFlag === '+m') !== !!chat.moderatedMode) {
+                executeIrcModAction(chat, identity, { action: 'toggle_moderated' });
+              }
+              sendJSON(req, res, 200, { success: true }, {}, { noStore: true });
+              return;
+            }
+            const mappedAction = modeMap[modeFlag];
+            if (!mappedAction || !modeTarget) {
+              sendJSON(req, res, 400, { error: 'Uso: /mode +o|-o|+v|-v|+q|-q|+b|-b <nick> o /mode +m|-m' }, {}, { noStore: true });
+              return;
+            }
+            const out = executeIrcModAction(chat, identity, { action: mappedAction, nick: modeTarget });
+            sendJSON(req, res, out.status, out.ok ? { success: true } : { error: out.error }, {}, { noStore: true });
+            return;
+          }
+
+          const cmdActionMap = {
+            '/kick': 'kick', '/mute': 'mute', '/unmute': 'unmute',
+            '/ban': 'ban', '/unban': 'unban', '/kickban': 'kickban',
+            '/op': 'op', '/deop': 'deop', '/voice': 'voice', '/devoice': 'devoice'
+          };
+          if (cmdActionMap[cmd] && arg) {
             const parts = arg.split(/\s+/);
             const targetNick = sanitizeIrcNick(parts[0], '');
             const reason = parts.slice(1).join(' ').trim() || 'Moderación @op';
-            if (!targetNick) {
-              sendJSON(req, res, 400, { error: 'Debes indicar un nick válido.' }, {}, { noStore: true });
-              return;
-            }
-            if (cmd === '/mute') {
-              if (!findChatMute(chat, targetNick)) {
-                chat.mutedNicks.push({ nick: targetNick, reason, createdAt: new Date().toISOString(), createdBy: identity.nick });
-              }
-              appendChatMessage(chat, { type: 'system', nick: identity.nick, prefix: '@', role: 'system', text: `* @${identity.nick} sets mode +q on ${targetNick} (${reason})` });
-            } else if (cmd === '/unmute') {
-              chat.mutedNicks = chat.mutedNicks.filter(m => m.nick.toLowerCase() !== targetNick.toLowerCase());
-              appendChatMessage(chat, { type: 'system', nick: identity.nick, prefix: '@', role: 'system', text: `* @${identity.nick} sets mode -q on ${targetNick}` });
-            } else if (cmd === '/ban') {
-              let targetIp = '';
-              for (const c of chatSseClients.values()) {
-                if (c.nick.toLowerCase() === targetNick.toLowerCase()) targetIp = c.ip;
-              }
-              if (!chat.bannedEntries.some(b => b.nick && b.nick.toLowerCase() === targetNick.toLowerCase())) {
-                chat.bannedEntries.push({ id: 'ban-' + Date.now(), nick: targetNick, ip: targetIp, reason, createdAt: new Date().toISOString(), createdBy: identity.nick });
-              }
-              appendChatMessage(chat, { type: 'system', nick: identity.nick, prefix: '@', role: 'system', text: `* @${identity.nick} sets mode +b on ${targetNick} (${reason})` });
-              disconnectMatchingChatClients({ nick: targetNick, ip: targetIp, reason: `Baneado por @${identity.nick}: ${reason}` });
-            } else if (cmd === '/unban') {
-              chat.bannedEntries = chat.bannedEntries.filter(b => (b.nick || '').toLowerCase() !== targetNick.toLowerCase());
-              appendChatMessage(chat, { type: 'system', nick: identity.nick, prefix: '@', role: 'system', text: `* @${identity.nick} sets mode -b on ${targetNick}` });
-            } else if (cmd === '/kick') {
-              appendChatMessage(chat, { type: 'system', nick: identity.nick, prefix: '@', role: 'system', text: `* ${targetNick} was kicked by @${identity.nick} (${reason})` });
-              disconnectMatchingChatClients({ nick: targetNick, reason: `Expulsado por @${identity.nick}: ${reason}` });
-            }
-            sendJSON(req, res, 200, { success: true }, {}, { noStore: true });
+            const out = executeIrcModAction(chat, identity, { action: cmdActionMap[cmd], nick: targetNick, reason });
+            sendJSON(req, res, out.status, out.ok ? { success: true } : { error: out.error }, {}, { noStore: true });
             return;
           }
         }
@@ -3190,14 +3435,15 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname.startsWith('/api/chat/messages/') && method === 'DELETE') {
-      const currentUser = getSessionUser(req);
-      if (!currentUser || currentUser.role !== 'admin') {
-        sendJSON(req, res, 403, { error: 'Solo el Administrador (@op) puede borrar mensajes del IRC' }, {}, { noStore: true });
+      const chat = readChatState();
+      const identity = resolveChatIdentity(req, (parsedUrl.query && parsedUrl.query.actorNick) || '', chat);
+      const isAdminOrOp = identity.ok && (identity.role === 'admin' || identity.isChannelOp);
+      if (!isAdminOrOp) {
+        sendJSON(req, res, 403, { error: 'Solo el Administrador o un @op puede borrar mensajes del IRC' }, {}, { noStore: true });
         return;
       }
 
       const msgId = decodeURIComponent(pathname.replace('/api/chat/messages/', ''));
-      const chat = readChatState();
       const existed = chat.messages.some(m => m.id === msgId);
       if (!existed) {
         sendJSON(req, res, 404, { error: 'Mensaje no encontrado' }, {}, { noStore: true });
@@ -3207,6 +3453,42 @@ const server = http.createServer(async (req, res) => {
       writeChatState(chat);
       broadcastChatEvent('delete', { id: msgId });
       sendJSON(req, res, 200, { success: true, id: msgId }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname === '/api/chat/op-action' && method === 'POST') {
+      const body = await parseBody(req);
+      const chat = readChatState();
+      const identity = resolveChatIdentity(req, body.actorNick || '', chat);
+      if (!identity.ok || (!identity.isSiteAdmin && !identity.isChannelOp)) {
+        sendJSON(req, res, 403, { error: 'Requiere privilegios de Operador (@) en el canal.' }, {}, { noStore: true });
+        return;
+      }
+      if (String(body.action || '').toLowerCase() === 'topic') {
+        const nextTopic = sanitizeInput(body.topic || '', 180);
+        if (!nextTopic) {
+          sendJSON(req, res, 400, { error: 'El topic no puede estar vacío.' }, {}, { noStore: true });
+          return;
+        }
+        chat.topic = nextTopic;
+        appendChatMessage(chat, {
+          type: 'system',
+          nick: identity.nick,
+          prefix: '@',
+          role: 'system',
+          text: `* @${identity.nick} changes topic to '${chat.topic}'`
+        });
+        syncOnlineClientPrefixes(chat);
+        sendJSON(req, res, 200, { success: true, chat: buildPublicChatPayload(chat, identity, ip) }, {}, { noStore: true });
+        return;
+      }
+      const out = executeIrcModAction(chat, identity, body);
+      sendJSON(req, res, out.status, out.ok ? {
+        success: true,
+        mutedNicks: out.mutedNicks,
+        bannedEntries: out.bannedEntries,
+        chat: out.chatPayload
+      } : { error: out.error }, {}, { noStore: true });
       return;
     }
 
@@ -3282,104 +3564,15 @@ const server = http.createServer(async (req, res) => {
       }
 
       const body = await parseBody(req);
-      const action = String(body.action || '').toLowerCase();
       const chat = readChatState();
       const opNick = sanitizeIrcNick(currentUser.username || currentUser.displayName, 'admin');
-      const targetNick = body.nick ? sanitizeIrcNick(body.nick, '') : '';
-      const reason = sanitizeInput(body.reason || 'Moderación @op', 140);
-
-      if (action === 'clear') {
-        chat.messages = [{
-          id: 'irc-' + Date.now(),
-          type: 'system',
-          nick: opNick,
-          prefix: '@',
-          role: 'system',
-          text: `* @${opNick} ha limpiado el historial de ${chat.channel}`,
-          ts: new Date().toISOString()
-        }];
-        writeChatState(chat);
-        broadcastChatEvent('clear', { messages: chat.messages });
-        sendJSON(req, res, 200, { success: true, chat: buildPublicChatPayload(chat) }, {}, { noStore: true });
-        return;
-      }
-
-      if (action === 'notice') {
-        const text = sanitizeInput(body.text || '', 380);
-        if (!text) {
-          sendJSON(req, res, 400, { error: 'Escribe el texto del aviso.' }, {}, { noStore: true });
-          return;
-        }
-        const msg = appendChatMessage(chat, {
-          type: 'system',
-          nick: opNick,
-          prefix: '@',
-          role: 'system',
-          text: `[AVISO @${opNick}] ${text}`
-        });
-        sendJSON(req, res, 201, { success: true, message: msg }, {}, { noStore: true });
-        return;
-      }
-
-      if (!targetNick && action !== 'unban') {
-        sendJSON(req, res, 400, { error: 'Debes indicar un nick válido.' }, {}, { noStore: true });
-        return;
-      }
-
-      if (targetNick.toLowerCase() === opNick.toLowerCase() && ['mute', 'ban', 'kick'].includes(action)) {
-        sendJSON(req, res, 400, { error: 'No puedes moderar tu propio usuario administrador.' }, {}, { noStore: true });
-        return;
-      }
-
-      if (action === 'mute') {
-        if (!findChatMute(chat, targetNick)) {
-          chat.mutedNicks.push({ nick: targetNick, reason, createdAt: new Date().toISOString(), createdBy: opNick });
-        }
-        appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} sets mode +q on ${targetNick} (${reason})` });
-      } else if (action === 'unmute') {
-        chat.mutedNicks = chat.mutedNicks.filter(m => m.nick.toLowerCase() !== targetNick.toLowerCase());
-        appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} sets mode -q on ${targetNick}` });
-      } else if (action === 'ban') {
-        let targetIp = '';
-        for (const c of chatSseClients.values()) {
-          if (c.nick.toLowerCase() === targetNick.toLowerCase()) targetIp = c.ip;
-        }
-        if (!chat.bannedEntries.some(b => b.nick && b.nick.toLowerCase() === targetNick.toLowerCase())) {
-          chat.bannedEntries.push({
-            id: 'ban-' + Date.now(),
-            nick: targetNick,
-            ip: targetIp,
-            reason,
-            createdAt: new Date().toISOString(),
-            createdBy: opNick
-          });
-        }
-        appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} sets mode +b on ${targetNick} (${reason})` });
-        disconnectMatchingChatClients({ nick: targetNick, ip: targetIp, reason: `Baneado por @${opNick}: ${reason}` });
-      } else if (action === 'unban') {
-        const banId = String(body.id || '');
-        chat.bannedEntries = chat.bannedEntries.filter(b =>
-          (banId ? b.id !== banId : true) &&
-          (targetNick ? (b.nick || '').toLowerCase() !== targetNick.toLowerCase() : true)
-        );
-        if (targetNick) {
-          appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* @${opNick} sets mode -b on ${targetNick}` });
-        } else {
-          writeChatState(chat);
-        }
-      } else if (action === 'kick') {
-        appendChatMessage(chat, { type: 'system', nick: opNick, prefix: '@', role: 'system', text: `* ${targetNick} was kicked by @${opNick} (${reason})` });
-        disconnectMatchingChatClients({ nick: targetNick, reason: `Expulsado por @${opNick}: ${reason}` });
-      } else {
-        sendJSON(req, res, 400, { error: 'Acción de moderación desconocida.' }, {}, { noStore: true });
-        return;
-      }
-
-      sendJSON(req, res, 200, {
+      const out = executeIrcModAction(chat, { nick: opNick, isSiteAdmin: true, isChannelOp: true }, body);
+      sendJSON(req, res, out.status, out.ok ? {
         success: true,
-        mutedNicks: chat.mutedNicks,
-        bannedEntries: chat.bannedEntries
-      }, {}, { noStore: true });
+        mutedNicks: out.mutedNicks || chat.mutedNicks,
+        bannedEntries: out.bannedEntries || chat.bannedEntries,
+        chat: out.chatPayload
+      } : { error: out.error }, {}, { noStore: true });
       return;
     }
 
