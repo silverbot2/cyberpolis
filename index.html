@@ -59,7 +59,7 @@
 
   <link rel="icon" type="image/png" href="assets/silverbot-unix-logo.png">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
-  <link rel="stylesheet" href="css/styles.css?v=7.7.0">
+  <link rel="stylesheet" href="css/styles.css?v=7.8.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
@@ -343,6 +343,7 @@
       <!-- Pestañas del Panel Admin -->
       <div class="auth-tabs-bar admin-tabs-bar">
         <button class="auth-tab-btn active" id="adminTabFeedsBtn">📡 FUENTES RSS</button>
+        <button class="auth-tab-btn" id="adminTabModerationBtn">⚖️ MODERACIÓN</button>
         <button class="auth-tab-btn" id="adminTabMetricsBtn">📊 MÉTRICAS Y VISITAS</button>
         <button class="auth-tab-btn" id="adminTabUsersBtn">👥 USUARIOS</button>
         <button class="auth-tab-btn" id="adminTabTransformBtn">🎨 APARIENCIA</button>
@@ -799,6 +800,72 @@
         </div>
       </div>
 
+      <!-- Sección 8: Cola de Moderación, Umbrales de Confianza y Auditoría Legal -->
+      <div id="adminModerationSection" class="hud-modal-body" style="display: none;">
+        <div class="admin-section-header-row">
+          <div>
+            <h4 class="admin-sub-heading">⚖️ Pre-moderación, Tokens de Confianza y Trazabilidad Legal</h4>
+            <p class="admin-help-text">Las publicaciones en portada y en el foro requieren aprobación de administrador salvo que el autor cumpla antigüedad, tokens mínimos y publicaciones aprobadas.</p>
+          </div>
+          <button type="button" class="hud-btn hud-btn-outline" id="refreshModerationBtn">🔄 Actualizar cola</button>
+        </div>
+
+        <form id="modPolicyForm" class="admin-config-card" style="margin-bottom: 16px;">
+          <div class="admin-users-row" style="margin-bottom: 10px;">
+            <label class="hud-checkbox-label">
+              <input type="checkbox" id="modPolicyRequireModeration" checked>
+              <span>🛡️ Exigir pre-moderación obligatoria para nuevos usuarios (Web + Foro)</span>
+            </label>
+            <button type="submit" class="hud-btn hud-btn-action">💾 Guardar Política</button>
+          </div>
+
+          <div class="form-grid-3">
+            <div class="form-field">
+              <label for="modMinAgeDays" class="hud-label">ANTIGÜEDAD MÍNIMA (DÍAS)</label>
+              <input type="number" id="modMinAgeDays" class="hud-input" min="0" max="3650" value="7">
+            </div>
+            <div class="form-field">
+              <label for="modMinTokens" class="hud-label">TOKENS MÍNIMOS (CONFIANZA)</label>
+              <input type="number" id="modMinTokens" class="hud-input" min="0" max="10000" value="20">
+            </div>
+            <div class="form-field">
+              <label for="modMinApproved" class="hud-label">POSTS APROBADOS MÍNIMOS</label>
+              <input type="number" id="modMinApproved" class="hud-input" min="0" max="1000" value="3">
+            </div>
+          </div>
+
+          <div class="form-grid-3">
+            <div class="form-field">
+              <label for="modTokensArticle" class="hud-label">TOKENS POR NOTICIA APROBADA</label>
+              <input type="number" id="modTokensArticle" class="hud-input" min="0" max="500" value="10">
+            </div>
+            <div class="form-field">
+              <label for="modTokensThread" class="hud-label">TOKENS POR HILO APROBADO</label>
+              <input type="number" id="modTokensThread" class="hud-input" min="0" max="500" value="5">
+            </div>
+            <div class="form-field">
+              <label for="modTokensReply" class="hud-label">TOKENS POR RESPUESTA APROBADA</label>
+              <input type="number" id="modTokensReply" class="hud-input" min="0" max="200" value="2">
+            </div>
+          </div>
+        </form>
+
+        <div class="admin-config-card" style="margin-bottom: 16px;">
+          <h4 class="admin-sub-heading">⏳ Publicaciones Pendientes de Revisión (<span id="modPendingCountBadge">0</span>)</h4>
+          <div id="adminModPendingList" class="mod-pending-list">
+            <p class="admin-help-text">Cargando cola de moderación...</p>
+          </div>
+        </div>
+
+        <div class="admin-config-card">
+          <h4 class="admin-sub-heading">📜 Registro Forense y Trazabilidad Legal (IP · Usuario · SHA-256)</h4>
+          <p class="admin-help-text">Cada publicación queda registrada con identificación de autor, fecha ISO, huella SHA-256 y dirección IP de origen para responsabilidad legal.</p>
+          <div id="adminAuditLogList" class="audit-log-list">
+            <p class="admin-help-text">Cargando auditoría legal...</p>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -868,6 +935,13 @@
           </div>
         </div>
 
+        <div class="legal-notice-box" style="margin-bottom: 14px;">
+          <label class="hud-checkbox-label" style="align-items: flex-start;">
+            <input type="checkbox" id="regLegalAccept" required>
+            <span>⚖️ <strong>Responsabilidad Legal y Seguridad:</strong> Acepto que toda noticia, hilo o mensaje publicado queda bajo mi exclusiva responsabilidad legal y se registrará mi usuario, fecha, huella SHA-256 e IP de conexión por motivos legales y de seguridad.</span>
+          </label>
+        </div>
+
         <div class="hud-modal-foot">
           <button type="button" class="hud-btn hud-btn-outline" id="cancelRegisterBtn">CANCELAR</button>
           <button type="submit" class="hud-btn hud-btn-action" id="submitRegisterBtn">
@@ -921,9 +995,13 @@
             </div>
           </div>
 
-          <div class="hud-checkbox-label" style="margin-bottom: 16px;">
+          <div class="hud-checkbox-label" style="margin-bottom: 12px;">
             <input type="checkbox" id="lnIsBreaking">
             <span>🔥 Marcar como <strong>ÚLTIMA HORA</strong></span>
+          </div>
+
+          <div class="legal-notice-box" style="margin-bottom: 14px;">
+            ⚖️ <strong>Trazabilidad y Moderación:</strong> Toda publicación queda asociada legalmente a tu cuenta, huella SHA-256 e IP de origen. Si no superas el umbral de antigüedad/tokens o no eres usuario verificado, pasará primero a revisión de Administración.
           </div>
 
           <div class="hud-modal-foot">
@@ -1049,6 +1127,10 @@
             <span class="poly-check-box"></span>
             <span>⭐ Marcar como <strong>DESPACHO DESTACADO</strong> (Solo Admin)</span>
           </label>
+        </div>
+
+        <div class="legal-notice-box" style="margin-top: 8px; margin-bottom: 10px;">
+          ⚖️ <strong>Trazabilidad Legal y Moderación:</strong> Quedas como responsable legal del despacho enviado (se registra usuario, hora, hash SHA-256 e IP). Los usuarios nuevos pasan por aprobación de Administrador hasta alcanzar el umbral de antigüedad y tokens.
         </div>
 
         <div class="hud-modal-foot">
@@ -1228,6 +1310,6 @@
 
   <!-- Scripts -->
   <script src="js/polygons.js?v=7.0.0"></script>
-  <script src="js/app.js?v=7.7.0"></script>
+  <script src="js/app.js?v=7.8.0"></script>
 </body>
 </html>

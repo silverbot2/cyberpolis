@@ -18,6 +18,7 @@ const STORE_DEFS = {
   config: { filename: 'config.json', fallback: {} },
   forum: { filename: 'forum.json', fallback: [] },
   analytics: { filename: 'analytics.json', fallback: { totalViews: 0, dailyStats: {}, visitors: [] } },
+  audit: { filename: 'audit.json', fallback: [] },
   chat: {
     filename: 'chat.json',
     fallback: {

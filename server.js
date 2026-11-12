@@ -21,6 +21,7 @@ const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const FORUM_FILE = path.join(DATA_DIR, 'forum.json');
 const ANALYTICS_FILE = path.join(DATA_DIR, 'analytics.json');
 const CHAT_FILE = path.join(DATA_DIR, 'chat.json');
+const AUDIT_FILE = path.join(DATA_DIR, 'audit.json');
 
 const FILE_TO_STORE_KEY = new Map([
   [ARTICLES_FILE, 'articles'],
@@ -29,7 +30,8 @@ const FILE_TO_STORE_KEY = new Map([
   [CONFIG_FILE, 'config'],
   [FORUM_FILE, 'forum'],
   [ANALYTICS_FILE, 'analytics'],
-  [CHAT_FILE, 'chat']
+  [CHAT_FILE, 'chat'],
+  [AUDIT_FILE, 'audit']
 ]);
 
 const store = new CyberpolisStore();
@@ -495,8 +497,191 @@ function getSessionUser(req) {
   const user = users.find(u => u.id === session.userId);
   if (!user || user.status === 'suspended') return null;
 
-  const { salt, hash, ...safeUser } = user;
-  return safeUser;
+  const { salt, hash, registrationIp, lastLoginIp, registrationUa, ...safeUser } = user;
+  return {
+    ...safeUser,
+    tokens: Math.max(0, Number(user.tokens) || 0),
+    approvedPosts: Math.max(0, Number(user.approvedPosts) || 0),
+    trustedPublisher: !!user.trustedPublisher
+  };
+}
+
+const DEFAULT_MODERATION_POLICY = {
+  requireModeration: true,
+  minAccountAgeDays: 7,
+  minTrustTokens: 20,
+  minApprovedPosts: 3,
+  tokensPerApprovedArticle: 10,
+  tokensPerApprovedThread: 5,
+  tokensPerApprovedReply: 2
+};
+
+function sanitizeModerationPolicy(raw, fallback = DEFAULT_MODERATION_POLICY) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const fb = fallback && typeof fallback === 'object' ? fallback : DEFAULT_MODERATION_POLICY;
+  const clampNum = (v, min, max, d) => {
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : d;
+  };
+  return {
+    requireModeration: src.requireModeration !== undefined ? !!src.requireModeration : fb.requireModeration !== false,
+    minAccountAgeDays: clampNum(src.minAccountAgeDays, 0, 3650, fb.minAccountAgeDays),
+    minTrustTokens: clampNum(src.minTrustTokens, 0, 10000, fb.minTrustTokens),
+    minApprovedPosts: clampNum(src.minApprovedPosts, 0, 1000, fb.minApprovedPosts),
+    tokensPerApprovedArticle: clampNum(src.tokensPerApprovedArticle, 0, 500, fb.tokensPerApprovedArticle),
+    tokensPerApprovedThread: clampNum(src.tokensPerApprovedThread, 0, 500, fb.tokensPerApprovedThread),
+    tokensPerApprovedReply: clampNum(src.tokensPerApprovedReply, 0, 200, fb.tokensPerApprovedReply)
+  };
+}
+
+function getModerationPolicy() {
+  const config = readJSON(CONFIG_FILE, {});
+  return sanitizeModerationPolicy(config.moderationPolicy, DEFAULT_MODERATION_POLICY);
+}
+
+function computeContentHash(payload) {
+  return crypto.createHash('sha256').update(JSON.stringify(payload || {})).digest('hex');
+}
+
+function createLegalTrace(req, ip, currentUser, payload, legalAccepted = true) {
+  const submittedAt = new Date().toISOString();
+  const ua = sanitizeInput((req && req.headers && req.headers['user-agent']) || '', 240);
+  const forwardedChain = sanitizeInput((req && req.headers && req.headers['x-forwarded-for']) || ip || '127.0.0.1', 160);
+  return {
+    userId: currentUser ? currentUser.id : 'system',
+    username: currentUser ? currentUser.username : 'system',
+    displayName: currentUser ? currentUser.displayName : 'Sistema',
+    ip: sanitizeInput(ip || '127.0.0.1', 64),
+    forwardedChain,
+    userAgent: ua,
+    legalAccepted: !!legalAccepted,
+    legalAcceptedAt: submittedAt,
+    legalVersion: 'CYBERPOLIS-LEGAL-v1',
+    contentHash: computeContentHash({
+      ...(payload || {}),
+      authorId: currentUser ? currentUser.id : 'system',
+      submittedAt
+    }),
+    submittedAt
+  };
+}
+
+function recordLegalAudit(entry) {
+  const current = Array.isArray(readJSON(AUDIT_FILE, [])) ? readJSON(AUDIT_FILE, []) : [];
+  const item = {
+    id: 'aud-' + Date.now() + '-' + crypto.randomBytes(2).toString('hex'),
+    timestamp: new Date().toISOString(),
+    action: sanitizeInput(entry.action || 'event', 48),
+    targetType: sanitizeInput(entry.targetType || 'system', 32),
+    targetId: sanitizeInput(entry.targetId || '', 80),
+    summary: sanitizeInput(entry.summary || '', 220),
+    userId: sanitizeInput(entry.userId || '', 64),
+    username: sanitizeInput(entry.username || '', 48),
+    displayName: sanitizeInput(entry.displayName || '', 80),
+    ip: sanitizeInput(entry.ip || '', 64),
+    userAgent: sanitizeInput(entry.userAgent || '', 240),
+    contentHash: sanitizeInput(entry.contentHash || '', 64),
+    moderationStatus: sanitizeInput(entry.moderationStatus || '', 24),
+    meta: entry.meta && typeof entry.meta === 'object' ? entry.meta : {}
+  };
+  current.unshift(item);
+  if (current.length > 1000) current.length = 1000;
+  writeJSON(AUDIT_FILE, current, { critical: true });
+  return item;
+}
+
+function countUserApprovedPosts(userId, articlesList = null, forumList = null) {
+  if (!userId) return 0;
+  const articles = Array.isArray(articlesList) ? articlesList : readJSON(ARTICLES_FILE, []);
+  const forumThreads = Array.isArray(forumList) ? forumList : readJSON(FORUM_FILE, []);
+  let total = 0;
+  for (const a of articles) {
+    if (a && a.authorId === userId && (!a.moderationStatus || a.moderationStatus === 'approved')) total++;
+  }
+  for (const t of forumThreads) {
+    if (!t) continue;
+    if (t.authorId === userId && (!t.moderationStatus || t.moderationStatus === 'approved')) total++;
+    if (Array.isArray(t.replies)) {
+      for (const r of t.replies) {
+        if (r && r.authorId === userId && (!r.moderationStatus || r.moderationStatus === 'approved')) total++;
+      }
+    }
+  }
+  return total;
+}
+
+function evaluateUserPublishTrust(user, policy = null, articlesList = null, forumList = null) {
+  const activePolicy = policy || getModerationPolicy();
+  if (!user) {
+    return {
+      autoApprove: false,
+      reason: 'unauthenticated',
+      accountAgeDays: 0,
+      tokens: 0,
+      approvedPosts: 0,
+      trustedPublisher: false
+    };
+  }
+  const createdMs = user.createdAt ? new Date(user.createdAt).getTime() : Date.now();
+  const accountAgeDays = Number.isNaN(createdMs) ? 0 : Math.max(0, Math.floor((Date.now() - createdMs) / 86400000));
+  const tokens = Math.max(0, Number(user.tokens) || 0);
+  const storedApproved = Math.max(0, Number(user.approvedPosts) || 0);
+  const countedApproved = countUserApprovedPosts(user.id, articlesList, forumList);
+  const approvedPosts = Math.max(storedApproved, countedApproved);
+  const trustedPublisher = !!user.trustedPublisher;
+
+  if (!activePolicy.requireModeration) {
+    return { autoApprove: true, reason: 'policy_disabled', accountAgeDays, tokens, approvedPosts, trustedPublisher };
+  }
+  if (user.role === 'admin') {
+    return { autoApprove: true, reason: 'admin', accountAgeDays, tokens, approvedPosts, trustedPublisher: true };
+  }
+  if (trustedPublisher) {
+    return { autoApprove: true, reason: 'trusted_publisher', accountAgeDays, tokens, approvedPosts, trustedPublisher };
+  }
+  const meetsThreshold =
+    accountAgeDays >= activePolicy.minAccountAgeDays &&
+    tokens >= activePolicy.minTrustTokens &&
+    approvedPosts >= activePolicy.minApprovedPosts;
+
+  return {
+    autoApprove: meetsThreshold,
+    reason: meetsThreshold ? 'trust_threshold_met' : 'requires_moderation',
+    accountAgeDays,
+    tokens,
+    approvedPosts,
+    trustedPublisher
+  };
+}
+
+function stripPrivateArticleFields(article) {
+  if (!article || typeof article !== 'object') return article;
+  const { legalTrace, ...publicArticle } = article;
+  return {
+    ...publicArticle,
+    moderationStatus: publicArticle.moderationStatus || 'approved'
+  };
+}
+
+function awardTokensToUser(userId, deltaTokens, incrementApproved = true) {
+  if (!userId) return null;
+  const users = readJSON(USERS_FILE, []);
+  const idx = users.findIndex(u => u.id === userId);
+  if (idx === -1) return null;
+  users[idx].tokens = Math.max(0, (Number(users[idx].tokens) || 0) + Math.max(0, Number(deltaTokens) || 0));
+  if (incrementApproved) {
+    users[idx].approvedPosts = Math.max(0, (Number(users[idx].approvedPosts) || 0) + 1);
+  }
+  users[idx].updatedAt = new Date().toISOString();
+  writeJSON(USERS_FILE, users, { critical: true });
+  return {
+    id: users[idx].id,
+    username: users[idx].username,
+    displayName: users[idx].displayName,
+    tokens: users[idx].tokens,
+    approvedPosts: users[idx].approvedPosts,
+    trustedPublisher: !!users[idx].trustedPublisher
+  };
 }
 
 const recentVisitDedup = new Map();
@@ -776,6 +961,16 @@ function sanitizeArticleRecord(raw, currentUser = null, existing = null) {
     authorRole: existing ? existing.authorRole : (currentUser ? currentUser.role : 'feed'),
     verifiedLinkedIn: existing ? !!existing.verifiedLinkedIn : !!(raw && raw.verifiedLinkedIn),
     isAutoFeed: existing ? !!existing.isAutoFeed : !!(raw && raw.isAutoFeed),
+    moderationStatus: ['approved', 'pending', 'rejected'].includes(raw && raw.moderationStatus)
+      ? raw.moderationStatus
+      : ((existing && existing.moderationStatus) || 'approved'),
+    moderatedBy: (raw && raw.moderatedBy) || (existing && existing.moderatedBy) || null,
+    moderatedById: (raw && raw.moderatedById) || (existing && existing.moderatedById) || null,
+    moderatedAt: (raw && raw.moderatedAt) || (existing && existing.moderatedAt) || null,
+    moderationReason: (raw && raw.moderationReason) ? sanitizeInput(raw.moderationReason, 240) : ((existing && existing.moderationReason) || ''),
+    legalTrace: (raw && raw.legalTrace && typeof raw.legalTrace === 'object')
+      ? raw.legalTrace
+      : ((existing && existing.legalTrace) || null),
     date: (existing && existing.date) || ((raw && raw.date && !Number.isNaN(new Date(raw.date).getTime())) ? new Date(raw.date).toISOString() : new Date().toISOString()),
     views: existing ? (existing.views || 0) : Math.max(0, parseInt(raw && raw.views, 10) || 0)
   };
@@ -1397,7 +1592,7 @@ function renderSsrIndexHtml(req, rawHtml, query = {}) {
   try {
     const config = readJSON(CONFIG_FILE, {});
     const articles = [...readJSON(ARTICLES_FILE, [])]
-      .filter(a => a && a.title)
+      .filter(a => a && a.title && (!a.moderationStatus || a.moderationStatus === 'approved'))
       .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
     const brandTitle = sanitizeInput(config.portalTitle || 'CYBERPOLIS', 60) || 'CYBERPOLIS';
@@ -2110,7 +2305,8 @@ const server = http.createServer(async (req, res) => {
       const config = readJSON(CONFIG_FILE, {});
       sendJSON(req, res, 200, {
         ...config,
-        adBanner: sanitizeAdBannerConfig(config.adBanner)
+        adBanner: sanitizeAdBannerConfig(config.adBanner),
+        moderationPolicy: sanitizeModerationPolicy(config.moderationPolicy, DEFAULT_MODERATION_POLICY)
       });
       return;
     }
@@ -2164,6 +2360,9 @@ const server = http.createServer(async (req, res) => {
         contactEmail: body.contactEmail !== undefined ? sanitizeEmail(body.contactEmail) : (currentConfig.contactEmail || ''),
         layoutMode: sanitizeInput(body.layoutMode || currentConfig.layoutMode || 'editorial', 24),
         adBanner: body.adBanner !== undefined ? sanitizeAdBannerConfig(body.adBanner, currentConfig.adBanner) : sanitizeAdBannerConfig(currentConfig.adBanner),
+        moderationPolicy: body.moderationPolicy !== undefined
+          ? sanitizeModerationPolicy(body.moderationPolicy, currentConfig.moderationPolicy || DEFAULT_MODERATION_POLICY)
+          : sanitizeModerationPolicy(currentConfig.moderationPolicy, DEFAULT_MODERATION_POLICY),
         feeds: validatedFeeds
       };
 
@@ -2250,7 +2449,10 @@ const server = http.createServer(async (req, res) => {
           portalSubtitle: sanitizeInput(body.config.portalSubtitle || curCfg.portalSubtitle || 'TU HACKNOTICIERO', 80),
           portalLogoUrl: sanitizeLogoUrl(body.config.portalLogoUrl || curCfg.portalLogoUrl),
           contactEmail: body.config.contactEmail !== undefined ? sanitizeEmail(body.config.contactEmail) : '',
-          adBanner: body.config.adBanner !== undefined ? sanitizeAdBannerConfig(body.config.adBanner, curCfg.adBanner) : sanitizeAdBannerConfig(curCfg.adBanner)
+          adBanner: body.config.adBanner !== undefined ? sanitizeAdBannerConfig(body.config.adBanner, curCfg.adBanner) : sanitizeAdBannerConfig(curCfg.adBanner),
+          moderationPolicy: body.config.moderationPolicy !== undefined
+            ? sanitizeModerationPolicy(body.config.moderationPolicy, curCfg.moderationPolicy || DEFAULT_MODERATION_POLICY)
+            : sanitizeModerationPolicy(curCfg.moderationPolicy, DEFAULT_MODERATION_POLICY)
         };
         writeJSON(CONFIG_FILE, nextCfg, { critical: true });
         restoredSections.push('config');
@@ -2268,6 +2470,12 @@ const server = http.createServer(async (req, res) => {
             status: u.status === 'suspended' ? 'suspended' : 'active',
             linkedInProfile: sanitizeExternalUrl(u.linkedInProfile || ''),
             avatar: sanitizeImageUrl(u.avatar || '', 'assets/silverbot-unix-logo.png'),
+            tokens: Math.max(0, Number(u.tokens) || 0),
+            approvedPosts: Math.max(0, Number(u.approvedPosts) || 0),
+            trustedPublisher: !!u.trustedPublisher,
+            registrationIp: sanitizeInput(u.registrationIp || '', 64),
+            lastLoginIp: sanitizeInput(u.lastLoginIp || '', 64),
+            legalAcceptedAt: u.legalAcceptedAt || null,
             salt: u.salt,
             hash: u.hash,
             passwordUpdatedAt: u.passwordUpdatedAt || null,
@@ -2333,9 +2541,9 @@ const server = http.createServer(async (req, res) => {
         restoredSections.push('analytics');
       }
 
-      if (body.chat && typeof body.chat === 'object') {
-        writeChatState(body.chat);
-        restoredSections.push('chat');
+      if (Array.isArray(body.audit)) {
+        writeJSON(AUDIT_FILE, body.audit.slice(0, 1000), { critical: true });
+        restoredSections.push('audit');
       }
 
       await store.flush();
@@ -2395,6 +2603,7 @@ const server = http.createServer(async (req, res) => {
 
       clearFailedLogin(usernameKey);
       user.lastLoginAt = new Date().toISOString();
+      user.lastLoginIp = sanitizeInput(ip || '', 64);
       writeJSON(USERS_FILE, users, { critical: true });
 
       const token = generateSecureToken();
@@ -2402,12 +2611,30 @@ const server = http.createServer(async (req, res) => {
       sessions.push(createSessionRecord(token, user.id, ip));
       writeJSON(SESSIONS_FILE, sessions, { critical: true });
 
-      const { salt, hash, ...safeUser } = user;
+      recordLegalAudit({
+        action: 'user_login',
+        targetType: 'user',
+        targetId: user.id,
+        summary: `Inicio de sesión de @${user.username}`,
+        currentUser: user,
+        ip,
+        req
+      });
+
+      const { salt, hash, registrationIp, lastLoginIp, registrationUa, ...safeUser } = user;
       sendJSON(
         req,
         res,
         200,
-        { success: true, user: safeUser },
+        {
+          success: true,
+          user: {
+            ...safeUser,
+            tokens: Math.max(0, Number(user.tokens) || 0),
+            approvedPosts: Math.max(0, Number(user.approvedPosts) || 0),
+            trustedPublisher: !!user.trustedPublisher
+          }
+        },
         { 'Set-Cookie': buildSessionCookie(req, token, Math.floor(SESSION_TTL_MS / 1000)) },
         { noStore: true }
       );
@@ -2460,6 +2687,13 @@ const server = http.createServer(async (req, res) => {
         status: 'active',
         linkedInProfile: sanitizeExternalUrl(linkedInProfile || ''),
         avatar: 'assets/silverbot-unix-logo.png',
+        tokens: 0,
+        approvedPosts: 0,
+        trustedPublisher: isFirst,
+        registrationIp: sanitizeInput(ip || '', 64),
+        lastLoginIp: sanitizeInput(ip || '', 64),
+        registrationUa: sanitizeInput((req.headers && req.headers['user-agent']) || '', 240),
+        legalAcceptedAt: nowIso,
         salt,
         hash,
         passwordUpdatedAt: nowIso,
@@ -2475,7 +2709,17 @@ const server = http.createServer(async (req, res) => {
       sessions.push(createSessionRecord(token, newUser.id, ip));
       writeJSON(SESSIONS_FILE, sessions, { critical: true });
 
-      const { salt: _s, hash: _h, ...safeUser } = newUser;
+      recordLegalAudit({
+        action: 'user_register',
+        targetType: 'user',
+        targetId: newUser.id,
+        summary: `Registro de cuenta @${newUser.username} (rol: ${newUser.role})`,
+        currentUser: newUser,
+        ip,
+        req
+      });
+
+      const { salt: _s, hash: _h, registrationIp: _ri, lastLoginIp: _li, registrationUa: _ru, ...safeUser } = newUser;
       sendJSON(
         req,
         res,
@@ -2657,20 +2901,32 @@ const server = http.createServer(async (req, res) => {
       const forumThreads = readJSON(FORUM_FILE, []);
       const now = Date.now();
 
-      const adminList = users.map(u => ({
-        id: u.id,
-        username: u.username,
-        displayName: u.displayName,
-        email: u.email || '',
-        role: u.role || 'analyst',
-        status: u.status || 'active',
-        createdAt: u.createdAt || u.updatedAt || null,
-        lastLoginAt: u.lastLoginAt || null,
-        passwordUpdatedAt: u.passwordUpdatedAt || null,
-        articlesCount: articles.filter(a => a.authorId === u.id).length,
-        forumThreadsCount: forumThreads.filter(t => t.authorId === u.id).length,
-        activeSessions: sessions.filter(s => s && s.userId === u.id && s.expiresAt > now).length
-      }));
+      const policy = getModerationPolicy();
+      const adminList = users.map(u => {
+        const trust = evaluateUserPublishTrust(u, policy, articles, forumThreads);
+        return {
+          id: u.id,
+          username: u.username,
+          displayName: u.displayName,
+          email: u.email || '',
+          role: u.role || 'analyst',
+          status: u.status || 'active',
+          tokens: trust.tokens,
+          approvedPosts: trust.approvedPosts,
+          accountAgeDays: trust.accountAgeDays,
+          trustedPublisher: trust.trustedPublisher,
+          autoPublishEligible: trust.autoApprove,
+          registrationIp: u.registrationIp || '',
+          lastLoginIp: u.lastLoginIp || '',
+          legalAcceptedAt: u.legalAcceptedAt || null,
+          createdAt: u.createdAt || u.updatedAt || null,
+          lastLoginAt: u.lastLoginAt || null,
+          passwordUpdatedAt: u.passwordUpdatedAt || null,
+          articlesCount: articles.filter(a => a.authorId === u.id).length,
+          forumThreadsCount: forumThreads.filter(t => t.authorId === u.id).length,
+          activeSessions: sessions.filter(s => s && s.userId === u.id && s.expiresAt > now).length
+        };
+      });
       sendJSON(req, res, 200, adminList, {}, { noStore: true });
       return;
     }
@@ -2716,6 +2972,12 @@ const server = http.createServer(async (req, res) => {
         status: 'active',
         linkedInProfile: '',
         avatar: 'assets/silverbot-unix-logo.png',
+        tokens: 0,
+        approvedPosts: 0,
+        trustedPublisher: role === 'admin',
+        registrationIp: sanitizeInput(ip || '', 64),
+        lastLoginIp: '',
+        legalAcceptedAt: nowIso,
         salt,
         hash,
         passwordUpdatedAt: nowIso,
@@ -2724,8 +2986,68 @@ const server = http.createServer(async (req, res) => {
       users.push(newUser);
       writeJSON(USERS_FILE, users, { critical: true });
 
-      const { salt: _s, hash: _h, ...safeUser } = newUser;
+      const { salt: _s, hash: _h, registrationIp: _ri, lastLoginIp: _li, registrationUa: _ru, ...safeUser } = newUser;
       sendJSON(req, res, 201, { success: true, user: safeUser }, {}, { noStore: true });
+      return;
+    }
+
+    if (/^\/api\/admin\/users\/[^/]+\/trust$/.test(pathname) && method === 'POST') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Acceso denegado' }, {}, { noStore: true });
+        return;
+      }
+      const userId = decodeURIComponent(pathname.split('/')[4]);
+      const body = await parseBody(req).catch(() => ({}));
+      const users = readJSON(USERS_FILE, []);
+      const idx = users.findIndex(u => u.id === userId);
+      if (idx === -1) {
+        sendJSON(req, res, 404, { error: 'Usuario no encontrado' }, {}, { noStore: true });
+        return;
+      }
+
+      const prevTokens = Math.max(0, Number(users[idx].tokens) || 0);
+      if (body.setTokens !== undefined) {
+        users[idx].tokens = Math.max(0, Math.min(100000, parseInt(body.setTokens, 10) || 0));
+      } else if (body.deltaTokens !== undefined) {
+        const delta = parseInt(body.deltaTokens, 10) || 0;
+        users[idx].tokens = Math.max(0, Math.min(100000, prevTokens + delta));
+      } else {
+        users[idx].tokens = prevTokens;
+      }
+
+      if (body.trustedPublisher !== undefined) {
+        users[idx].trustedPublisher = !!body.trustedPublisher;
+      }
+      users[idx].updatedAt = new Date().toISOString();
+      writeJSON(USERS_FILE, users, { critical: true });
+
+      const policy = getModerationPolicy();
+      const trust = evaluateUserPublishTrust(users[idx], policy);
+
+      recordLegalAudit({
+        action: 'update_user_trust',
+        targetType: 'user',
+        targetId: users[idx].id,
+        summary: `Confianza actualizada para @${users[idx].username}: tokens=${trust.tokens}, trusted=${trust.trustedPublisher}`,
+        currentUser,
+        ip,
+        req
+      });
+
+      sendJSON(req, res, 200, {
+        success: true,
+        message: `Confianza de @${users[idx].username} actualizada (${trust.tokens} tokens${trust.trustedPublisher ? ', publicador verificado' : ''})`,
+        user: {
+          id: users[idx].id,
+          username: users[idx].username,
+          tokens: trust.tokens,
+          approvedPosts: trust.approvedPosts,
+          accountAgeDays: trust.accountAgeDays,
+          trustedPublisher: trust.trustedPublisher,
+          autoPublishEligible: trust.autoApprove
+        }
+      }, {}, { noStore: true });
       return;
     }
 
@@ -2864,6 +3186,283 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ----------------------------------------------------
+    // API MODERACIÓN, TOKENS DE CONFIANZA Y TRAZABILIDAD LEGAL
+    // ----------------------------------------------------
+
+    if (pathname === '/api/admin/moderation' && method === 'GET') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Acceso denegado: solo el Administrador puede acceder a la cola de moderación' }, {}, { noStore: true });
+        return;
+      }
+
+      const policy = getModerationPolicy();
+      const users = readJSON(USERS_FILE, []);
+      const userMap = new Map(users.map(u => [u.id, u]));
+      const articles = readJSON(ARTICLES_FILE, []);
+      const forumThreads = readJSON(FORUM_FILE, []);
+      const auditLog = Array.isArray(readJSON(AUDIT_FILE, [])) ? readJSON(AUDIT_FILE, []) : [];
+
+      const buildAuthorSnapshot = (authorId) => {
+        const u = authorId ? userMap.get(authorId) : null;
+        if (!u) return { username: 'desconocido', tokens: 0, approvedPosts: 0, accountAgeDays: 0, trustedPublisher: false, autoPublishEligible: false };
+        const t = evaluateUserPublishTrust(u, policy, articles, forumThreads);
+        return {
+          id: u.id,
+          username: u.username,
+          displayName: u.displayName,
+          role: u.role,
+          tokens: t.tokens,
+          approvedPosts: t.approvedPosts,
+          accountAgeDays: t.accountAgeDays,
+          trustedPublisher: t.trustedPublisher,
+          autoPublishEligible: t.autoApprove
+        };
+      };
+
+      const pendingArticles = articles
+        .filter(a => a && a.moderationStatus === 'pending')
+        .map(a => ({
+          targetType: 'article',
+          id: a.id,
+          title: a.title,
+          category: a.category,
+          summary: a.summary,
+          contentPreview: String(a.content || '').slice(0, 600),
+          sourceName: a.sourceName,
+          sourceUrl: a.sourceUrl,
+          author: a.author,
+          authorId: a.authorId,
+          createdAt: a.date,
+          moderationStatus: a.moderationStatus,
+          legalTrace: a.legalTrace || null,
+          authorTrust: buildAuthorSnapshot(a.authorId)
+        }));
+
+      const pendingThreads = forumThreads
+        .filter(t => t && t.moderationStatus === 'pending')
+        .map(t => ({
+          targetType: 'thread',
+          id: t.id,
+          title: t.title,
+          category: t.category,
+          prefix: t.prefix || 'Debate',
+          contentPreview: String(t.body || '').slice(0, 600),
+          author: t.author,
+          authorId: t.authorId,
+          createdAt: t.createdAt,
+          moderationStatus: t.moderationStatus,
+          legalTrace: t.legalTrace || null,
+          authorTrust: buildAuthorSnapshot(t.authorId)
+        }));
+
+      const pendingReplies = [];
+      for (const t of forumThreads) {
+        if (!t || !Array.isArray(t.replies)) continue;
+        for (const r of t.replies) {
+          if (r && r.moderationStatus === 'pending') {
+            pendingReplies.push({
+              targetType: 'reply',
+              id: t.id,
+              replyId: r.id,
+              threadTitle: t.title,
+              category: t.category,
+              contentPreview: String(r.text || '').slice(0, 600),
+              author: r.author,
+              authorId: r.authorId,
+              createdAt: r.createdAt,
+              moderationStatus: r.moderationStatus,
+              legalTrace: r.legalTrace || null,
+              authorTrust: buildAuthorSnapshot(r.authorId)
+            });
+          }
+        }
+      }
+
+      sendJSON(req, res, 200, {
+        policy,
+        counts: {
+          articles: pendingArticles.length,
+          threads: pendingThreads.length,
+          replies: pendingReplies.length,
+          total: pendingArticles.length + pendingThreads.length + pendingReplies.length
+        },
+        pendingArticles,
+        pendingThreads,
+        pendingReplies,
+        auditLog: auditLog.slice(0, 100)
+      }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname === '/api/admin/moderation/policy' && method === 'PUT') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Acceso denegado' }, {}, { noStore: true });
+        return;
+      }
+      const body = await parseBody(req);
+      const currentConfig = readJSON(CONFIG_FILE, {});
+      const nextPolicy = sanitizeModerationPolicy(body, currentConfig.moderationPolicy || DEFAULT_MODERATION_POLICY);
+      const updatedConfig = {
+        ...currentConfig,
+        moderationPolicy: nextPolicy
+      };
+      writeJSON(CONFIG_FILE, updatedConfig, { critical: true });
+
+      recordLegalAudit({
+        action: 'update_moderation_policy',
+        targetType: 'config',
+        targetId: 'moderationPolicy',
+        summary: `Política actualizada: mod=${nextPolicy.requireModeration}, días>=${nextPolicy.minAccountAgeDays}, tokens>=${nextPolicy.minTrustTokens}, posts>=${nextPolicy.minApprovedPosts}`,
+        currentUser,
+        ip,
+        req
+      });
+
+      sendJSON(req, res, 200, {
+        success: true,
+        message: 'Política de moderación y tokens guardada',
+        policy: nextPolicy
+      }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname === '/api/admin/moderation/decision' && method === 'POST') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Acceso denegado: solo administradores pueden moderar publicaciones' }, {}, { noStore: true });
+        return;
+      }
+
+      const body = await parseBody(req);
+      const targetType = String(body.targetType || '').toLowerCase();
+      const targetId = String(body.id || '');
+      const replyId = String(body.replyId || '');
+      const decision = String(body.decision || '').toLowerCase();
+      const reason = sanitizeInput(body.reason || '', 240);
+
+      if (!['article', 'thread', 'reply'].includes(targetType) || !targetId || !['approve', 'reject'].includes(decision)) {
+        sendJSON(req, res, 400, { error: 'Parámetros de moderación inválidos' }, {}, { noStore: true });
+        return;
+      }
+
+      const policy = getModerationPolicy();
+      const nextStatus = decision === 'approve' ? 'approved' : 'rejected';
+      const nowIso = new Date().toISOString();
+      let awardedUser = null;
+      let tokenDelta = 0;
+      let itemSummary = '';
+      let contentHash = '';
+      let itemAuthorId = '';
+
+      if (targetType === 'article') {
+        const articles = readJSON(ARTICLES_FILE, []);
+        const idx = articles.findIndex(a => a && a.id === targetId);
+        if (idx === -1) {
+          sendJSON(req, res, 404, { error: 'Noticia no encontrada' }, {}, { noStore: true });
+          return;
+        }
+        const prevStatus = articles[idx].moderationStatus || 'approved';
+        articles[idx].moderationStatus = nextStatus;
+        articles[idx].moderatedBy = currentUser.displayName;
+        articles[idx].moderatedById = currentUser.id;
+        articles[idx].moderatedAt = nowIso;
+        articles[idx].moderationReason = reason;
+        itemSummary = articles[idx].title || targetId;
+        itemAuthorId = articles[idx].authorId || '';
+        contentHash = (articles[idx].legalTrace && articles[idx].legalTrace.contentHash) || '';
+        writeJSON(ARTICLES_FILE, articles, { critical: true });
+
+        if (prevStatus !== 'approved' && nextStatus === 'approved' && itemAuthorId) {
+          tokenDelta = policy.tokensPerApprovedArticle;
+          awardedUser = awardTokensToUser(itemAuthorId, tokenDelta, true);
+        }
+      } else {
+        const threads = readJSON(FORUM_FILE, []);
+        const tIdx = threads.findIndex(t => t && t.id === targetId);
+        if (tIdx === -1) {
+          sendJSON(req, res, 404, { error: 'Tema del foro no encontrado' }, {}, { noStore: true });
+          return;
+        }
+        if (targetType === 'thread') {
+          const prevStatus = threads[tIdx].moderationStatus || 'approved';
+          threads[tIdx].moderationStatus = nextStatus;
+          threads[tIdx].moderatedBy = currentUser.displayName;
+          threads[tIdx].moderatedById = currentUser.id;
+          threads[tIdx].moderatedAt = nowIso;
+          threads[tIdx].moderationReason = reason;
+          itemSummary = threads[tIdx].title || targetId;
+          itemAuthorId = threads[tIdx].authorId || '';
+          contentHash = (threads[tIdx].legalTrace && threads[tIdx].legalTrace.contentHash) || '';
+          writeJSON(FORUM_FILE, threads, { critical: true });
+
+          if (prevStatus !== 'approved' && nextStatus === 'approved' && itemAuthorId) {
+            tokenDelta = policy.tokensPerApprovedThread;
+            awardedUser = awardTokensToUser(itemAuthorId, tokenDelta, true);
+          }
+        } else {
+          if (!Array.isArray(threads[tIdx].replies)) threads[tIdx].replies = [];
+          const rIdx = threads[tIdx].replies.findIndex(r => r && r.id === replyId);
+          if (rIdx === -1) {
+            sendJSON(req, res, 404, { error: 'Respuesta del foro no encontrada' }, {}, { noStore: true });
+            return;
+          }
+          const prevStatus = threads[tIdx].replies[rIdx].moderationStatus || 'approved';
+          threads[tIdx].replies[rIdx].moderationStatus = nextStatus;
+          threads[tIdx].replies[rIdx].moderatedBy = currentUser.displayName;
+          threads[tIdx].replies[rIdx].moderatedById = currentUser.id;
+          threads[tIdx].replies[rIdx].moderatedAt = nowIso;
+          threads[tIdx].replies[rIdx].moderationReason = reason;
+          itemSummary = `${threads[tIdx].title} // ${(threads[tIdx].replies[rIdx].text || '').slice(0, 80)}`;
+          itemAuthorId = threads[tIdx].replies[rIdx].authorId || '';
+          contentHash = (threads[tIdx].replies[rIdx].legalTrace && threads[tIdx].replies[rIdx].legalTrace.contentHash) || '';
+          writeJSON(FORUM_FILE, threads, { critical: true });
+
+          if (prevStatus !== 'approved' && nextStatus === 'approved' && itemAuthorId) {
+            tokenDelta = policy.tokensPerApprovedReply;
+            awardedUser = awardTokensToUser(itemAuthorId, tokenDelta, true);
+          }
+        }
+      }
+
+      recordLegalAudit({
+        action: decision === 'approve' ? 'approve_content' : 'reject_content',
+        targetType,
+        targetId: replyId ? `${targetId}/${replyId}` : targetId,
+        summary: `${decision === 'approve' ? 'APROBADO' : 'RECHAZADO'}: ${itemSummary}${tokenDelta ? ` (+${tokenDelta} tokens)` : ''}`,
+        currentUser,
+        ip,
+        req,
+        contentHash,
+        moderationStatus: nextStatus,
+        meta: { authorId: itemAuthorId, tokenDelta, reason }
+      });
+
+      sendJSON(req, res, 200, {
+        success: true,
+        decision: nextStatus,
+        tokenDelta,
+        awardedUser,
+        message: decision === 'approve'
+          ? `Publicación aprobada${tokenDelta > 0 && awardedUser ? ` (+${tokenDelta} tokens a @${awardedUser.username})` : ''}`
+          : 'Publicación rechazada y ocultada del portal'
+      }, {}, { noStore: true });
+      return;
+    }
+
+    if (pathname === '/api/admin/audit-log' && method === 'GET') {
+      const currentUser = getSessionUser(req);
+      if (!currentUser || currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Acceso denegado' }, {}, { noStore: true });
+        return;
+      }
+      const auditLog = Array.isArray(readJSON(AUDIT_FILE, [])) ? readJSON(AUDIT_FILE, []) : [];
+      sendJSON(req, res, 200, auditLog.slice(0, 300), {}, { noStore: true });
+      return;
+    }
+
+    // ----------------------------------------------------
     // API INGESTIÓN LINKEDIN
     // ----------------------------------------------------
 
@@ -2912,6 +3511,11 @@ const server = http.createServer(async (req, res) => {
       const fallbackImg = createIntelSVG(`LinkedIn // ${currentUser.displayName}`, category, title);
 
       const articles = readJSON(ARTICLES_FILE, []);
+      const policy = getModerationPolicy();
+      const trust = evaluateUserPublishTrust(currentUser, policy, articles);
+      const moderationStatus = trust.autoApprove ? 'approved' : 'pending';
+      const legalTrace = createLegalTrace(req, ip, currentUser, { title, summary, content, sourceUrl: cleanUrl }, body.legalAccepted !== false);
+
       const newDispatch = {
         id: 'svb-ln-' + Date.now(),
         title,
@@ -2923,12 +3527,14 @@ const server = http.createServer(async (req, res) => {
         content,
         tags: extractedTags.slice(0, 6),
         readTime: `${Math.max(1, Math.ceil(content.split(/\s+/).length / 180))} min`,
-        isBreaking: !!body.isBreaking,
+        isBreaking: moderationStatus === 'approved' ? !!body.isBreaking : false,
         isFeatured: false,
         author: currentUser.displayName,
         authorId: currentUser.id,
         authorRole: currentUser.role,
         verifiedLinkedIn: true,
+        moderationStatus,
+        legalTrace,
         date: new Date().toISOString(),
         views: 0
       };
@@ -2936,7 +3542,27 @@ const server = http.createServer(async (req, res) => {
       articles.unshift(newDispatch);
       writeJSON(ARTICLES_FILE, articles, { critical: true });
 
-      sendJSON(req, res, 201, { success: true, message: 'Despacho de LinkedIn importado', article: newDispatch });
+      recordLegalAudit({
+        action: 'publish_linkedin',
+        targetType: 'article',
+        targetId: newDispatch.id,
+        summary: title,
+        currentUser,
+        ip,
+        req,
+        contentHash: legalTrace.contentHash,
+        moderationStatus,
+        meta: { trustReason: trust.reason, tokens: trust.tokens, accountAgeDays: trust.accountAgeDays }
+      });
+
+      sendJSON(req, res, 201, {
+        success: true,
+        moderationStatus,
+        message: moderationStatus === 'approved'
+          ? 'Despacho de LinkedIn publicado en el terminal'
+          : 'Despacho enviado a cola de moderación (requiere aprobación de Admin)',
+        article: stripPrivateArticleFields(newDispatch)
+      });
       return;
     }
 
@@ -2955,7 +3581,17 @@ const server = http.createServer(async (req, res) => {
             .catch(e => console.error('Error en sync bajo demanda:', e));
         }
       }
-      const articles = readJSON(ARTICLES_FILE, []);
+      const viewer = getSessionUser(req);
+      const isAdmin = viewer && viewer.role === 'admin';
+      const articles = readJSON(ARTICLES_FILE, [])
+        .filter(a => {
+          if (!a) return false;
+          const st = a.moderationStatus || 'approved';
+          if (st === 'approved') return true;
+          if (isAdmin) return true;
+          return !!(viewer && st === 'pending' && a.authorId === viewer.id);
+        })
+        .map(stripPrivateArticleFields);
       sendJSON(req, res, 200, articles);
       return;
     }
@@ -2978,21 +3614,54 @@ const server = http.createServer(async (req, res) => {
       }
 
       const articles = readJSON(ARTICLES_FILE, []);
+      const policy = getModerationPolicy();
+      const trust = evaluateUserPublishTrust(currentUser, policy, articles);
+      const moderationStatus = trust.autoApprove ? 'approved' : 'pending';
+      const legalTrace = createLegalTrace(req, ip, currentUser, {
+        title: body.title,
+        category: body.category,
+        summary: body.summary || '',
+        content: body.content || ''
+      }, body.legalAccepted !== false);
+
       const newArticle = sanitizeArticleRecord({
         ...body,
         sourceName: body.sourceName || `LinkedIn // ${currentUser.displayName}`,
         sourceUrl: body.sourceUrl || currentUser.linkedInProfile || '',
-        verifiedLinkedIn: !!currentUser.linkedInProfile
+        verifiedLinkedIn: !!currentUser.linkedInProfile,
+        moderationStatus,
+        isFeatured: moderationStatus === 'approved' ? !!body.isFeatured : false,
+        legalTrace
       }, currentUser);
 
-      if (newArticle.isFeatured) {
+      if (newArticle.isFeatured && moderationStatus === 'approved') {
         articles.forEach(a => { if (a.isFeatured) a.isFeatured = false; });
       }
 
       articles.unshift(newArticle);
       writeJSON(ARTICLES_FILE, articles, { critical: true });
 
-      sendJSON(req, res, 201, { success: true, article: newArticle });
+      recordLegalAudit({
+        action: 'publish_article',
+        targetType: 'article',
+        targetId: newArticle.id,
+        summary: newArticle.title,
+        currentUser,
+        ip,
+        req,
+        contentHash: legalTrace.contentHash,
+        moderationStatus,
+        meta: { trustReason: trust.reason, tokens: trust.tokens, accountAgeDays: trust.accountAgeDays }
+      });
+
+      sendJSON(req, res, 201, {
+        success: true,
+        moderationStatus,
+        message: moderationStatus === 'approved'
+          ? 'Despacho publicado en el terminal.'
+          : 'Despacho enviado a cola de moderación. Un Administrador debe aprobarlo antes de publicarse.',
+        article: stripPrivateArticleFields(newArticle)
+      });
       return;
     }
 
@@ -3019,15 +3688,40 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const updated = sanitizeArticleRecord(body, currentUser, target);
+      const policy = getModerationPolicy();
+      const trust = evaluateUserPublishTrust(currentUser, policy, articles);
+      const nextStatus = trust.autoApprove ? (target.moderationStatus === 'rejected' && currentUser.role !== 'admin' ? 'pending' : 'approved') : 'pending';
+      const legalTrace = createLegalTrace(req, ip, currentUser, {
+        id,
+        title: body.title || target.title,
+        summary: body.summary || target.summary,
+        content: body.content || target.content
+      }, true);
+
+      const updated = sanitizeArticleRecord({
+        ...body,
+        moderationStatus: nextStatus,
+        legalTrace
+      }, currentUser, target);
       updated.modifiedAt = new Date().toISOString();
-      if (updated.isFeatured) {
+      if (updated.isFeatured && nextStatus === 'approved') {
         articles.forEach(a => { if (a.id !== updated.id && a.isFeatured) a.isFeatured = false; });
       }
       articles[index] = updated;
 
       writeJSON(ARTICLES_FILE, articles, { critical: true });
-      sendJSON(req, res, 200, { success: true, article: articles[index] });
+      recordLegalAudit({
+        action: 'edit_article',
+        targetType: 'article',
+        targetId: updated.id,
+        summary: updated.title,
+        currentUser,
+        ip,
+        req,
+        contentHash: legalTrace.contentHash,
+        moderationStatus: nextStatus
+      });
+      sendJSON(req, res, 200, { success: true, moderationStatus: nextStatus, article: stripPrivateArticleFields(articles[index]) });
       return;
     }
 
@@ -3090,6 +3784,7 @@ const server = http.createServer(async (req, res) => {
         const rLikes = Array.isArray(r.likedBy) ? r.likedBy : [];
         return {
           ...r,
+          moderationStatus: ['approved', 'pending', 'rejected'].includes(r.moderationStatus) ? r.moderationStatus : 'approved',
           likedBy: rLikes,
           likes: rLikes.length
         };
@@ -3098,6 +3793,7 @@ const server = http.createServer(async (req, res) => {
       const lastReply = replies.length ? replies[replies.length - 1] : null;
       return {
         ...t,
+        moderationStatus: ['approved', 'pending', 'rejected'].includes(t.moderationStatus) ? t.moderationStatus : 'approved',
         prefix: FORUM_PREFIXES.includes(t.prefix) ? t.prefix : 'Debate',
         pinned: !!t.pinned,
         locked: !!t.locked,
@@ -3109,8 +3805,39 @@ const server = http.createServer(async (req, res) => {
       };
     };
 
+    const stripPrivateForumThread = (t, viewer) => {
+      const norm = normalizeForumThread(t);
+      const isAdmin = viewer && viewer.role === 'admin';
+      const cleanReplies = norm.replies
+        .filter(r => {
+          const st = r.moderationStatus || 'approved';
+          if (st === 'approved') return true;
+          if (isAdmin) return true;
+          return !!(viewer && st === 'pending' && r.authorId === viewer.id);
+        })
+        .map(r => {
+          const { legalTrace, ...pubReply } = r;
+          return pubReply;
+        });
+      const { legalTrace, ...pubThread } = norm;
+      return {
+        ...pubThread,
+        replies: cleanReplies
+      };
+    };
+
     if (pathname === '/api/forum' && method === 'GET') {
-      const threads = readJSON(FORUM_FILE, []).map(normalizeForumThread);
+      const viewer = getSessionUser(req);
+      const isAdmin = viewer && viewer.role === 'admin';
+      const threads = readJSON(FORUM_FILE, [])
+        .map(t => normalizeForumThread(t))
+        .filter(t => {
+          const st = t.moderationStatus || 'approved';
+          if (st === 'approved') return true;
+          if (isAdmin) return true;
+          return !!(viewer && st === 'pending' && t.authorId === viewer.id);
+        })
+        .map(t => stripPrivateForumThread(t, viewer));
       threads.sort((a, b) => {
         if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
         return new Date(b.lastActivityAt || b.createdAt) - new Date(a.lastActivityAt || a.createdAt);
@@ -3143,6 +3870,11 @@ const server = http.createServer(async (req, res) => {
 
       const nowIso = new Date().toISOString();
       const threads = readJSON(FORUM_FILE, []);
+      const policy = getModerationPolicy();
+      const trust = evaluateUserPublishTrust(currentUser, policy, null, threads);
+      const moderationStatus = trust.autoApprove ? 'approved' : 'pending';
+      const legalTrace = createLegalTrace(req, ip, currentUser, { title, category, prefix, body: text }, body.legalAccepted !== false);
+
       const newThread = {
         id: 'frm-' + Date.now(),
         title,
@@ -3157,6 +3889,8 @@ const server = http.createServer(async (req, res) => {
         views: 1,
         likedBy: [],
         likes: 0,
+        moderationStatus,
+        legalTrace,
         createdAt: nowIso,
         lastActivityAt: nowIso,
         replies: []
@@ -3165,7 +3899,28 @@ const server = http.createServer(async (req, res) => {
       threads.unshift(newThread);
       if (threads.length > 200) threads.length = 200;
       writeJSON(FORUM_FILE, threads, { critical: true });
-      sendJSON(req, res, 201, { success: true, thread: newThread });
+
+      recordLegalAudit({
+        action: 'create_thread',
+        targetType: 'thread',
+        targetId: newThread.id,
+        summary: `[${prefix}] ${title}`,
+        currentUser,
+        ip,
+        req,
+        contentHash: legalTrace.contentHash,
+        moderationStatus,
+        meta: { category, trustReason: trust.reason, tokens: trust.tokens, accountAgeDays: trust.accountAgeDays }
+      });
+
+      sendJSON(req, res, 201, {
+        success: true,
+        moderationStatus,
+        message: moderationStatus === 'approved'
+          ? 'Tema publicado en el foro.'
+          : 'Tema enviado a cola de moderación. Un Administrador lo revisará antes de hacerlo visible.',
+        thread: stripPrivateForumThread(newThread, currentUser)
+      });
       return;
     }
 
@@ -3195,10 +3950,19 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const thread = threads[idx];
+      if ((thread.moderationStatus || 'approved') !== 'approved' && currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Este hilo está pendiente de moderación.' });
+        return;
+      }
       if (thread.locked && currentUser.role !== 'admin') {
         sendJSON(req, res, 403, { error: 'Este hilo está cerrado por un administrador.' });
         return;
       }
+
+      const policy = getModerationPolicy();
+      const trust = evaluateUserPublishTrust(currentUser, policy, null, threads);
+      const moderationStatus = trust.autoApprove ? 'approved' : 'pending';
+      const legalTrace = createLegalTrace(req, ip, currentUser, { threadId, text }, body.legalAccepted !== false);
 
       const reply = {
         id: 'rep-' + Date.now(),
@@ -3208,15 +3972,42 @@ const server = http.createServer(async (req, res) => {
         authorRole: currentUser.role,
         likedBy: [],
         likes: 0,
+        moderationStatus,
+        legalTrace,
         createdAt: new Date().toISOString()
       };
 
       if (!Array.isArray(thread.replies)) thread.replies = [];
       thread.replies.push(reply);
-      thread.lastActivityAt = reply.createdAt;
+      if (moderationStatus === 'approved') {
+        thread.lastActivityAt = reply.createdAt;
+      }
       threads[idx] = normalizeForumThread(thread);
       writeJSON(FORUM_FILE, threads, { critical: true });
-      sendJSON(req, res, 201, { success: true, reply, thread: threads[idx] });
+
+      recordLegalAudit({
+        action: 'post_reply',
+        targetType: 'reply',
+        targetId: `${thread.id}/${reply.id}`,
+        summary: `${thread.title} // ${text.slice(0, 80)}`,
+        currentUser,
+        ip,
+        req,
+        contentHash: legalTrace.contentHash,
+        moderationStatus,
+        meta: { threadId: thread.id, trustReason: trust.reason }
+      });
+
+      const { legalTrace: _rlt, ...pubReply } = reply;
+      sendJSON(req, res, 201, {
+        success: true,
+        moderationStatus,
+        message: moderationStatus === 'approved'
+          ? 'Respuesta publicada.'
+          : 'Respuesta enviada a moderación antes de hacerse visible.',
+        reply: pubReply,
+        thread: stripPrivateForumThread(threads[idx], currentUser)
+      });
       return;
     }
 
@@ -3267,7 +4058,7 @@ const server = http.createServer(async (req, res) => {
       targetObj.likes = targetObj.likedBy.length;
       threads[idx] = normalizeForumThread(thread);
       writeJSON(FORUM_FILE, threads, { critical: true });
-      sendJSON(req, res, 200, { success: true, thread: threads[idx] });
+      sendJSON(req, res, 200, { success: true, thread: stripPrivateForumThread(threads[idx], currentUser) });
       return;
     }
 
@@ -3297,7 +4088,7 @@ const server = http.createServer(async (req, res) => {
       }
       threads[idx] = thread;
       writeJSON(FORUM_FILE, threads, { critical: true });
-      sendJSON(req, res, 200, { success: true, thread });
+      sendJSON(req, res, 200, { success: true, thread: stripPrivateForumThread(thread, currentUser) });
       return;
     }
 
@@ -3329,7 +4120,7 @@ const server = http.createServer(async (req, res) => {
       thread.replies = thread.replies.filter(r => r.id !== replyId);
       threads[idx] = thread;
       writeJSON(FORUM_FILE, threads, { critical: true });
-      sendJSON(req, res, 200, { success: true, thread });
+      sendJSON(req, res, 200, { success: true, thread: stripPrivateForumThread(thread, currentUser) });
       return;
     }
 
@@ -3901,7 +4692,7 @@ const server = http.createServer(async (req, res) => {
       const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'cyberpolis.onrender.com').split(',')[0].trim().replace(/[^a-zA-Z0-9.\-:]/g, '');
       const baseUrl = `${proto}://${host}`;
       const escapeXml = str => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-      const articles = readJSON(ARTICLES_FILE, []);
+      const articles = readJSON(ARTICLES_FILE, []).filter(a => a && (!a.moderationStatus || a.moderationStatus === 'approved'));
       const todayIso = new Date().toISOString().slice(0, 10);
 
       const staticUrls = [

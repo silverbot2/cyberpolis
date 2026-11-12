@@ -103,6 +103,7 @@
     },
     adminMetrics: null,
     adminUsers: [],
+    adminModeration: null,
     systemStatus: null,
     adminUserSearch: '',
     resetPasswordUserId: null,
@@ -439,6 +440,7 @@
     closeAdminControlBtn: document.getElementById('closeAdminControlBtn'),
     closeAdminModalFooterBtn: document.getElementById('closeAdminModalFooterBtn'),
     adminTabFeedsBtn: document.getElementById('adminTabFeedsBtn'),
+    adminTabModerationBtn: document.getElementById('adminTabModerationBtn'),
     adminTabMetricsBtn: document.getElementById('adminTabMetricsBtn'),
     adminTabUsersBtn: document.getElementById('adminTabUsersBtn'),
     adminTabTransformBtn: document.getElementById('adminTabTransformBtn'),
@@ -446,12 +448,25 @@
     adminTabAdsBtn: document.getElementById('adminTabAdsBtn'),
     adminTabSecurityBtn: document.getElementById('adminTabSecurityBtn'),
     adminFeedsSection: document.getElementById('adminFeedsSection'),
+    adminModerationSection: document.getElementById('adminModerationSection'),
     adminMetricsSection: document.getElementById('adminMetricsSection'),
     adminUsersSection: document.getElementById('adminUsersSection'),
     adminTransformSection: document.getElementById('adminTransformSection'),
     adminChatSection: document.getElementById('adminChatSection'),
     adminAdsSection: document.getElementById('adminAdsSection'),
     adminSecuritySection: document.getElementById('adminSecuritySection'),
+    refreshModerationBtn: document.getElementById('refreshModerationBtn'),
+    modPolicyForm: document.getElementById('modPolicyForm'),
+    modPolicyRequireModeration: document.getElementById('modPolicyRequireModeration'),
+    modMinAgeDays: document.getElementById('modMinAgeDays'),
+    modMinTokens: document.getElementById('modMinTokens'),
+    modMinApproved: document.getElementById('modMinApproved'),
+    modTokensArticle: document.getElementById('modTokensArticle'),
+    modTokensThread: document.getElementById('modTokensThread'),
+    modTokensReply: document.getElementById('modTokensReply'),
+    modPendingCountBadge: document.getElementById('modPendingCountBadge'),
+    adminModPendingList: document.getElementById('adminModPendingList'),
+    adminAuditLogList: document.getElementById('adminAuditLogList'),
     portalChatShell: document.getElementById('portalChatShell'),
     ircLateralPanel: document.getElementById('ircLateralPanel'),
     mircWindow: document.getElementById('mircWindow'),
@@ -567,6 +582,7 @@
     regDisplayName: document.getElementById('regDisplayName'),
     regPassword: document.getElementById('regPassword'),
     regLinkedIn: document.getElementById('regLinkedIn'),
+    regLegalAccept: document.getElementById('regLegalAccept'),
     cancelAuthBtn: document.getElementById('cancelAuthBtn'),
     cancelRegisterBtn: document.getElementById('cancelRegisterBtn'),
 
@@ -1096,6 +1112,7 @@
   function switchAdminTab(tab) {
     const panels = {
       feeds: [DOM.adminTabFeedsBtn, DOM.adminFeedsSection],
+      moderation: [DOM.adminTabModerationBtn, DOM.adminModerationSection],
       metrics: [DOM.adminTabMetricsBtn, DOM.adminMetricsSection],
       users: [DOM.adminTabUsersBtn, DOM.adminUsersSection],
       transform: [DOM.adminTabTransformBtn, DOM.adminTransformSection],
@@ -1108,6 +1125,7 @@
       if (btn) btn.classList.toggle('active', isActive);
       if (sec) sec.style.display = isActive ? 'block' : 'none';
     }
+    if (tab === 'moderation') loadAdminModeration();
     if (tab === 'metrics') loadAdminMetrics();
     if (tab === 'users') loadAdminUsers();
     if (tab === 'chat') loadAdminChatModeration();
@@ -1479,6 +1497,12 @@
       return;
     }
 
+    const legalAccepted = !DOM.regLegalAccept || !!DOM.regLegalAccept.checked;
+    if (!legalAccepted) {
+      showToast('Debes aceptar la cláusula de responsabilidad legal y trazabilidad IP.', 'error');
+      return;
+    }
+
     if (!state.serverMode) {
       showToast('El registro requiere conexión activa con el servidor.', 'error');
       return;
@@ -1488,7 +1512,7 @@
       const res = await apiFetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, displayName, linkedInProfile })
+        body: JSON.stringify({ username, password, displayName, linkedInProfile, legalAccepted: true })
       });
       const data = await res.json();
       if (!res.ok) {
@@ -1616,7 +1640,7 @@
         const res = await apiFetch('/api/linkedin/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rawUrl, postText, customTitle, categoryHint, isBreaking })
+          body: JSON.stringify({ rawUrl, postText, customTitle, categoryHint, isBreaking, legalAccepted: true })
         });
         const data = await res.json();
         if (!res.ok) {
@@ -1628,7 +1652,7 @@
         closeLinkedInModal();
         DOM.linkedInIngestionForm.reset();
         renderAll();
-        showToast('¡Despacho de LinkedIn importado y verificado!');
+        showToast(data.message || '¡Despacho de LinkedIn procesado!');
         return;
       } catch (err) {
         showToast('Fallo al conectar con el motor de LinkedIn.', 'error');
@@ -2254,6 +2278,7 @@
         <div class="dispatch-card-body">
           <div class="dispatch-card-telemetry">
             <span class="dispatch-source">${escapeHtml(sourceShort)}</span>
+            ${a.moderationStatus === 'pending' ? '<span class="status-pending-badge">⏳ Pendiente de revisión</span>' : ''}
             <span>${relativeTime}</span>
           </div>
 
@@ -2520,7 +2545,7 @@
           method,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            title, category, sourceName, sourceUrl, imageUrl, summary, content, tags, readTime, isBreaking, isFeatured
+            title, category, sourceName, sourceUrl, imageUrl, summary, content, tags, readTime, isBreaking, isFeatured, legalAccepted: true
           })
         });
         const data = await res.json();
@@ -2532,10 +2557,10 @@
         if (editId) {
           const idx = state.articles.findIndex(a => a.id === editId);
           if (idx !== -1) state.articles[idx] = data.article;
-          showToast('Despacho actualizado con éxito.');
+          showToast(data.moderationStatus === 'pending' ? 'Edición enviada a moderación.' : 'Despacho actualizado con éxito.');
         } else {
           state.articles.unshift(data.article);
-          showToast('Despacho publicado en el terminal.');
+          showToast(data.message || 'Despacho publicado en el terminal.');
         }
 
         closeFormModal();
@@ -2986,12 +3011,29 @@
     if (DOM.closeAdminControlBtn) DOM.closeAdminControlBtn.addEventListener('click', closeAdminControl);
     if (DOM.closeAdminModalFooterBtn) DOM.closeAdminModalFooterBtn.addEventListener('click', closeAdminControl);
     if (DOM.adminTabFeedsBtn) DOM.adminTabFeedsBtn.addEventListener('click', () => switchAdminTab('feeds'));
+    if (DOM.adminTabModerationBtn) DOM.adminTabModerationBtn.addEventListener('click', () => switchAdminTab('moderation'));
     if (DOM.adminTabMetricsBtn) DOM.adminTabMetricsBtn.addEventListener('click', () => switchAdminTab('metrics'));
     if (DOM.adminTabUsersBtn) DOM.adminTabUsersBtn.addEventListener('click', () => switchAdminTab('users'));
     if (DOM.adminTabTransformBtn) DOM.adminTabTransformBtn.addEventListener('click', () => switchAdminTab('transform'));
     if (DOM.adminTabChatBtn) DOM.adminTabChatBtn.addEventListener('click', () => switchAdminTab('chat'));
     if (DOM.adminTabAdsBtn) DOM.adminTabAdsBtn.addEventListener('click', () => switchAdminTab('ads'));
     if (DOM.adminTabSecurityBtn) DOM.adminTabSecurityBtn.addEventListener('click', () => switchAdminTab('security'));
+
+    if (DOM.refreshModerationBtn) DOM.refreshModerationBtn.addEventListener('click', loadAdminModeration);
+    if (DOM.modPolicyForm) DOM.modPolicyForm.addEventListener('submit', handleSaveModPolicy);
+    if (DOM.adminModPendingList) {
+      DOM.adminModPendingList.addEventListener('click', e => {
+        const decBtn = e.target.closest('[data-mod-decision]');
+        if (decBtn) {
+          handleModDecision(
+            decBtn.dataset.modType,
+            decBtn.dataset.modId,
+            decBtn.dataset.modReplyId || '',
+            decBtn.dataset.modDecision
+          );
+        }
+      });
+    }
 
     // Eventos del Chat IRC Lateral (mIRC32) y Moderación Admin
     if (DOM.ircChatForm) DOM.ircChatForm.addEventListener('submit', handleIrcChatSubmit);
@@ -3330,6 +3372,18 @@
         const deleteConfirm = e.target.closest('[data-user-delete-confirm]');
         if (deleteConfirm) {
           handleAdminDeleteUser(deleteConfirm.dataset.userDeleteConfirm);
+          return;
+        }
+        const trustTokensBtn = e.target.closest('[data-user-trust-delta]');
+        if (trustTokensBtn) {
+          handleAdminUserTrust(trustTokensBtn.dataset.userTrustDelta, { deltaTokens: parseInt(trustTokensBtn.dataset.delta || '10', 10) });
+          return;
+        }
+        const trustVerifyBtn = e.target.closest('[data-user-trust-verify]');
+        if (trustVerifyBtn) {
+          handleAdminUserTrust(trustVerifyBtn.dataset.userTrustVerify, {
+            trustedPublisher: trustVerifyBtn.dataset.nextTrusted === '1'
+          });
         }
       });
 
@@ -4043,6 +4097,9 @@
             <label for="forumThreadBody" class="hud-label">MENSAJE * (soporta [quote=Autor]...[/quote] y bloques \`\`\`código\`\`\`)</label>
             <textarea id="forumThreadBody" class="hud-textarea" rows="5" maxlength="4000" required placeholder="Expón tu tutorial, noticia, análisis técnico o consulta..."></textarea>
           </div>
+          <div class="legal-notice-box" style="margin-bottom: 12px;">
+            ⚖️ <strong>Responsabilidad Legal y Pre-moderación:</strong> Tu hilo quedará vinculado legalmente a tu cuenta, huella SHA-256 e IP de conexión. Si aún no alcanzas la antigüedad o tokens requeridos, un Administrador lo aprobará antes de publicarse.
+          </div>
           <div class="modal-footer-actions">
             <button type="button" id="cancelForumComposerBtn" class="hud-btn hud-btn-outline">Cancelar</button>
             <button type="submit" class="hud-btn hud-btn-action">Publicar tema</button>
@@ -4062,6 +4119,7 @@
         <div class="htc-thread-status" title="${t.pinned ? 'Tema fijado (Chincheta)' : (t.locked ? 'Hilo cerrado' : 'Tema abierto')}">${statusIcon}</div>
         <div class="htc-thread-title-wrap">
           <div class="htc-thread-headline">
+            ${t.moderationStatus === 'pending' ? '<span class="status-pending-badge">⏳ Pendiente de revisión</span>' : ''}
             ${t.pinned ? '<span class="htc-sticky-tag">CHINCHETA</span>' : ''}
             ${t.locked ? '<span class="htc-locked-tag">CERRADO</span>' : ''}
             ${getForumPrefixBadgeHtml(t.prefix)}
@@ -4113,6 +4171,7 @@
           id: thread.id,
           isOp: true,
           num: 1,
+          moderationStatus: thread.moderationStatus || 'approved',
           author: thread.author || 'Anónimo',
           authorId: thread.authorId || '',
           authorRole: thread.authorRole || 'analyst',
@@ -4125,6 +4184,7 @@
           id: r.id,
           isOp: false,
           num: i + 2,
+          moderationStatus: r.moderationStatus || 'approved',
           author: r.author || 'Usuario',
           authorId: r.authorId || '',
           authorRole: r.authorRole || 'analyst',
@@ -4184,7 +4244,7 @@
         return `
           <article class="htc-post-card">
             <div class="htc-post-topbar">
-              <span>🕒 Publicado ${getRelativeTime(p.createdAt)}</span>
+              <span>🕒 Publicado ${getRelativeTime(p.createdAt)} ${p.moderationStatus === 'pending' ? '<span class="status-pending-badge" style="margin-left:6px;">⏳ Pendiente de revisión Admin</span>' : ''}</span>
               <span class="htc-post-num">#${p.num}</span>
             </div>
             <div class="htc-post-grid">
@@ -4234,6 +4294,9 @@
             <form class="forum-reply-form" data-thread-id="${escapeHtml(thread.id)}">
               <div class="form-field">
                 <textarea id="forumQuickReplyText" class="hud-textarea" name="replyText" rows="4" maxlength="2500" required placeholder="Escribe tu respuesta... Puedes pulsar 'Citar' en cualquier post para responder a alguien en concreto."></textarea>
+              </div>
+              <div class="legal-notice-box" style="margin-bottom: 10px;">
+                ⚖️ <strong>Trazabilidad Legal:</strong> Respuesta vinculada a tu usuario, hash SHA-256 e IP de conexión (sujeta a pre-moderación si corresponde).
               </div>
               <div class="modal-footer-actions">
                 <button type="submit" class="hud-btn hud-btn-action">Publicar respuesta</button>
@@ -4560,7 +4623,7 @@
         const res = await apiFetch('/api/forum', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, category, prefix, body })
+          body: JSON.stringify({ title, category, prefix, body, legalAccepted: true })
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -4575,7 +4638,7 @@
         state.forumView = 'thread';
         updateForumCount();
         renderForum();
-        showToast('¡Tema publicado en el foro!');
+        showToast(data.message || '¡Tema enviado en el foro!');
         return;
       } catch (e) {}
     }
@@ -4624,7 +4687,7 @@
         const res = await apiFetch(`/api/forum/${encodeURIComponent(threadId)}/reply`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text })
+          body: JSON.stringify({ text, legalAccepted: true })
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -4635,7 +4698,7 @@
         if (idx !== -1 && data.thread) state.forumThreads[idx] = data.thread;
         localStorage.setItem('silverbot_forum_cache', JSON.stringify(state.forumThreads));
         renderForum();
-        showToast('Respuesta publicada.');
+        showToast(data.message || 'Respuesta registrada.');
         return;
       } catch (e) {}
     }
@@ -5112,14 +5175,22 @@
                 <span class="admin-user-handle">@${escapeHtml(u.username)}</span>
                 <span class="user-role-badge ${u.role === 'admin' ? 'admin' : 'analyst'}">${u.role === 'admin' ? 'ADMIN' : 'USUARIO'}</span>
                 <span class="user-status-badge ${isSuspended ? 'suspended' : 'active'}">${isSuspended ? 'SUSPENDIDO' : 'ACTIVO'}</span>
+                ${u.autoPublishEligible ? '<span class="user-trust-badge">✓ PUBLICACIÓN DIRECTA</span>' : ''}
                 ${isSelf ? '<span class="user-status-badge active">TÚ</span>' : ''}
               </div>
               <div class="admin-user-meta">
-                ${u.email ? `${escapeHtml(u.email)} · ` : ''}Alta: ${escapeHtml(created)} · Último acceso: ${escapeHtml(lastLogin)} · ${u.articlesCount || 0} noticias · ${u.forumThreadsCount || 0} hilos · ${u.activeSessions || 0} sesiones
+                ${u.email ? `${escapeHtml(u.email)} · ` : ''}Alta: ${escapeHtml(created)} (${Number(u.accountAgeDays) || 0}d) · 🪙 ${Number(u.tokens) || 0} tokens · ✓ ${Number(u.approvedPosts) || 0} aprobados · Último acceso: ${escapeHtml(lastLogin)} · ${u.articlesCount || 0} noticias · ${u.forumThreadsCount || 0} hilos · ${u.activeSessions || 0} sesiones
+                ${(u.registrationIp || u.lastLoginIp) ? `<br><span style="font-family:var(--font-mono);font-size:0.71rem;">🌐 IP Registro: ${escapeHtml(u.registrationIp || '—')} · Última IP: ${escapeHtml(u.lastLoginIp || '—')}</span>` : ''}
               </div>
             </div>
 
             <div class="admin-user-controls">
+              <button type="button" class="hud-btn hud-btn-outline" data-user-trust-delta="${escapeHtml(u.id)}" data-delta="10" title="Otorgar +10 tokens de confianza">+10 Tokens</button>
+              ${u.role !== 'admin' ? `
+                <button type="button" class="hud-btn hud-btn-outline" data-user-trust-verify="${escapeHtml(u.id)}" data-next-trusted="${u.trustedPublisher ? '0' : '1'}">
+                  ${u.trustedPublisher ? '🔓 Quitar verificado' : '✓ Verificar autor'}
+                </button>
+              ` : ''}
               <select class="admin-role-select" data-user-role-id="${escapeHtml(u.id)}" ${isSelf ? 'disabled title="No puedes cambiar tu propio rol"' : ''}>
                 <option value="analyst" ${u.role !== 'admin' ? 'selected' : ''}>Usuario</option>
                 <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
@@ -5153,6 +5224,181 @@
         </div>
       `;
     }).join('');
+  }
+
+  async function loadAdminModeration() {
+    if (!state.currentUser || state.currentUser.role !== 'admin') return;
+    try {
+      const res = await apiFetch('/api/admin/moderation');
+      if (!res.ok) {
+        if (DOM.adminModPendingList) {
+          DOM.adminModPendingList.innerHTML = '<p class="admin-help-text">No se pudo cargar la cola de moderación.</p>';
+        }
+        return;
+      }
+      const data = await res.json();
+      state.adminModeration = data;
+      renderAdminModeration();
+    } catch (err) {
+      if (DOM.adminModPendingList) {
+        DOM.adminModPendingList.innerHTML = '<p class="admin-help-text">Error de red al cargar la moderación.</p>';
+      }
+    }
+  }
+
+  function renderAdminModeration() {
+    const data = state.adminModeration;
+    if (!data) return;
+
+    const p = data.policy || {};
+    if (DOM.modPolicyRequireModeration) DOM.modPolicyRequireModeration.checked = p.requireModeration !== false;
+    if (DOM.modMinAgeDays) DOM.modMinAgeDays.value = Number(p.minAccountAgeDays) ?? 7;
+    if (DOM.modMinTokens) DOM.modMinTokens.value = Number(p.minTrustTokens) ?? 20;
+    if (DOM.modMinApproved) DOM.modMinApproved.value = Number(p.minApprovedPosts) ?? 3;
+    if (DOM.modTokensArticle) DOM.modTokensArticle.value = Number(p.tokensPerApprovedArticle) ?? 10;
+    if (DOM.modTokensThread) DOM.modTokensThread.value = Number(p.tokensPerApprovedThread) ?? 5;
+    if (DOM.modTokensReply) DOM.modTokensReply.value = Number(p.tokensPerApprovedReply) ?? 2;
+
+    const allPending = [
+      ...(data.pendingArticles || []),
+      ...(data.pendingThreads || []),
+      ...(data.pendingReplies || [])
+    ].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+    if (DOM.modPendingCountBadge) {
+      DOM.modPendingCountBadge.textContent = String(allPending.length);
+    }
+
+    if (DOM.adminModPendingList) {
+      if (allPending.length === 0) {
+        DOM.adminModPendingList.innerHTML = '<p class="admin-help-text">✅ No hay publicaciones pendientes de aprobación en este momento.</p>';
+      } else {
+        DOM.adminModPendingList.innerHTML = allPending.map(item => {
+          const typeLabel = item.targetType === 'article' ? '📰 NOTICIA WEB' : (item.targetType === 'thread' ? '💬 HILO FORO' : '↩ RESPUESTA FORO');
+          const title = item.targetType === 'reply' ? `Re: ${item.threadTitle || item.id}` : (item.title || 'Sin título');
+          const trace = item.legalTrace || {};
+          const trust = item.authorTrust || {};
+          const dateStr = item.createdAt ? new Date(item.createdAt).toLocaleString('es-ES') : '—';
+          return `
+            <div class="mod-pending-card">
+              <div class="mod-pending-top">
+                <div>
+                  <span class="status-pending-badge" style="margin-bottom:4px;">${typeLabel}</span>
+                  <h5 class="mod-pending-title">${escapeHtml(title)}</h5>
+                </div>
+                <span style="font-size:0.74rem; color:var(--text-muted);">${escapeHtml(dateStr)}</span>
+              </div>
+              <p class="mod-pending-preview">${escapeHtml(item.contentPreview || item.summary || '')}</p>
+              <div class="mod-trace-strip">
+                <span>👤 Autor: <strong>${escapeHtml(item.author || trust.username || 'Usuario')}</strong> (@${escapeHtml(trust.username || '—')})</span>
+                <span>🪙 Tokens: <strong>${Number(trust.tokens) || 0}</strong></span>
+                <span>⏳ Antigüedad: <strong>${Number(trust.accountAgeDays) || 0}d</strong></span>
+                <span>🌐 IP: <strong>${escapeHtml(trace.ip || 'No registrada')}</strong></span>
+                <span>🔐 SHA-256: <strong>${escapeHtml((trace.contentHash || '').slice(0, 16) || '—')}</strong></span>
+              </div>
+              <div class="mod-pending-actions">
+                <button type="button" class="hud-btn hud-btn-action" data-mod-decision="approve" data-mod-type="${escapeHtml(item.targetType)}" data-mod-id="${escapeHtml(item.id)}" data-mod-reply-id="${escapeHtml(item.replyId || '')}">✅ Aprobar y dar tokens</button>
+                <button type="button" class="hud-btn hud-btn-danger" data-mod-decision="reject" data-mod-type="${escapeHtml(item.targetType)}" data-mod-id="${escapeHtml(item.id)}" data-mod-reply-id="${escapeHtml(item.replyId || '')}">❌ Rechazar</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    if (DOM.adminAuditLogList) {
+      const logs = Array.isArray(data.auditLog) ? data.auditLog : [];
+      if (logs.length === 0) {
+        DOM.adminAuditLogList.innerHTML = '<p class="admin-help-text" style="padding:10px;">Sin registros en la bitácora legal todavía.</p>';
+      } else {
+        DOM.adminAuditLogList.innerHTML = logs.map(l => {
+          const ts = l.timestamp ? new Date(l.timestamp).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
+          return `
+            <div class="audit-log-row">
+              <span class="audit-log-mono">${escapeHtml(ts)}</span>
+              <span class="audit-log-mono"><strong>${escapeHtml(l.action || '')}</strong></span>
+              <span title="${escapeHtml(l.summary || '')}">${escapeHtml(l.summary || '')} ${l.contentHash ? `<span class="audit-log-mono">[#${escapeHtml(l.contentHash.slice(0, 10))}]</span>` : ''}</span>
+              <span class="audit-log-mono" title="${escapeHtml(l.userAgent || '')}">@${escapeHtml(l.username || 'sys')} · ${escapeHtml(l.ip || '—')}</span>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+  }
+
+  async function handleSaveModPolicy(e) {
+    e.preventDefault();
+    if (!state.currentUser || state.currentUser.role !== 'admin') return;
+    const payload = {
+      requireModeration: DOM.modPolicyRequireModeration ? !!DOM.modPolicyRequireModeration.checked : true,
+      minAccountAgeDays: DOM.modMinAgeDays ? parseInt(DOM.modMinAgeDays.value, 10) : 7,
+      minTrustTokens: DOM.modMinTokens ? parseInt(DOM.modMinTokens.value, 10) : 20,
+      minApprovedPosts: DOM.modMinApproved ? parseInt(DOM.modMinApproved.value, 10) : 3,
+      tokensPerApprovedArticle: DOM.modTokensArticle ? parseInt(DOM.modTokensArticle.value, 10) : 10,
+      tokensPerApprovedThread: DOM.modTokensThread ? parseInt(DOM.modTokensThread.value, 10) : 5,
+      tokensPerApprovedReply: DOM.modTokensReply ? parseInt(DOM.modTokensReply.value, 10) : 2
+    };
+    try {
+      const res = await apiFetch('/api/admin/moderation/policy', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || 'No se pudo guardar la política.', 'error');
+        return;
+      }
+      state.config.moderationPolicy = data.policy;
+      showToast(data.message || 'Política de moderación guardada.');
+      loadAdminModeration();
+    } catch (err) {
+      showToast('Error al guardar política.', 'error');
+    }
+  }
+
+  async function handleModDecision(targetType, id, replyId, decision) {
+    if (!state.currentUser || state.currentUser.role !== 'admin') return;
+    try {
+      const res = await apiFetch('/api/admin/moderation/decision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetType, id, replyId, decision })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || 'Error al aplicar moderación.', 'error');
+        return;
+      }
+      showToast(data.message || 'Moderación aplicada.');
+      await loadAdminModeration();
+      await loadArticles();
+      await loadForum();
+      renderAll();
+      renderForum();
+    } catch (err) {
+      showToast('Error de red al moderar publicación.', 'error');
+    }
+  }
+
+  async function handleAdminUserTrust(userId, payload) {
+    if (!state.currentUser || state.currentUser.role !== 'admin') return;
+    try {
+      const res = await apiFetch(`/api/admin/users/${encodeURIComponent(userId)}/trust`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || 'No se pudo actualizar la confianza del usuario.', 'error');
+        return;
+      }
+      showToast(data.message || 'Confianza actualizada.');
+      loadAdminUsers();
+    } catch (err) {
+      showToast('Error de red al actualizar tokens.', 'error');
+    }
   }
 
   async function handleAdminCreateUser(e) {
