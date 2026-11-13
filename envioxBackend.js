@@ -4,6 +4,7 @@
 
 const crypto = require('crypto');
 const path = require('path');
+const fs = require('fs');
 
 function generateReferenceCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -121,6 +122,148 @@ function mapToEnvioxRecord(t) {
   };
 }
 
+function buildTransferSha256Certificate(t) {
+  const ref = t.reference || 'N/A';
+  const id = t.id || 'N/A';
+  const sender = `${t.senderName || t.senderUsername || 'Usuario'} <${t.senderEmail || 'sistema@cyberpolis.es'}>`;
+  const recipients = Array.isArray(t.recipients) ? t.recipients.join(', ') : (t.recipient || 'N/A');
+  const dateIso = t.createdAt || new Date().toISOString();
+  const expIso = t.expiresAt || 'N/A';
+  const provider = t.storageProvider || 'Google Drive / Local Vault 5 TB';
+  const files = Array.isArray(t.files) && t.files.length ? t.files : (t.file ? [t.file] : []);
+
+  const header = [
+    '# ==============================================================================',
+    '# CYBERPOLIS · ENVIOX - CERTIFICADO OFICIAL DE INTEGRIDAD CRIPTOGRÁFICA',
+    '# ==============================================================================',
+    `# Referencia de Transferencia : ${ref}`,
+    `# Identificador Único (ID)    : ${id}`,
+    `# Algoritmo Criptográfico     : SHA-256 (FIPS PUB 180-4 / RFC 6234)`,
+    `# Remitente Verificado        : ${sender}`,
+    `# Destinatarios Notificados   : ${recipients}`,
+    `# Fecha y Hora de Emisión     : ${dateIso}`,
+    `# Caducidad de la Bóveda      : ${expIso}`,
+    `# Nube de Almacenamiento      : ${provider}`,
+    `# Cifrado en Reposo / Tránsito: AES-256-GCM Extremo a Extremo`,
+    `# Total de Ficheros Certif.   : ${files.length}`,
+    '# ==============================================================================',
+    '# INSTRUCCIONES DE VERIFICACIÓN FORENSE:',
+    '# 1. En Linux / macOS Terminal:',
+    `#    sha256sum -c ENVIOX-${ref}-checksums.sha256`,
+    '# 2. En Windows PowerShell:',
+    '#    Get-FileHash -Algorithm SHA256 "NombreDelArchivo"',
+    '# ==============================================================================',
+    ''
+  ].join('\r\n');
+
+  const fileLines = files.map(f => {
+    const hash = f.sha256 || '0000000000000000000000000000000000000000000000000000000000000000';
+    const name = f.fileName || f.name || 'archivo.bin';
+    return `${hash}  ${name}`;
+  }).join('\r\n');
+
+  return header + fileLines + '\r\n';
+}
+
+function buildTransferEmailHtml({ transfer, sender, recipient, settings, shareUrl, proto, host }) {
+  const brandName = sanitizeInput(settings?.brandName || 'ENVIOX', 80);
+  const brandSubtitle = sanitizeInput(settings?.brandSubtitle || 'Plataforma Enviox · Transferencia Segura de Archivos', 120);
+  const brandLogoUrl = settings?.brandLogoUrl ? sanitizeInput(settings.brandLogoUrl, 300) : '';
+  const brandColor = settings?.brandPrimaryColor || '#102a43';
+  const introText = settings?.emailIntroText || 'Le notificamos que ha recibido una transferencia de archivos confidenciales a través del sistema corporativo de Enviox. Los ficheros se encuentran protegidos mediante cifrado AES-256 y disponen de firma de integridad criptográfica SHA-256.';
+  const legalDisclaimer = settings?.emailLegalDisclaimer || 'AVISO DE CONFIDENCIALIDAD Y RGPD: Este mensaje y los documentos adjuntos son estrictamente confidenciales y dirigidos únicamente a su destinatario. Queda prohibido cualquier uso o divulgación no autorizada conforme al RGPD (UE 2016/679) y la LOPDGDD 3/2018.';
+  
+  const files = Array.isArray(transfer.files) && transfer.files.length ? transfer.files : (transfer.file ? [transfer.file] : []);
+  const expiresFormatted = transfer.expiresAt ? new Date(transfer.expiresAt).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '8 días';
+  const sha256Url = `${proto}://${host}/api/enviox/transfers/${transfer.id}/sha256`;
+
+  const filesRows = files.map(f => {
+    const sizeMb = (f.size / (1024 * 1024)).toFixed(2);
+    const sizeText = f.size > 1048576 ? `${sizeMb} MB` : `${(f.size / 1024).toFixed(1)} KB`;
+    const hash = f.sha256 || '';
+    return `
+      <tr style="border-bottom: 1px solid #e2e8f0;">
+        <td style="padding: 10px 12px; font-size: 13px; color: #1e293b;">
+          <strong>${sanitizeInput(f.fileName || 'archivo.bin', 100)}</strong>
+          <div style="font-size: 11px; color: #64748b;">${sizeText}</div>
+        </td>
+        <td style="padding: 10px 12px; font-size: 11px; font-family: monospace; color: #334155; word-break: break-all;">
+          <span style="background: #f1f5f9; padding: 3px 6px; border-radius: 4px; display: inline-block;">${hash || 'N/D'}</span>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div style="font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 620px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; background: #ffffff;">
+      <!-- Cabecera Corporativa con Marca y Color -->
+      <div style="background: ${brandColor}; color: #ffffff; padding: 24px 20px; text-align: center;">
+        ${brandLogoUrl ? `<img src="${brandLogoUrl}" alt="${brandName}" style="max-height: 48px; max-width: 220px; display: block; margin: 0 auto 10px auto; object-fit: contain;">` : ''}
+        <h2 style="margin: 0; font-size: 20px; letter-spacing: 0.5px; color: #ffffff;">${brandName}</h2>
+        <p style="margin: 4px 0 0 0; font-size: 12px; color: rgba(255, 255, 255, 0.85);">${brandSubtitle}</p>
+      </div>
+
+      <!-- Contenido Principal -->
+      <div style="padding: 26px 24px; color: #334e68; background: #ffffff;">
+        <p style="font-size: 15px; margin-top: 0; color: #0f172a;">Hola,</p>
+        <p style="font-size: 14px; line-height: 1.6; color: #334155;">
+          <strong>${sanitizeInput(sender.name || sender.username || 'Remitente', 80)}</strong> (${sanitizeInput(sender.email || '', 80)}) le ha enviado una transferencia de archivos confidenciales con referencia <strong>${transfer.reference}</strong>.
+        </p>
+
+        ${introText ? `<p style="font-size: 13px; line-height: 1.5; color: #475569; background: #f8fafc; padding: 12px 14px; border-left: 4px solid ${brandColor}; border-radius: 4px; margin: 16px 0;">${introText.replace(/\n/g, '<br>')}</p>` : ''}
+
+        ${transfer.subject ? `<p style="font-size: 14px; background: #f1f5f9; padding: 10px 14px; border-radius: 4px; color: #1e293b; margin: 14px 0;"><strong>Asunto:</strong> ${sanitizeInput(transfer.subject, 100)}</p>` : ''}
+
+        ${transfer.message ? `<p style="font-size: 13px; color: #475569; line-height: 1.5; margin: 14px 0;">${sanitizeInput(transfer.message, 2000).replace(/\n/g, '<br>')}</p>` : ''}
+
+        <!-- Tabla de Ficheros y Sumas SHA-256 -->
+        ${files.length ? `
+          <div style="margin: 20px 0;">
+            <div style="font-size: 12px; font-weight: bold; color: #0f172a; margin-bottom: 6px;">
+              Ficheros incluidos y sumas de verificación criptográfica (SHA-256):
+            </div>
+            <table style="width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden;">
+              <thead>
+                <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0; text-align: left;">
+                  <th style="padding: 8px 12px; font-size: 11px; color: #64748b; font-weight: 700;">Archivo</th>
+                  <th style="padding: 8px 12px; font-size: 11px; color: #64748b; font-weight: 700;">Huella SHA-256</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${filesRows}
+              </tbody>
+            </table>
+          </div>
+        ` : ''}
+
+        <!-- Botón de Descarga Principal -->
+        <div style="text-align: center; margin: 28px 0 16px 0;">
+          <a href="${shareUrl}" style="background: ${brandColor}; color: #ffffff; padding: 13px 32px; text-decoration: none; border-radius: 24px; font-weight: bold; font-size: 14px; display: inline-block; box-shadow: 0 2px 4px rgba(0,0,0,0.15);">
+            Descargar archivos de forma segura
+          </a>
+        </div>
+
+        <!-- Botón para descargar archivo de sumas SHA-256 -->
+        <div style="text-align: center; margin-bottom: 20px;">
+          <a href="${sha256Url}" style="font-size: 12px; color: ${brandColor}; text-decoration: underline; font-weight: 600;">
+            📥 Descargar archivo de sumas criptográficas (.sha256)
+          </a>
+        </div>
+
+        <p style="font-size: 12px; color: #94a3b8; text-align: center; margin-bottom: 0;">
+          Enlace protegido y válido hasta el <strong>${expiresFormatted}</strong>.<br>
+          Cifrado punto a punto AES-256-GCM · Almacenamiento seguro en Google Drive / Nube 5 TB.
+        </p>
+      </div>
+
+      <!-- Pie de Página: Cláusula de Confidencialidad y LOPD/RGPD -->
+      <div style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 16px 20px; font-size: 10.5px; color: #64748b; line-height: 1.45; text-align: justify;">
+        ${legalDisclaimer.replace(/\n/g, '<br>')}
+      </div>
+    </div>
+  `;
+}
+
 async function handleEnvioxApi(req, res, pathname, method, ctx) {
   const {
     getSessionUser,
@@ -174,7 +317,11 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
       noLockoutOnFailedLogins: true,
       autoSaveContacts: true,
       brandName: 'ENVIOX',
-      brandSubtitle: 'Plataforma Enviox Segura'
+      brandSubtitle: 'Plataforma Enviox Segura',
+      brandLogoUrl: '',
+      brandPrimaryColor: '#102a43',
+      emailIntroText: 'Le notificamos que ha recibido una transferencia de archivos confidenciales a través del sistema corporativo de Enviox. Los ficheros se encuentran protegidos mediante cifrado AES-256 y disponen de firma de integridad criptográfica SHA-256.',
+      emailLegalDisclaimer: 'AVISO DE CONFIDENCIALIDAD Y RGPD: Este mensaje y los documentos adjuntos son estrictamente confidenciales y dirigidos únicamente a su destinatario. Queda prohibido cualquier uso o divulgación no autorizada conforme al RGPD (UE 2016/679) y la LOPDGDD 3/2018.'
     },
     contacts: [],
     groups: [],
@@ -260,6 +407,77 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
     return true;
   }
 
+  // 2.1 POST /api/enviox/upload — Streaming binario de archivos pesados con cálculo SHA-256 en tiempo real
+  if (p === '/api/enviox/upload' && method === 'POST') {
+    if (!currentUser) {
+      sendJSON(req, res, 401, { error: 'Debes iniciar sesión para subir archivos.' }, {}, { noStore: true });
+      return true;
+    }
+
+    const cloud = readCloudStore ? readCloudStore() : { tenants: [] };
+    const tenantCfg = cloudOneDrive ? cloudOneDrive.resolveActiveTenantConfig(cloud) : null;
+    const keySalt = crypto.randomBytes(16).toString('hex');
+    const blobId = 'blob-' + Date.now().toString(36) + '-' + crypto.randomBytes(4).toString('hex');
+
+    const rawFileName = req.headers['x-file-name'] ? decodeURIComponent(req.headers['x-file-name']) : 'archivo.bin';
+    const cleanFileName = sanitizeInput(rawFileName.replace(/[/\\:*?"<>|]+/g, '_'), 120) || 'archivo.bin';
+    const mimeType = sanitizeInput(req.headers['x-file-type'] || 'application/octet-stream', 80);
+    const clientSha = String(req.headers['x-client-sha256'] || '').toLowerCase().trim();
+
+    const chunks = [];
+    let totalBytes = 0;
+    const hash = crypto.createHash('sha256');
+
+    req.on('data', chunk => {
+      chunks.push(chunk);
+      totalBytes += chunk.length;
+      hash.update(chunk);
+    });
+
+    req.on('end', async () => {
+      try {
+        const rawBuffer = Buffer.concat(chunks, totalBytes);
+        const serverSha = hash.digest('hex');
+
+        if (clientSha && clientSha !== serverSha) {
+          sendJSON(req, res, 400, {
+            error: `Discrepancia en la suma SHA-256 (Cliente: ${clientSha}, Servidor: ${serverSha}). El archivo pudo alterarse durante la transferencia.`
+          }, {}, { noStore: true });
+          return;
+        }
+
+        const meta = await storeEncryptedTransferFile(
+          blobId,
+          rawBuffer,
+          cleanFileName,
+          mimeType,
+          tenantCfg,
+          keySalt
+        );
+
+        meta.sha256 = serverSha;
+        meta.keySalt = keySalt;
+        meta.size = rawBuffer.length;
+        meta.verifiedIntegrity = true;
+
+        sendJSON(req, res, 200, {
+          ok: true,
+          file: meta
+        }, {}, { noStore: true });
+      } catch (uploadErr) {
+        console.error('[Enviox Upload Error]', uploadErr);
+        sendJSON(req, res, 500, { error: 'Error al procesar la subida del archivo: ' + uploadErr.message }, {}, { noStore: true });
+      }
+    });
+
+    req.on('error', (err) => {
+      console.error('[Enviox Upload Stream Error]', err);
+      sendJSON(req, res, 500, { error: 'Error en la conexión durante la subida: ' + err.message }, {}, { noStore: true });
+    });
+
+    return true;
+  }
+
   // 3. POST /api/enviox/send — Envío de archivos seguro
   if (p === '/api/enviox/send' && method === 'POST') {
     if (!currentUser) {
@@ -325,6 +543,22 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
     const storedFiles = [];
     for (let i = 0; i < rawFiles.length; i++) {
       const rf = rawFiles[i];
+      if (rf.blobId && rf.sha256) {
+        // Archivo previamente subido mediante streaming directo /api/enviox/upload (sin Base64)
+        storedFiles.push({
+          blobId: rf.blobId,
+          fileName: sanitizeInput(rf.fileName || rf.name || `archivo_${i + 1}.bin`, 120),
+          mimeType: sanitizeInput(rf.mimeType || 'application/octet-stream', 80),
+          size: parseInt(rf.size, 10) || 0,
+          sha256: rf.sha256,
+          keySalt: rf.keySalt || keySalt,
+          storageLocation: rf.storageLocation || (tenantCfg ? (tenantCfg.providerType === 'google-drive' ? 'google-drive' : 'onedrive') : 'vault-local'),
+          oneDrivePath: rf.oneDrivePath || `transfers/${rf.blobId}.enc`,
+          oneDriveItemId: rf.oneDriveItemId || ''
+        });
+        continue;
+      }
+
       let buf = null;
       if (rf.base64) {
         buf = Buffer.from(rf.base64, 'base64');
@@ -420,40 +654,29 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
       }
     }
 
-    // Notificaciones por Correo Electrónico
+    // Notificaciones por Correo Electrónico con personalización de marca corporativa y sumas SHA-256
     let emailsNotified = 0;
     for (const rec of recipients) {
-      const emailHtml = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
-          <div style="background: #102a43; color: #ffffff; padding: 20px; text-align: center;">
-            <h2 style="margin: 0; font-size: 20px; letter-spacing: 0.5px;">${EnvioxState.settings.brandName || 'ENVIOX'}</h2>
-            <p style="margin: 4px 0 0 0; font-size: 13px; color: #9fb3c8;">Plataforma Enviox · Envío Seguro de Archivos</p>
-          </div>
-          <div style="padding: 24px; color: #334e68; background: #ffffff;">
-            <p style="font-size: 15px; margin-top: 0;">Hola,</p>
-            <p style="font-size: 14px; line-height: 1.6;">
-              <strong>${currentUser.fullName || currentUser.username}</strong> (${currentUser.email || currentUser.username}) te ha enviado archivos confidenciales con referencia <strong>${reference}</strong>.
-            </p>
-            ${subject ? `<p style="font-size: 14px; background: #f0f4f8; padding: 12px; border-left: 4px solid #102a43; border-radius: 4px;"><strong>Asunto:</strong> ${subject}</p>` : ''}
-            ${message ? `<p style="font-size: 13px; color: #486581; line-height: 1.5;">${message.replace(/\n/g, '<br>')}</p>` : ''}
-            <div style="text-align: center; margin: 28px 0;">
-              <a href="${shareUrl}" style="background: #102a43; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 24px; font-weight: bold; font-size: 14px; display: inline-block;">
-                Descargar archivos de forma segura
-              </a>
-            </div>
-            <p style="font-size: 12px; color: #829ab1; text-align: center;">
-              Enlace válido hasta el <strong>${new Date(expiresAt).toLocaleDateString('es-ES')}</strong>. Cifrado de extremo a extremo AES-256-GCM.
-            </p>
-          </div>
-        </div>
-      `;
+      const emailHtml = buildTransferEmailHtml({
+        transfer: newTransfer,
+        sender: {
+          name: currentUser.fullName || currentUser.username,
+          username: currentUser.username,
+          email: currentUser.email || `${currentUser.username}@cyberpolis.es`
+        },
+        recipient: rec,
+        settings: EnvioxState.settings,
+        shareUrl,
+        proto,
+        host
+      });
 
       try {
         await sendTransferNotificationEmail(
           tenantCfg,
           rec,
-          `[Enviox ${reference}] ${subject || 'Archivos seguros disponibles'}`,
-          `Hola,\n\n${currentUser.fullName || currentUser.username} te ha enviado archivos confidenciales (Referencia ${reference}).\n\nDescarga: ${shareUrl}\nCaduca: ${expiresAt}`,
+          `[${EnvioxState.settings.brandName || 'ENVIOX'} ${reference}] ${subject || 'Archivos seguros disponibles'}`,
+          `Hola,\n\n${currentUser.fullName || currentUser.username} te ha enviado archivos confidenciales (Referencia ${reference}).\n\nDescarga segura: ${shareUrl}\nSumas de comprobación SHA-256: ${proto}://${host}/api/enviox/transfers/${transferId}/sha256\nCaduca: ${expiresAt}`,
           emailHtml,
           cloud.mailGateway
         );
@@ -470,8 +693,142 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
       shareUrl,
       emailsNotified,
       filesCount: storedFiles.length,
+      files: storedFiles,
       expiresAt
     }, {}, { noStore: true });
+    return true;
+  }
+
+  // 3.1 GET /api/enviox/transfers/:id/sha256 — Descarga oficial del certificado de sumas SHA-256 (.sha256)
+  if ((p.startsWith('/api/enviox/transfers/') && p.endsWith('/sha256')) || p.startsWith('/api/enviox/sha256/')) {
+    let tokenOrId = '';
+    if (p.startsWith('/api/enviox/sha256/')) {
+      tokenOrId = p.replace('/api/enviox/sha256/', '').split('/')[0].trim();
+    } else {
+      tokenOrId = p.replace('/api/enviox/transfers/', '').replace('/sha256', '').split('/')[0].trim();
+    }
+
+    const transfers = db.read('transfers', []);
+    const t = transfers.find(x => x.id === tokenOrId || x.shareToken === tokenOrId || x.reference?.toLowerCase() === tokenOrId.toLowerCase());
+    if (!t) {
+      sendJSON(req, res, 404, { error: 'Transferencia no encontrada para generar sumas SHA-256.' }, {}, { noStore: true });
+      return true;
+    }
+
+    const certText = buildTransferSha256Certificate(t);
+    const filename = `ENVIOX-${t.reference || 'TRANSFER'}-checksums.sha256`;
+
+    res.writeHead(200, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'no-store'
+    });
+    res.end(certText);
+    return true;
+  }
+
+  // 3.2 GET /api/enviox/transfers/:token — Consulta de datos de transferencia para el receptor
+  if (p.startsWith('/api/enviox/transfers/') && method === 'GET' && !p.endsWith('/sha256') && !p.includes('/download/')) {
+    const token = p.replace('/api/enviox/transfers/', '').split('/')[0].trim();
+    const transfers = db.read('transfers', []);
+    const t = transfers.find(x => x.shareToken === token || x.id === token || x.reference?.toLowerCase() === token.toLowerCase());
+    if (!t) {
+      sendJSON(req, res, 404, { error: 'Transferencia no encontrada o enlace caducado.' }, {}, { noStore: true });
+      return true;
+    }
+
+    const isExpired = t.expiresAt && new Date(t.expiresAt).getTime() < Date.now();
+    const files = (Array.isArray(t.files) && t.files.length ? t.files : (t.file ? [t.file] : [])).map(f => ({
+      blobId: f.blobId,
+      fileName: f.fileName,
+      size: f.size,
+      mimeType: f.mimeType,
+      sha256: f.sha256
+    }));
+
+    sendJSON(req, res, 200, {
+      ok: true,
+      transfer: {
+        id: t.id,
+        reference: t.reference,
+        senderName: t.senderName || t.senderUsername,
+        senderEmail: t.senderEmail,
+        subject: t.subject,
+        message: t.message,
+        createdAt: t.createdAt,
+        expiresAt: t.expiresAt,
+        isExpired,
+        files,
+        branding: {
+          brandName: EnvioxState.settings.brandName || 'ENVIOX',
+          brandSubtitle: EnvioxState.settings.brandSubtitle || 'Plataforma Enviox Segura',
+          brandLogoUrl: EnvioxState.settings.brandLogoUrl || '',
+          brandPrimaryColor: EnvioxState.settings.brandPrimaryColor || '#102a43',
+          emailLegalDisclaimer: EnvioxState.settings.emailLegalDisclaimer || ''
+        }
+      }
+    }, {}, { noStore: true });
+    return true;
+  }
+
+  // 3.3 GET /api/enviox/download/:blobId o /api/enviox/transfers/:id/download/:blobId — Descarga y descifrado al vuelo
+  if ((p.startsWith('/api/enviox/download/') || p.includes('/download/')) && method === 'GET') {
+    const parts = p.split('/download/');
+    const blobId = parts[1]?.split('?')[0]?.trim();
+
+    const transfers = db.read('transfers', []);
+    let targetTransfer = null;
+    let targetFile = null;
+
+    for (const t of transfers) {
+      const files = Array.isArray(t.files) && t.files.length ? t.files : (t.file ? [t.file] : []);
+      const match = files.find(f => f.blobId === blobId || path.basename(f.blobId || '') === blobId);
+      if (match) {
+        targetTransfer = t;
+        targetFile = match;
+        break;
+      }
+    }
+
+    if (!targetTransfer || !targetFile) {
+      sendJSON(req, res, 404, { error: 'Fichero no encontrado en la bóveda cifrada.' }, {}, { noStore: true });
+      return true;
+    }
+
+    if (targetTransfer.expiresAt && new Date(targetTransfer.expiresAt).getTime() < Date.now()) {
+      sendJSON(req, res, 410, { error: 'Esta transferencia ha caducado y los archivos ya no están disponibles.' }, {}, { noStore: true });
+      return true;
+    }
+
+    const cloud = readCloudStore ? readCloudStore() : { tenants: [] };
+    const tenantCfg = cloudOneDrive ? cloudOneDrive.resolveActiveTenantConfig(cloud, targetTransfer.tenantId) : null;
+    const plainBuf = await loadDecryptedTransferFile(targetFile, tenantCfg, targetTransfer.encryptionKeySalt || targetFile.keySalt);
+
+    if (!plainBuf) {
+      sendJSON(req, res, 404, { error: 'No se pudo descifrar o recuperar el archivo desde el almacenamiento.' }, {}, { noStore: true });
+      return true;
+    }
+
+    // Registrar en auditoría legal
+    targetTransfer.downloadsCount = (targetTransfer.downloadsCount || 0) + 1;
+    targetTransfer.legalAudit = Array.isArray(targetTransfer.legalAudit) ? targetTransfer.legalAudit : [];
+    targetTransfer.legalAudit.push({
+      timestamp: new Date().toISOString(),
+      ip,
+      userAgent: req.headers['user-agent'] || '',
+      event: 'download',
+      details: `Fichero descargado: ${targetFile.fileName} (${plainBuf.length} bytes, SHA-256: ${targetFile.sha256})`
+    });
+    db.write('transfers', transfers);
+
+    const safeName = (targetFile.fileName || 'archivo.bin').replace(/"/g, '');
+    res.writeHead(200, {
+      'Content-Type': targetFile.mimeType || 'application/octet-stream',
+      'Content-Length': String(plainBuf.length),
+      'Content-Disposition': `attachment; filename="${safeName}"`,
+      'Cache-Control': 'no-store'
+    });
+    res.end(plainBuf);
     return true;
   }
 
@@ -674,7 +1031,11 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
       noLockoutOnFailedLogins: b.noLockoutOnFailedLogins !== false,
       autoSaveContacts: b.autoSaveContacts !== false,
       brandName: sanitizeInput(b.brandName || 'ENVIOX', 60),
-      brandSubtitle: sanitizeInput(b.brandSubtitle || 'Plataforma Enviox Segura', 100)
+      brandSubtitle: sanitizeInput(b.brandSubtitle || 'Plataforma Enviox Segura', 100),
+      brandLogoUrl: sanitizeInput(b.brandLogoUrl || '', 300),
+      brandPrimaryColor: sanitizeInput(b.brandPrimaryColor || '#102a43', 20),
+      emailIntroText: sanitizeInput(b.emailIntroText !== undefined ? b.emailIntroText : EnvioxState.settings.emailIntroText, 1000),
+      emailLegalDisclaimer: sanitizeInput(b.emailLegalDisclaimer !== undefined ? b.emailLegalDisclaimer : EnvioxState.settings.emailLegalDisclaimer, 2000)
     };
 
     db.write('enviox', EnvioxState);

@@ -1542,7 +1542,7 @@ function applySameOriginCorsAndCheckCsrf(req, res, pathname, method) {
         res.setHeader('Vary', 'Origin');
         res.setHeader('Access-Control-Allow-Credentials', 'true');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-File-Name, X-File-Type, X-File-Size, X-Client-Sha256');
       }
     } catch (e) {
       originMatches = false;

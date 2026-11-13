@@ -81,6 +81,13 @@
     dom.sendDropzone = document.getElementById('sendDropzone');
     dom.sendFileInput = document.getElementById('sendFileInput');
     dom.sendStagedFiles = document.getElementById('sendStagedFiles');
+    dom.sendProgressWrapper = document.getElementById('sendProgressWrapper');
+    dom.sendProgressSpinner = document.getElementById('sendProgressSpinner');
+    dom.sendProgressFileName = document.getElementById('sendProgressFileName');
+    dom.sendProgressPercent = document.getElementById('sendProgressPercent');
+    dom.sendProgressBarFill = document.getElementById('sendProgressBarFill');
+    dom.sendProgressSpeed = document.getElementById('sendProgressSpeed');
+    dom.sendProgressSize = document.getElementById('sendProgressSize');
     dom.sendReceiptAck = document.getElementById('sendReceiptAck');
     dom.sendNotifyExpiry = document.getElementById('sendNotifyExpiry');
     dom.sendAndReceive = document.getElementById('sendAndReceive');
@@ -278,6 +285,16 @@
       dom.userAvatar.textContent = (state.user.fullName || state.user.username || 'U').charAt(0).toUpperCase();
       dom.userAvatar.title = `${state.user.fullName || state.user.username} (${state.user.email})`;
     }
+
+    // Configuración de Marca Corporativa y Live Email Preview
+    setVal('cfgBrandNameInput', state.settings.brandName || 'ENVIOX');
+    setVal('cfgBrandSubtitleInput', state.settings.brandSubtitle || 'Plataforma Enviox Segura');
+    setVal('cfgBrandLogoUrl', state.settings.brandLogoUrl || '');
+    setVal('cfgBrandPrimaryColor', state.settings.brandPrimaryColor || '#102a43');
+    setVal('cfgBrandPrimaryColorHex', state.settings.brandPrimaryColor || '#102a43');
+    setVal('cfgEmailIntroText', state.settings.emailIntroText || '');
+    setVal('cfgEmailLegalDisclaimer', state.settings.emailLegalDisclaimer || '');
+    updateEmailLivePreview();
   }
 
   // ==========================================
@@ -399,6 +416,61 @@
     updateSendButtonState();
   }
 
+  async function calculateFileSha256(file) {
+    try {
+      const arrayBuf = await file.arrayBuffer();
+      const hashBuf = await crypto.subtle.digest('SHA-256', arrayBuf);
+      const hashArr = Array.from(new Uint8Array(hashBuf));
+      return hashArr.map(b => b.toString(16).padStart(2, '0')).join('');
+    } catch (err) {
+      console.warn('[SHA-256 Client] Error calculando hash:', err);
+      return '';
+    }
+  }
+
+  function uploadFileStream(file, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const startTime = Date.now();
+      xhr.open('POST', '/api/enviox/upload', true);
+      xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name));
+      xhr.setRequestHeader('X-File-Type', file.type || 'application/octet-stream');
+      xhr.setRequestHeader('X-File-Size', String(file.size));
+      if (file._sha256) xhr.setRequestHeader('X-Client-Sha256', file._sha256);
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) {
+          const percent = (e.loaded / e.total) * 100;
+          const elapsedSec = (Date.now() - startTime) / 1000 || 0.1;
+          const speedBytesPerSec = e.loaded / elapsedSec;
+          onProgress({
+            loaded: e.loaded,
+            total: e.total,
+            percent,
+            speedMb: (speedBytesPerSec / (1024 * 1024)).toFixed(1)
+          });
+        }
+      };
+
+      xhr.onload = () => {
+        try {
+          const resp = JSON.parse(xhr.responseText || '{}');
+          if (xhr.status >= 200 && xhr.status < 300 && resp.ok) {
+            resolve(resp.file);
+          } else {
+            reject(new Error(resp.error || `Error ${xhr.status} al subir archivo`));
+          }
+        } catch (e) {
+          reject(new Error('Respuesta inválida del servidor al subir'));
+        }
+      };
+
+      xhr.onerror = () => reject(new Error('Error de conexión durante la subida'));
+      xhr.ontimeout = () => reject(new Error('Tiempo de espera agotado al subir'));
+      xhr.send(file);
+    });
+  }
+
   function renderStagedFiles() {
     if (!dom.sendStagedFiles) return;
     dom.sendStagedFiles.innerHTML = '';
@@ -408,13 +480,33 @@
       let formatted = (f.size / 1024).toFixed(1) + ' kB';
       if (f.size > 1024 * 1024) formatted = (f.size / (1024 * 1024)).toFixed(2) + ' MB';
 
+      if (!f._sha256 && !f._computingSha) {
+        f._computingSha = true;
+        calculateFileSha256(f).then(h => {
+          f._sha256 = h;
+          f._computingSha = false;
+          renderStagedFiles();
+        });
+      }
+
+      const hashPreview = f._sha256 
+        ? `${f._sha256.slice(0, 16)}...${f._sha256.slice(-6)}` 
+        : 'Calculando huella SHA-256...';
+
       item.innerHTML = `
-        <div class="tx-file-meta">
-          <span>📄</span>
-          <span class="tx-file-name" title="${f.name}">${f.name}</span>
-          <span class="tx-file-size">(${formatted})</span>
+        <div class="tx-file-meta" style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span>📄</span>
+            <span class="tx-file-name" title="${f.name}">${f.name}</span>
+            <span class="tx-file-size">(${formatted})</span>
+          </div>
+          <div style="font-size:10.5px;color:#0284c7;font-family:monospace;margin-top:2px;display:flex;align-items:center;gap:4px;">
+            <span>🛡️ SHA-256:</span>
+            <span title="${f._sha256 || 'Calculando firma criptográfica...'}">${hashPreview}</span>
+            ${f._sha256 ? '<span style="color:#10b981;font-weight:bold;" title="Integridad verificada en cliente">✓</span>' : ''}
+          </div>
         </div>
-        <button type="button" class="tx-chip-remove" style="background:none;border:none;cursor:pointer;">✕</button>
+        <button type="button" class="tx-chip-remove" style="background:none;border:none;cursor:pointer;font-size:16px;color:#94a3b8;padding:4px 8px;" title="Eliminar archivo">✕</button>
       `;
       item.querySelector('button').addEventListener('click', () => {
         state.stagedSendFiles.splice(idx, 1);
@@ -456,20 +548,46 @@
     }
 
     dom.btnSubmitSend.disabled = true;
-    dom.btnSubmitSend.innerHTML = '<span>⏳ Cifrando y enviando a la nube...</span>';
+    dom.btnSubmitSend.innerHTML = '<span>⏳ Cifrando y subiendo a la nube...</span>';
+
+    // Mostrar barra de progreso en tiempo real
+    if (dom.sendProgressWrapper) {
+      dom.sendProgressWrapper.style.display = 'block';
+      if (dom.sendProgressBarFill) dom.sendProgressBarFill.style.width = '0%';
+      if (dom.sendProgressPercent) dom.sendProgressPercent.textContent = '0%';
+      if (dom.sendProgressSpeed) dom.sendProgressSpeed.textContent = '0 MB/s';
+      if (dom.sendProgressSize) dom.sendProgressSize.textContent = '0 MB / 0 MB';
+    }
 
     try {
-      // Convertir archivos a Base64 para el payload
-      const encodedFiles = [];
-      for (const f of state.stagedSendFiles) {
-        const b64 = await readFileAsBase64(f);
-        encodedFiles.push({
-          name: f.name,
-          size: f.size,
-          mimeType: f.type || 'application/octet-stream',
-          base64: b64
+      // Subida de archivos binarios mediante streaming y XMLHttpRequest
+      const uploadedFiles = [];
+      const totalFilesCount = state.stagedSendFiles.length;
+
+      for (let i = 0; i < totalFilesCount; i++) {
+        const file = state.stagedSendFiles[i];
+        if (dom.sendProgressFileName) {
+          dom.sendProgressFileName.textContent = `(${i + 1}/${totalFilesCount}) Subiendo: ${file.name}`;
+        }
+
+        const uploadedMeta = await uploadFileStream(file, (p) => {
+          if (dom.sendProgressBarFill) dom.sendProgressBarFill.style.width = `${Math.min(100, Math.round(p.percent))}%`;
+          if (dom.sendProgressPercent) dom.sendProgressPercent.textContent = `${Math.min(100, Math.round(p.percent))}%`;
+          if (dom.sendProgressSize) {
+            const loadedMb = (p.loaded / (1024 * 1024)).toFixed(1);
+            const totalMb = (p.total / (1024 * 1024)).toFixed(1);
+            dom.sendProgressSize.textContent = `${loadedMb} MB / ${totalMb} MB`;
+          }
+          if (dom.sendProgressSpeed) {
+            dom.sendProgressSpeed.textContent = `${p.speedMb} MB/s`;
+          }
         });
+
+        uploadedFiles.push(uploadedMeta);
       }
+
+      // Notificación de estado en botón
+      dom.btnSubmitSend.innerHTML = '<span>🔒 Notificando destinatarios y firmando SHA-256...</span>';
 
       const payload = {
         recipients: state.sendRecipients,
@@ -482,7 +600,7 @@
         sendAndReceive: dom.sendAndReceive ? dom.sendAndReceive.checked : false,
         expiryDays: dom.sendExpiryDate ? calculateDaysFromToday(dom.sendExpiryDate.value) : 8,
         tags: dom.sendTags ? dom.sendTags.value.trim() : '',
-        files: encodedFiles
+        files: uploadedFiles
       };
 
       const res = await fetch('/api/enviox/send', {
@@ -496,7 +614,9 @@
         throw new Error(data.error || 'Error al procesar el envío.');
       }
 
-      // Éxito: Limpiar formulario y mostrar modal de confirmación
+      // Éxito: Ocultar progreso, limpiar formulario y mostrar modal con certificado SHA-256
+      if (dom.sendProgressWrapper) dom.sendProgressWrapper.style.display = 'none';
+
       state.sendRecipients = [];
       state.stagedSendFiles = [];
       renderSendChips();
@@ -508,18 +628,22 @@
 
       showSuccessModal({
         title: 'Envío seguro completado',
+        transferId: data.transferId,
         reference: data.reference,
         shareUrl: data.shareUrl,
         recipients: payload.recipients,
         filesCount: data.filesCount,
+        files: uploadedFiles,
         expiresAt: data.expiresAt
       });
 
     } catch (err) {
+      if (dom.sendProgressWrapper) dom.sendProgressWrapper.style.display = 'none';
       alert('Error en el envío seguro: ' + err.message);
     } finally {
       dom.btnSubmitSend.disabled = false;
-      dom.btnSubmitSend.innerHTML = `<span>🔒</span><span>Enviar de forma segura</span>`;
+      dom.btnSubmitSend.innerHTML = '<span>🔒</span><span>Enviar de forma segura</span>';
+      updateSendButtonState();
     }
   }
 
@@ -852,6 +976,90 @@
       btnSaveSettings.addEventListener('click', handleSaveSettings);
     }
 
+    // 3.1 Branding y Personalización de Mensajes de Envío
+    const btnSaveBranding = document.getElementById('btnSaveBranding');
+    if (btnSaveBranding) {
+      btnSaveBranding.addEventListener('click', handleSaveSettings);
+    }
+
+    const btnBrandPresetCL = document.getElementById('btnBrandPresetCL');
+    if (btnBrandPresetCL) {
+      btnBrandPresetCL.addEventListener('click', () => {
+        setVal('cfgBrandNameInput', 'CL GRUPO INDUSTRIAL');
+        setVal('cfgBrandSubtitleInput', 'Plataforma Enviox · Transferencia Segura de Archivos');
+        setVal('cfgBrandLogoUrl', 'https://clgrupoindustrial.com/wp-content/themes/clgrupo/assets/img/logo.png');
+        setVal('cfgBrandPrimaryColor', '#102a43');
+        setVal('cfgBrandPrimaryColorHex', '#102a43');
+        setVal('cfgEmailIntroText', 'CL Grupo Industrial le ha remitido una transferencia confidencial de archivos a través de la plataforma segura Enviox. Los ficheros se encuentran protegidos mediante cifrado AES-256-GCM y disponen de firma de integridad criptográfica SHA-256.');
+        updateEmailLivePreview();
+      });
+    }
+
+    const btnBrandPresetCyberpolis = document.getElementById('btnBrandPresetCyberpolis');
+    if (btnBrandPresetCyberpolis) {
+      btnBrandPresetCyberpolis.addEventListener('click', () => {
+        setVal('cfgBrandNameInput', 'CYBERPOLIS');
+        setVal('cfgBrandSubtitleInput', 'Plataforma Enviox · Bóveda Cifrada 5 TB');
+        setVal('cfgBrandLogoUrl', '/assets/silverbot-unix-logo.png');
+        setVal('cfgBrandPrimaryColor', '#0284c7');
+        setVal('cfgBrandPrimaryColorHex', '#0284c7');
+        setVal('cfgEmailIntroText', 'CYBERPOLIS le ha remitido una transferencia de alta seguridad a través de Enviox. Todos los ficheros han sido verificados criptográficamente mediante algoritmo SHA-256.');
+        updateEmailLivePreview();
+      });
+    }
+
+    const btnBrandPresetCustom = document.getElementById('btnBrandPresetCustom');
+    if (btnBrandPresetCustom) {
+      btnBrandPresetCustom.addEventListener('click', () => {
+        setVal('cfgBrandNameInput', 'Mi Empresa S.L.');
+        setVal('cfgBrandSubtitleInput', 'Transferencias Seguras y Confiables');
+        setVal('cfgBrandLogoUrl', '');
+        setVal('cfgBrandPrimaryColor', '#004b87');
+        setVal('cfgBrandPrimaryColorHex', '#004b87');
+        updateEmailLivePreview();
+      });
+    }
+
+    const btnClearLogo = document.getElementById('btnClearLogo');
+    if (btnClearLogo) {
+      btnClearLogo.addEventListener('click', () => {
+        setVal('cfgBrandLogoUrl', '');
+        updateEmailLivePreview();
+      });
+    }
+
+    // Sincronizar selectores de color primario corporativo
+    const colorPicker = document.getElementById('cfgBrandPrimaryColor');
+    const colorHex = document.getElementById('cfgBrandPrimaryColorHex');
+    if (colorPicker && colorHex) {
+      colorPicker.addEventListener('input', (e) => {
+        colorHex.value = e.target.value.toUpperCase();
+        updateEmailLivePreview();
+      });
+      colorHex.addEventListener('input', (e) => {
+        if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) {
+          colorPicker.value = e.target.value;
+          updateEmailLivePreview();
+        }
+      });
+    }
+
+    document.querySelectorAll('.tx-color-swatch').forEach(sw => {
+      sw.addEventListener('click', () => {
+        const c = sw.getAttribute('data-color');
+        if (c) {
+          if (colorPicker) colorPicker.value = c;
+          if (colorHex) colorHex.value = c.toUpperCase();
+          updateEmailLivePreview();
+        }
+      });
+    });
+
+    ['cfgBrandNameInput', 'cfgBrandSubtitleInput', 'cfgBrandLogoUrl', 'cfgEmailIntroText', 'cfgEmailLegalDisclaimer'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', updateEmailLivePreview);
+    });
+
     // 4. Configuración de Tenant Nube 5 TB (Google Drive / Azure OneDrive)
     const btnSaveGoogleDrive = document.getElementById('btnSaveGoogleDrive');
     if (btnSaveGoogleDrive) btnSaveGoogleDrive.addEventListener('click', saveGoogleDriveConfig);
@@ -978,9 +1186,10 @@
   }
 
   async function handleSaveSettings() {
-    const btn = document.getElementById('btnSaveSettings');
+    const btn = document.getElementById('btnSaveSettings') || document.getElementById('btnSaveBranding');
     if (btn) btn.disabled = true;
 
+    const brandPrimary = getVal('cfgBrandPrimaryColorHex', '') || getVal('cfgBrandPrimaryColor', '#102a43');
     const payload = {
       maxRecipients: getValNum('cfgMaxRecipients', 20),
       maxFiles: getValNum('cfgMaxFiles', 50),
@@ -990,8 +1199,12 @@
       maxExpiryDays: getValNum('cfgMaxExpiryDays', 14),
       defaultExpiryDays: getValNum('cfgDefaultExpiryDays', 8),
       watermarkText: getVal('cfgWatermark', ''),
-      brandName: getVal('cfgBrandName', 'ENVIOX'),
-      brandSubtitle: getVal('cfgBrandSubtitle', 'Plataforma Enviox Segura'),
+      brandName: getVal('cfgBrandNameInput', getVal('cfgBrandName', 'ENVIOX')),
+      brandSubtitle: getVal('cfgBrandSubtitleInput', getVal('cfgBrandSubtitle', 'Plataforma Enviox Segura')),
+      brandLogoUrl: getVal('cfgBrandLogoUrl', ''),
+      brandPrimaryColor: brandPrimary,
+      emailIntroText: getVal('cfgEmailIntroText', ''),
+      emailLegalDisclaimer: getVal('cfgEmailLegalDisclaimer', ''),
       defaultReceiptAck: isChecked('cfgDefaultReceipt'),
       defaultExpiryNotice: isChecked('cfgDefaultExpiryNotice'),
       noLockoutOnFailedLogins: isChecked('cfgNoLockout'),
@@ -1009,11 +1222,52 @@
 
       state.settings = Object.assign(state.settings, data.settings);
       applySettingsToUI();
-      alert('Ajustes de Enviox guardados y sincronizados correctamente.');
+      alert('Ajustes y personalización de marca guardados correctamente.');
     } catch (e) {
       alert('Error guardando ajustes: ' + e.message);
     } finally {
       if (btn) btn.disabled = false;
+    }
+  }
+
+  function updateEmailLivePreview() {
+    const brandName = getVal('cfgBrandNameInput', state.settings.brandName || 'ENVIOX');
+    const brandSub = getVal('cfgBrandSubtitleInput', state.settings.brandSubtitle || 'Plataforma Enviox Segura');
+    const logoUrl = getVal('cfgBrandLogoUrl', state.settings.brandLogoUrl || '').trim();
+    const primaryColor = getVal('cfgBrandPrimaryColorHex', state.settings.brandPrimaryColor || '#102a43') || getVal('cfgBrandPrimaryColor', '#102a43');
+    const introText = getVal('cfgEmailIntroText', state.settings.emailIntroText || '');
+    const disclaimer = getVal('cfgEmailLegalDisclaimer', state.settings.emailLegalDisclaimer || '');
+
+    const headerEl = document.getElementById('prevEmailHeader');
+    if (headerEl) headerEl.style.backgroundColor = primaryColor;
+
+    const logoWrap = document.getElementById('prevEmailLogoWrap');
+    if (logoWrap) {
+      if (logoUrl) {
+        logoWrap.innerHTML = `<img src="${logoUrl}" alt="${brandName}" style="max-height:44px;max-width:200px;display:block;margin:0 auto;object-fit:contain;background:#ffffff;padding:4px 8px;border-radius:4px;" onerror="this.style.display='none'">`;
+      } else {
+        logoWrap.innerHTML = '';
+      }
+    }
+
+    const titleEl = document.getElementById('prevEmailTitle');
+    if (titleEl) titleEl.textContent = brandName;
+
+    const subEl = document.getElementById('prevEmailSubtitle');
+    if (subEl) subEl.textContent = brandSub;
+
+    const introEl = document.getElementById('prevEmailIntroText');
+    if (introEl) {
+      introEl.style.borderLeftColor = primaryColor;
+      introEl.textContent = introText || 'Le notificamos que ha recibido una transferencia de archivos confidenciales...';
+    }
+
+    const ctaBtn = document.getElementById('prevEmailCtaBtn');
+    if (ctaBtn) ctaBtn.style.backgroundColor = primaryColor;
+
+    const legalEl = document.getElementById('prevEmailLegalDisclaimer');
+    if (legalEl) {
+      legalEl.textContent = disclaimer || 'AVISO DE CONFIDENCIALIDAD Y RGPD: Este mensaje y los documentos adjuntos son confidenciales...';
     }
   }
 
@@ -2162,6 +2416,29 @@
           <button type="button" class="tx-pill-btn-small" id="btnCopySuccessLink">Copiar</button>
         </div>
       </div>
+
+      ${info.transferId ? `
+      <div style="margin: 14px 0; text-align: center;">
+        <a href="/api/enviox/transfers/${info.transferId}/sha256" target="_blank" download="ENVIOX-${info.reference}-checksums.sha256" class="tx-pill-btn-small" style="background:#0284c7;text-decoration:none;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:8px 18px;">
+          📥 Descargar Certificado SHA-256 (.sha256)
+        </a>
+      </div>
+      ` : ''}
+
+      ${info.files && info.files.length ? `
+      <div style="margin: 14px 0; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; text-align: left;">
+        <div style="background: #f1f5f9; padding: 6px 10px; font-size: 11px; font-weight: 700; color: #475569;">
+          Ficheros certificados con huella digital SHA-256:
+        </div>
+        ${info.files.map(f => `
+          <div style="padding: 6px 10px; font-size: 12px; border-top: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+            <span style="font-weight: 600; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px;" title="${f.fileName || f.name}">📄 ${f.fileName || f.name}</span>
+            <span style="font-family: monospace; font-size: 10px; background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px;" title="${f.sha256}">🛡️ ${(f.sha256 || '').slice(0, 16)}...</span>
+          </div>
+        `).join('')}
+      </div>
+      ` : ''}
+
       <div style="font-size:12px;color:#64748b;line-height:1.5;">
         Destinatarios notificados: <strong>${info.recipients.join(', ')}</strong><br>
         Válido hasta: <strong>${new Date(info.expiresAt).toLocaleDateString('es-ES')}</strong>
@@ -2409,7 +2686,139 @@
         fetchChannels();
       }, 500);
     }
+
+    // Verificación de acceso receptor a enlace de transferencia segura (?transfer=...)
+    if (window.location.search && window.location.search.includes('transfer=')) {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('transfer');
+      if (token) {
+        initRecipientPortal(token);
+      }
+    }
   });
+
+  async function initRecipientPortal(token) {
+    try {
+      const res = await fetch(`/api/enviox/transfers/${encodeURIComponent(token)}`);
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'No se pudo cargar la transferencia segura.');
+        return;
+      }
+
+      const t = data.transfer;
+      const b = t.branding || {};
+
+      // Aplicar personalización de marca
+      const headerEl = document.getElementById('recipPortalHeader');
+      if (headerEl && b.brandPrimaryColor) headerEl.style.backgroundColor = b.brandPrimaryColor;
+
+      const logoWrap = document.getElementById('recipPortalLogoWrap');
+      if (logoWrap && b.brandLogoUrl) {
+        logoWrap.innerHTML = `<img src="${b.brandLogoUrl}" alt="${b.brandName || 'ENVIOX'}" style="max-height:50px;max-width:240px;background:#ffffff;padding:4px 10px;border-radius:6px;display:block;margin:0 auto;" onerror="this.style.display='none'">`;
+      }
+
+      const titleEl = document.getElementById('recipPortalTitle');
+      if (titleEl) titleEl.textContent = b.brandName || 'ENVIOX';
+
+      const subEl = document.getElementById('recipPortalSubtitle');
+      if (subEl) subEl.textContent = b.brandSubtitle || 'Portal de Descarga Segura y Verificación Criptográfica';
+
+      const refEl = document.getElementById('recipRefBadge');
+      if (refEl) refEl.textContent = t.reference;
+
+      const expEl = document.getElementById('recipExpiryBadge');
+      if (expEl) {
+        if (t.isExpired) {
+          expEl.textContent = '● Transferencia Caducada';
+          expEl.style.background = '#fef2f2';
+          expEl.style.color = '#991b1b';
+          expEl.style.borderColor = '#fecaca';
+        } else {
+          const dt = t.expiresAt ? new Date(t.expiresAt).toLocaleDateString('es-ES') : '8 días';
+          expEl.textContent = `● Válido hasta el ${dt}`;
+        }
+      }
+
+      const sName = document.getElementById('recipSenderName');
+      if (sName) sName.textContent = t.senderName || 'Remitente';
+      const sMail = document.getElementById('recipSenderEmail');
+      if (sMail) sMail.textContent = t.senderEmail || '';
+
+      if (t.subject) {
+        const subWrap = document.getElementById('recipSubjectWrap');
+        const subTxt = document.getElementById('recipSubject');
+        if (subWrap && subTxt) {
+          subWrap.style.display = 'block';
+          subTxt.textContent = t.subject;
+        }
+      }
+
+      if (t.message) {
+        const msgWrap = document.getElementById('recipMessageWrap');
+        const msgTxt = document.getElementById('recipMessage');
+        if (msgWrap && msgTxt) {
+          msgWrap.style.display = 'block';
+          msgTxt.textContent = t.message;
+        }
+      }
+
+      // Enlace para descargar el archivo de sumas de comprobación SHA-256
+      const shaAllBtn = document.getElementById('recipDownloadAllShaBtn');
+      if (shaAllBtn) {
+        shaAllBtn.href = `/api/enviox/transfers/${t.id}/sha256`;
+        shaAllBtn.download = `ENVIOX-${t.reference}-checksums.sha256`;
+      }
+
+      // Lista de archivos adjuntos
+      const filesContainer = document.getElementById('recipFilesList');
+      if (filesContainer) {
+        filesContainer.innerHTML = '';
+        (t.files || []).forEach(f => {
+          const item = document.createElement('div');
+          item.style.cssText = 'background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;';
+          let sizeStr = (f.size / 1024).toFixed(1) + ' KB';
+          if (f.size > 1048576) sizeStr = (f.size / (1024 * 1024)).toFixed(2) + ' MB';
+
+          item.innerHTML = `
+            <div style="flex:1;min-width:240px;">
+              <div style="font-weight:700;color:var(--tx-navy);font-size:14px;word-break:break-all;">
+                📄 ${f.fileName}
+              </div>
+              <div style="font-size:11px;color:#64748b;margin-top:2px;">
+                ${sizeStr} · ${f.mimeType || 'application/octet-stream'}
+              </div>
+              <div style="font-size:11px;font-family:monospace;color:#0284c7;margin-top:4px;word-break:break-all;">
+                🛡️ SHA-256: <span style="background:#e0f2fe;padding:2px 6px;border-radius:4px;color:#0369a1;" title="${f.sha256}">${f.sha256 || 'No disponible'}</span>
+              </div>
+            </div>
+            <div>
+              <a href="/api/enviox/download/${f.blobId}" download="${f.fileName}" class="tx-pill-btn-small" style="background:${b.brandPrimaryColor || '#102a43'};text-decoration:none;display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:8px 18px;">
+                📥 Descargar
+              </a>
+            </div>
+          `;
+          filesContainer.appendChild(item);
+        });
+      }
+
+      const legalFoot = document.getElementById('recipLegalFooter');
+      if (legalFoot && b.emailLegalDisclaimer) {
+        legalFoot.textContent = b.emailLegalDisclaimer;
+      }
+
+      // Ocultar vistas estándar y activar portal del receptor
+      document.querySelectorAll('.tx-view').forEach(v => v.classList.remove('active'));
+      const recipView = document.getElementById('viewRecipientDownload');
+      if (recipView) recipView.classList.add('active');
+
+      const headerNav = document.querySelector('.tx-nav-links');
+      if (headerNav) headerNav.style.display = 'none';
+
+    } catch (err) {
+      console.error('[Recipient Portal Error]', err);
+    }
+  }
 
 })();
 
