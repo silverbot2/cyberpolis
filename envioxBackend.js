@@ -582,16 +582,21 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
       const rf = rawFiles[i];
       if (rf.blobId && rf.sha256) {
         // Archivo previamente subido mediante streaming directo /api/enviox/upload (sin Base64)
+        const reg = (global._envioxBlobRegistry && global._envioxBlobRegistry[rf.blobId]) || {};
+        const cloudLoc = tenantCfg ? (tenantCfg.providerType === 'google-drive' ? 'google-drive' : 'onedrive') : 'vault-local';
         storedFiles.push({
           blobId: rf.blobId,
           fileName: sanitizeInput(rf.fileName || rf.name || `archivo_${i + 1}.bin`, 120),
           mimeType: sanitizeInput(rf.mimeType || 'application/octet-stream', 80),
           size: parseInt(rf.size, 10) || 0,
           sha256: rf.sha256,
-          keySalt: rf.keySalt || keySalt,
-          storageLocation: rf.storageLocation || (tenantCfg ? (tenantCfg.providerType === 'google-drive' ? 'google-drive' : 'onedrive') : 'vault-local'),
-          oneDrivePath: rf.oneDrivePath || `transfers/${rf.blobId}.enc`,
-          oneDriveItemId: rf.oneDriveItemId || ''
+          keySalt: rf.keySalt || reg.keySalt || keySalt,
+          storageLocation: reg.storageLocation || (rf.storageLocation && rf.storageLocation !== 'vault-local' ? rf.storageLocation : cloudLoc),
+          oneDrivePath: reg.oneDrivePath || rf.oneDrivePath || `transfers/${rf.blobId}.enc`,
+          oneDriveItemId: reg.oneDriveItemId || rf.oneDriveItemId || '',
+          driveWebViewLink: reg.driveWebViewLink || rf.driveWebViewLink || '',
+          driveFolderId: reg.driveFolderId || rf.driveFolderId || '',
+          driveFolderLink: reg.driveFolderLink || rf.driveFolderLink || ''
         });
         continue;
       }
@@ -966,7 +971,93 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
 
     const cloud = readCloudStore ? readCloudStore() : { tenants: [] };
     const tenantCfg = cloudOneDrive ? cloudOneDrive.resolveActiveTenantConfig(cloud, targetTransfer.tenantId) : null;
-    const plainBuf = await loadDecryptedTransferFile(targetFile, tenantCfg, targetTransfer.encryptionKeySalt || targetFile.keySalt);
+    const candidateSalts = [targetFile.keySalt, targetTransfer.encryptionKeySalt, 'default', ''].filter(s => s !== undefined);
+
+    const safeName = (targetFile.fileName || 'archivo.bin').replace(/"/g, '');
+    const VAULT_DIR = path.join(__dirname, 'vault');
+    if (!fs.existsSync(VAULT_DIR)) fs.mkdirSync(VAULT_DIR, { recursive: true });
+    const localEncPath = path.join(VAULT_DIR, `${path.basename(targetFile.blobId)}.enc`);
+
+    // 1. Si no existe en disco local, recuperarlo desde nube (Google Drive / OneDrive)
+    if (!fs.existsSync(localEncPath) && tenantCfg) {
+      const isGoogle = tenantCfg.providerType === 'google-drive';
+      const reg = (global._envioxBlobRegistry && global._envioxBlobRegistry[targetFile.blobId]) || {};
+      const remoteTarget = targetFile.oneDriveItemId || reg.oneDriveItemId || targetFile.oneDrivePath || reg.oneDrivePath || `transfers/${targetFile.blobId}.enc`;
+      try {
+        const dlBuf = isGoogle
+          ? await cloudGoogle.downloadBufferFromGoogleDrive(tenantCfg, remoteTarget)
+          : await cloudOneDrive.downloadBufferFromOneDrive(tenantCfg, remoteTarget);
+        if (dlBuf && Buffer.isBuffer(dlBuf) && dlBuf.length > 0) {
+          fs.writeFileSync(localEncPath, dlBuf);
+        }
+      } catch (dlErr) {
+        console.warn(`[Enviox Download Cloud Restore] Error:`, dlErr.message);
+      }
+    }
+
+    // 2. Descarga streaming para archivos pesados (> 8 MB) directamente desde disco cifrado (0 MB RAM heap)
+    if (fs.existsSync(localEncPath)) {
+      try {
+        const stat = fs.statSync(localEncPath);
+        if (stat.size > 8 * 1024 * 1024) {
+          const fd = fs.openSync(localEncPath, 'r');
+          const headerBuf = Buffer.alloc(32);
+          fs.readSync(fd, headerBuf, 0, 32, 0);
+          fs.closeSync(fd);
+
+          if (headerBuf.slice(0, 4).toString('ascii') === 'CPV8') {
+            const iv = headerBuf.slice(4, 16);
+            const tag = headerBuf.slice(16, 32);
+            const plainLength = stat.size - 32;
+
+            const selectedSalt = targetFile.keySalt || targetTransfer.encryptionKeySalt || 'default';
+            const key = crypto.createHash('sha256')
+              .update(Buffer.concat([cloudOneDrive.getMasterSecretKey(), Buffer.from(':' + String(selectedSalt))]))
+              .digest();
+            const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+            decipher.setAuthTag(tag);
+
+            targetTransfer.downloadsCount = (targetTransfer.downloadsCount || 0) + 1;
+            targetTransfer.legalAudit = Array.isArray(targetTransfer.legalAudit) ? targetTransfer.legalAudit : [];
+            targetTransfer.legalAudit.push({
+              timestamp: new Date().toISOString(),
+              ip,
+              userAgent: req.headers['user-agent'] || '',
+              event: 'download',
+              details: `Fichero descargado vía streaming: ${targetFile.fileName} (${plainLength} bytes, SHA-256: ${targetFile.sha256})`
+            });
+            db.write('transfers', transfers);
+
+            res.writeHead(200, {
+              'Content-Type': targetFile.mimeType || 'application/octet-stream',
+              'Content-Length': String(plainLength),
+              'Content-Disposition': `attachment; filename="${safeName}"`,
+              'Cache-Control': 'no-store'
+            });
+
+            const fileStream = fs.createReadStream(localEncPath, { start: 32 });
+            fileStream.on('error', (err) => {
+              console.error('[Enviox Stream Read Error]', err);
+              if (!res.headersSent) sendJSON(req, res, 500, { error: 'Error leyendo archivo del almacenamiento' });
+              else res.destroy();
+            });
+            decipher.on('error', (err) => {
+              console.error('[Enviox Stream Decipher Error]', err);
+              if (!res.headersSent) sendJSON(req, res, 500, { error: 'Fallo de autenticación o clave incorrecta' });
+              else res.destroy();
+            });
+
+            fileStream.pipe(decipher).pipe(res);
+            return true;
+          }
+        }
+      } catch (streamErr) {
+        console.warn('[Enviox Stream Fallback]', streamErr.message);
+      }
+    }
+
+    // 3. Fallback en memoria para archivos estándar / medianos
+    const plainBuf = await loadDecryptedTransferFile(targetFile, tenantCfg, candidateSalts);
 
     if (!plainBuf) {
       sendJSON(req, res, 404, { error: 'No se pudo descifrar o recuperar el archivo desde el almacenamiento.' }, {}, { noStore: true });
@@ -985,7 +1076,6 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
     });
     db.write('transfers', transfers);
 
-    const safeName = (targetFile.fileName || 'archivo.bin').replace(/"/g, '');
     res.writeHead(200, {
       'Content-Type': targetFile.mimeType || 'application/octet-stream',
       'Content-Length': String(plainBuf.length),

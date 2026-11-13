@@ -2913,6 +2913,17 @@ async function storeEncryptedTransferFile(blobId, rawBuffer, fileName, mimeType,
             : await cloudOneDrive.uploadBufferToOneDrive(tenantCfg, remoteRelPath, fs.readFileSync(encPath), 'application/octet-stream');
           console.log(`[Enviox Cloud Sync Background OK] ${blobId}.enc subido a ${isGoogle ? 'Google Drive' : 'OneDrive'}: ${up.remotePath}`);
 
+          // Registrar en caché global en memoria para que POST /api/enviox/send lo vincule de inmediato
+          global._envioxBlobRegistry = global._envioxBlobRegistry || {};
+          global._envioxBlobRegistry[blobId] = {
+            storageLocation: isGoogle ? 'google-drive' : 'onedrive',
+            oneDrivePath: up.remotePath,
+            oneDriveItemId: up.itemId || '',
+            driveWebViewLink: up.webViewLink || `https://drive.google.com/file/d/${up.itemId}/view`,
+            driveFolderId: up.folderId || '',
+            driveFolderLink: up.folderUrl || (up.folderId ? `https://drive.google.com/drive/folders/${up.folderId}` : '')
+          };
+
           // Persistir actualización en transfers.json y en el store en memoria
           const allTransfers = readJSON(TRANSFERS_FILE, []);
           let changed = false;
@@ -2945,6 +2956,9 @@ async function storeEncryptedTransferFile(blobId, rawBuffer, fileName, mimeType,
           }
         } catch (bgErr) {
           console.warn(`[Enviox Cloud Sync Background Warning] ${blobId}.enc:`, bgErr.message);
+          global._envioxBlobRegistry = global._envioxBlobRegistry || {};
+          global._envioxBlobRegistry[blobId] = { cloudSyncError: bgErr.message };
+
           const allTransfers = readJSON(TRANSFERS_FILE, []);
           let changed = false;
           for (const t of allTransfers) {
@@ -2991,19 +3005,68 @@ async function storeEncryptedTransferFile(blobId, rawBuffer, fileName, mimeType,
 async function loadDecryptedTransferFile(fileMeta, tenantCfg, keySalt) {
   if (!fileMeta || !fileMeta.blobId) return null;
   let cipherBuf = null;
-  if (fileMeta.storageLocation === 'google-drive' && fileMeta.oneDrivePath && tenantCfg) {
-    cipherBuf = await cloudGoogle.downloadBufferFromGoogleDrive(tenantCfg, fileMeta.oneDrivePath).catch(() => null);
-  } else if (fileMeta.storageLocation === 'onedrive' && fileMeta.oneDrivePath && tenantCfg) {
-    cipherBuf = await cloudOneDrive.downloadBufferFromOneDrive(tenantCfg, fileMeta.oneDrivePath).catch(() => null);
-  }
-  if (!cipherBuf) {
-    const localPath = path.join(VAULT_DIR, `${path.basename(fileMeta.blobId)}.enc`);
-    if (fs.existsSync(localPath)) {
+  const localPath = path.join(VAULT_DIR, `${path.basename(fileMeta.blobId)}.enc`);
+
+  // 1. Cargar desde disco local si existe
+  if (fs.existsSync(localPath)) {
+    try {
       cipherBuf = fs.readFileSync(localPath);
+    } catch (e) {
+      cipherBuf = null;
     }
   }
+
+  // 2. Si no está en disco local (ej. reinicio de contenedor efímero) y hay tenant en la nube, recuperarlo
+  if (!cipherBuf && tenantCfg) {
+    const isGoogle = tenantCfg.providerType === 'google-drive';
+    const reg = (global._envioxBlobRegistry && global._envioxBlobRegistry[fileMeta.blobId]) || {};
+    const remoteTarget = fileMeta.oneDriveItemId || reg.oneDriveItemId || fileMeta.oneDrivePath || reg.oneDrivePath || `transfers/${fileMeta.blobId}.enc`;
+    try {
+      if (isGoogle) {
+        cipherBuf = await cloudGoogle.downloadBufferFromGoogleDrive(tenantCfg, remoteTarget);
+      } else {
+        cipherBuf = await cloudOneDrive.downloadBufferFromOneDrive(tenantCfg, remoteTarget);
+      }
+      if (cipherBuf && Buffer.isBuffer(cipherBuf) && cipherBuf.length > 0) {
+        try {
+          fs.writeFileSync(localPath, cipherBuf);
+        } catch (we) {}
+      }
+    } catch (cloudErr) {
+      console.warn(`[Enviox] Error al recuperar ${fileMeta.blobId} desde nube:`, cloudErr.message);
+    }
+  }
+
+  // 3. Fallback adicional por nombre de archivo
+  if (!cipherBuf && tenantCfg) {
+    const isGoogle = tenantCfg.providerType === 'google-drive';
+    const fallbackPath = `transfers/${fileMeta.blobId}.enc`;
+    try {
+      if (isGoogle) {
+        cipherBuf = await cloudGoogle.downloadBufferFromGoogleDrive(tenantCfg, fallbackPath);
+      } else {
+        cipherBuf = await cloudOneDrive.downloadBufferFromOneDrive(tenantCfg, fallbackPath);
+      }
+      if (cipherBuf && Buffer.isBuffer(cipherBuf) && cipherBuf.length > 0) {
+        try {
+          fs.writeFileSync(localPath, cipherBuf);
+        } catch (we) {}
+      }
+    } catch (e) {}
+  }
+
   if (!cipherBuf) return null;
-  return cloudOneDrive.decryptBinaryBuffer(cipherBuf, keySalt);
+
+  const candidateSalts = Array.isArray(keySalt)
+    ? keySalt
+    : [fileMeta.keySalt, keySalt, 'default', ''].filter(s => s !== undefined);
+
+  try {
+    return cloudOneDrive.decryptBinaryBuffer(cipherBuf, candidateSalts);
+  } catch (decErr) {
+    console.error(`[Enviox Decrypt Auth Error] ${fileMeta.blobId}:`, decErr.message);
+    return null;
+  }
 }
 
 const server = http.createServer(async (req, res) => {

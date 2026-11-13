@@ -465,13 +465,57 @@ async function uploadFileToGoogleDrive(googleCfg, relativePath, filePath, conten
 
 async function downloadBufferFromGoogleDrive(googleCfg, relativePath, fetchFn = fetch) {
   const { accessToken } = await getGoogleAccessToken(googleCfg, fetchFn);
-  const baseFolder = String(googleCfg.baseFolder || 'CYBERPOLIS_VAULT').replace(/^\/+|\/+$/g, '') || 'CYBERPOLIS_VAULT';
+
+  // 1. Si relativePath es directamente un ID de Google Drive (sin barras ni extensiones, largo)
+  if (typeof relativePath === 'string' && !relativePath.includes('/') && !relativePath.includes('.') && relativePath.length >= 20) {
+    try {
+      const directRes = await fetchFn(`${GDRIVE_API}/files/${encodeURIComponent(relativePath)}?alt=media&supportsAllDrives=true`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(60000)
+      });
+      if (directRes.ok) {
+        const arr = await directRes.arrayBuffer();
+        return Buffer.from(arr);
+      }
+    } catch (e) {}
+  }
+
   const cleanRel = String(relativePath || '').replace(/^\/+/, '');
+  const parts = cleanRel.split('/').filter(Boolean);
+  const fileName = parts.pop();
+  if (!fileName) return null;
+
+  // 2. Búsqueda directa y ultra rápida por nombre de archivo cifrado en todo Google Drive
+  try {
+    const qName = `name = '${escapeDriveQueryValue(fileName)}' and trashed = false`;
+    const searchRes = await fetchFn(`${GDRIVE_API}/files?q=${encodeURIComponent(qName)}&fields=files(id,name,size)&supportsAllDrives=true&includeItemsFromAllDrives=true`, {
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(15000)
+    });
+    if (searchRes.ok) {
+      const searchData = await searchRes.json().catch(() => ({}));
+      if (Array.isArray(searchData.files) && searchData.files.length > 0 && searchData.files[0].id) {
+        const fileId = searchData.files[0].id;
+        const dlRes = await fetchFn(`${GDRIVE_API}/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`, {
+          headers: { 'Authorization': `Bearer ${accessToken}` },
+          signal: AbortSignal.timeout(60000)
+        });
+        if (dlRes.ok) {
+          const arr = await dlRes.arrayBuffer();
+          return Buffer.from(arr);
+        }
+      }
+    }
+  } catch (errSearch) {
+    console.warn('[Enviox GDrive direct name search warning]', errSearch.message);
+  }
+
+  // 3. Fallback con recorrido por árbol de carpetas
+  const baseFolder = String(googleCfg.baseFolder || googleCfg.folderId || 'CYBERPOLIS_VAULT').replace(/^\/+|\/+$/g, '') || 'CYBERPOLIS_VAULT';
   const fullParts = cleanRel.startsWith(`${baseFolder}/`)
     ? cleanRel.split('/').filter(Boolean)
     : [baseFolder, ...cleanRel.split('/').filter(Boolean)];
-  const fileName = fullParts.pop();
-  if (!fileName) return null;
+  fullParts.pop(); // Remove filename
 
   let parentId = String(googleCfg.driveId || 'root').trim() || 'root';
   for (const part of fullParts) {

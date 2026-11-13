@@ -91,15 +91,28 @@ function decryptBinaryBuffer(cipherBuf, transferSecret) {
   if (cipherBuf.slice(0, 4).toString('ascii') !== 'CPV8') {
     throw new Error('Cabecera CPV8 no reconocida.');
   }
-  const key = crypto.createHash('sha256')
-    .update(Buffer.concat([getMasterSecretKey(), Buffer.from(':' + String(transferSecret || 'default'))]))
-    .digest();
   const iv = cipherBuf.slice(4, 16);
   const tag = cipherBuf.slice(16, 32);
   const payload = cipherBuf.slice(32);
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-  decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(payload), decipher.final()]);
+
+  const candidates = Array.isArray(transferSecret)
+    ? transferSecret
+    : [transferSecret, 'default', ''].filter(s => s !== undefined);
+
+  let lastErr = null;
+  for (const sec of candidates) {
+    try {
+      const key = crypto.createHash('sha256')
+        .update(Buffer.concat([getMasterSecretKey(), Buffer.from(':' + String(sec || 'default'))]))
+        .digest();
+      const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+      decipher.setAuthTag(tag);
+      return Buffer.concat([decipher.update(payload), decipher.final()]);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('Fallo de autenticación o clave incorrecta al descifrar.');
 }
 
 function resolveEnvPrimaryTenant() {
