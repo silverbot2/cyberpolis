@@ -1740,11 +1740,12 @@ function serveStatic(req, res, pathname, query = {}) {
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';
     const isMainIndex = normalized === '/index.html' || normalized === '/enviox/index.html';
     const isVerificationFile = normalized === '/googlef43c9fcec7c53a25.html';
+    const isEnvioxFile = normalized.startsWith('/enviox/');
 
     const headers = buildSecurityHeaders(req, {
       isHtml: isMainIndex || isVerificationFile,
       contentType,
-      cacheControl: (isMainIndex || isVerificationFile) ? 'no-cache' : 'public, max-age=3600'
+      cacheControl: (isMainIndex || isVerificationFile || isEnvioxFile) ? 'no-cache, no-store, must-revalidate' : 'public, max-age=3600'
     });
 
     if (req.method === 'HEAD') {

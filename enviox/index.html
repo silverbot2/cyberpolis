@@ -4,7 +4,53 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ENVIOX — Envío y Recepción Segura de Archivos (5 TB)</title>
-  <link rel="stylesheet" href="/enviox/enviox.css">
+  <link rel="stylesheet" href="/enviox/enviox.css?v=8.3.2">
+  <script>
+    // Acceso directo e infalible a Ajustes y Administración desde el engranaje ⚙️
+    function openAdminSettings(e) {
+      if (e) {
+        if (e.preventDefault) e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+      }
+      if (typeof window.switchView === 'function') {
+        window.switchView('admin');
+        if (typeof window.switchAdminPane === 'function') {
+          window.switchAdminPane('ajustes');
+        }
+        return false;
+      }
+      // Fallback directo sobre el DOM en caso de que aún no haya inicializado el bundle
+      try {
+        var views = ['viewSend', 'viewReceive', 'viewRecords', 'viewContacts'];
+        views.forEach(function (id) {
+          var el = document.getElementById(id);
+          if (el) el.classList.remove('active');
+        });
+        var adminView = document.getElementById('viewAdmin');
+        if (adminView) adminView.classList.add('active');
+
+        var panes = document.querySelectorAll('.tx-admin-pane');
+        panes.forEach(function (pane) {
+          pane.classList.remove('active');
+        });
+        var settingsPane = document.getElementById('viewSettings');
+        if (settingsPane) settingsPane.classList.add('active');
+
+        var navItems = document.querySelectorAll('.tx-admin-nav-item');
+        navItems.forEach(function (item) {
+          if (item.dataset && item.dataset.pane === 'ajustes') {
+            item.classList.add('active');
+          } else {
+            item.classList.remove('active');
+          }
+        });
+        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) {}
+      } catch (err) {
+        console.error('Error al abrir ajustes:', err);
+      }
+      return false;
+    }
+  </script>
 </head>
 <body>
 
@@ -14,7 +60,7 @@
       <div class="tx-logo-icon">E</div>
       <div class="tx-brand-text">
         <span class="tx-brand-name" id="txBrandName">ENVIOX</span>
-        <span class="tx-brand-sub" id="txBrandSub">Plataforma Segura 5 TB · Grupo Industrial</span>
+        <span class="tx-brand-sub" id="txBrandSub">Plataforma Segura 5 TB · Enterprise Core</span>
       </div>
     </div>
 
@@ -47,8 +93,8 @@
         <div class="tx-user-status-dot"></div>
       </div>
 
-      <button type="button" class="tx-icon-btn" id="txSettingsBtn" title="Ajustes y Administración (Ruleta de Ajustes)" aria-label="Ajustes">
-        <span style="font-size:20px;">⚙️</span>
+      <button type="button" class="tx-icon-btn" id="txSettingsBtn" onclick="openAdminSettings(event)" title="Ajustes y Administración (Ruleta de Ajustes)" aria-label="Ajustes" style="cursor:pointer;position:relative;z-index:100;">
+        <span style="font-size:20px;pointer-events:none;">⚙️</span>
       </button>
 
       <!-- Invisible tab item for admin so switchView can highlight if needed -->
@@ -1196,6 +1242,6 @@
     </div>
   </div>
 
-  <script src="/enviox/enviox.js"></script>
+  <script src="/enviox/enviox.js?v=8.3.2"></script>
 </body>
 </html>

@@ -1,6 +1,5 @@
 // Enviox.js — Lógica cliente de la plataforma CYBERPOLIS Enviox
-// Inspirada en la interfaz y experiencia de Enviox (Grupo Industrial)
-
+// Plataforma Segura de Transferencia y Bóveda Cloud 5 TB
 (function () {
   'use strict';
 
@@ -179,7 +178,7 @@
 
     // Cerrar dropdown si estuviera abierto
     if (dom.dropdownMenu) dom.dropdownMenu.classList.remove('show');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) {}
   }
 
   // Cambiar panel dentro del Área de Administración unificada
@@ -817,8 +816,13 @@
     // 0. Ruleta de Ajustes (Botón ⚙️ en la cabecera)
     const settingsBtn = document.getElementById('txSettingsBtn');
     if (settingsBtn) {
+      settingsBtn.onclick = (e) => {
+        if (e && e.preventDefault) e.preventDefault();
+        switchView('admin');
+        switchAdminPane('ajustes');
+      };
       settingsBtn.addEventListener('click', (e) => {
-        e.preventDefault();
+        if (e && e.preventDefault) e.preventDefault();
         switchView('admin');
         switchAdminPane('ajustes');
       });
@@ -2115,6 +2119,19 @@
         if (e.target === dom.modalOverlay) closeModal();
       });
     }
+
+    // Exponer a window para máxima compatibilidad con inline handlers y accesos directos
+    window.switchView = switchView;
+    window.switchAdminPane = switchAdminPane;
+    window.openAdminSettings = function (e) {
+      if (e) {
+        if (e.preventDefault) e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+      }
+      switchView('admin');
+      switchAdminPane('ajustes');
+      return false;
+    };
 
     // Cargar datos
     loadInitData();
