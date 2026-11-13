@@ -81,7 +81,7 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/Enviox/init' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
-      user: { id: 'u-admin', username: 'admin', fullName: 'Administrador Autónomo', email: 'admin@clgrupoindustrial.com', role: 'admin' },
+      user: { id: 'u-admin', username: 'admin', fullName: 'Administrador Autónomo', email: 'admin@cyberpolis.es', role: 'admin' },
       settings: store.settings,
       contacts: store.contacts,
       groups: store.groups,
@@ -92,7 +92,7 @@ const server = http.createServer((req, res) => {
         name: 'Almacenamiento Autónomo Cifrado',
         capacity: '5 TB'
       },
-      mailGateway: { configured: true, mode: 'smtp', user: 'notificaciones@clgrupoindustrial.com' }
+      mailGateway: { configured: true, mode: 'smtp', user: 'notificaciones@cyberpolis.es' }
     }));
     return;
   }
@@ -128,7 +128,7 @@ const server = http.createServer((req, res) => {
           id: 'tx-' + Date.now().toString(36),
           reference: ref,
           type: 'enviado',
-          sender: 'admin@clgrupoindustrial.com',
+          sender: 'admin@cyberpolis.es',
           groupName: '-',
           recipient: (payload.recipients && payload.recipients[0]) || 'destinatario@empresa.com',
           allRecipients: payload.recipients || [],

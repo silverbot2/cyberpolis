@@ -59,14 +59,15 @@ const STORE_DEFS = {
         brandSubtitle: 'Plataforma Enviox Segura'
       },
       contacts: [
-        { id: 'ct-1', email: 'sergio.suarez@clgrupoindustrial.com', name: 'Sergio Suárez', phone: '', language: 'Español' },
-        { id: 'ct-2', email: 'josecarrasco@clgrupoindustrial.com', name: 'José Carrasco', phone: '', language: 'Español' },
-        { id: 'ct-3', email: 'aortiz@clgrupoindustrial.com', name: 'Alberto Ortiz', phone: '', language: 'Español' },
-        { id: 'ct-4', email: 'unai.nieto@gicl.es', name: 'Unai Nieto', phone: '+34 600 000 000', language: 'Español' }
+        { id: 'ct-1', email: 'soporte@cyberpolis.es', name: 'Soporte CYBERPOLIS', phone: '+34 900 100 200', language: 'Español' },
+        { id: 'ct-2', email: 'auditoria@cyberpolis.es', name: 'Auditoría Forense NIS2', phone: '+34 900 100 201', language: 'Español' },
+        { id: 'ct-3', email: 'unai.nieto@cyberpolis.es', name: 'Unai Nieto', phone: '+34 600 000 000', language: 'Español' }
       ],
       groups: [
-        { id: 'grp-1', name: 'Comité Ciberseguridad', members: ['unai.nieto@gicl.es', 'aortiz@clgrupoindustrial.com'] },
-        { id: 'grp-2', name: 'Auditoría Externa', members: ['sergio.suarez@clgrupoindustrial.com'] }
+        { id: 'grp-admin', name: 'Administradores', description: 'Acceso total y configuración de la plataforma', permission: 'admin', members: ['admin@cyberpolis.es', 'unai.nieto@cyberpolis.es'] },
+        { id: 'grp-both', name: 'Enviar y Recibir', description: 'Transferencias bidireccionales completas', permission: 'both', members: ['soc@cyberpolis.es'] },
+        { id: 'grp-send', name: 'Solo Enviar', description: 'Usuarios restringidos exclusivamente a envío de archivos', permission: 'send', members: [] },
+        { id: 'grp-receive', name: 'Solo Recibir', description: 'Usuarios restringidos exclusivamente a recepción de archivos', permission: 'receive', members: [] }
       ],
       roles: [
         { id: 'role-admin', name: 'Admin', description: 'Plantilla: perfil SAML ADMIN', type: 'Plantilla', permissionsCount: 12 },
@@ -77,7 +78,10 @@ const STORE_DEFS = {
         { id: 'role-restore', name: 'Restaurar', description: 'Plantilla: perfil SAML RESTAURAR', type: 'Plantilla', permissionsCount: 2 },
         { id: 'role-link', name: 'EnvioxLink', description: 'Plantilla: perfil SAML ENVIOXLINK', type: 'Plantilla', permissionsCount: 2 }
       ],
-      blacklist: [],
+      blacklist: [
+        { id: 'bl-1', type: 'domain', value: '@10minutemail.com', reason: 'Dominio temporal de spam', createdAt: '2026-11-13T09:00:00Z' },
+        { id: 'bl-2', type: 'domain', value: '@tempmail.com', reason: 'Dominio temporal de spam', createdAt: '2026-11-13T09:00:00Z' }
+      ],
       securityPolicies: []
     }
   }

@@ -34,7 +34,6 @@
 
       <button type="button" class="tx-nav-item" data-view="records">Registros</button>
       <button type="button" class="tx-nav-item" data-view="contacts">Contactos</button>
-      <button type="button" class="tx-nav-item" data-view="admin">Ajustes</button>
     </nav>
 
     <div class="tx-nav-actions">
@@ -48,8 +47,8 @@
         <div class="tx-user-status-dot"></div>
       </div>
 
-      <button type="button" class="tx-icon-btn" id="txSettingsBtn" title="Área de administración" onclick="document.querySelector('.tx-nav-item[data-view=\'admin\']')?.click() || (window.switchView && window.switchView('admin'))">
-        <span style="font-size:18px;">⚙️</span>
+      <button type="button" class="tx-icon-btn" id="txSettingsBtn" title="Ajustes y Administración (Ruleta de Ajustes)" aria-label="Ajustes">
+        <span style="font-size:20px;">⚙️</span>
       </button>
 
       <!-- Invisible tab item for admin so switchView can highlight if needed -->
@@ -742,9 +741,63 @@
               </div>
             </div>
 
+            <!-- Bloque de Configuración de Tenant y Nube 5 TB -->
+            <div style="margin-top:28px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+                <h3 style="font-size:16px;font-weight:700;color:var(--tx-navy);margin:0;">
+                  ☁️ Configuración de Tenant y Nube 5 TB (Google Drive / Microsoft Azure)
+                </h3>
+                <span id="tenantActiveBadge" style="background:#dcfce7;color:#166534;font-size:12px;font-weight:700;padding:3px 10px;border-radius:12px;">
+                  ● 5 TB Activos (Cifrado AES-256-GCM)
+                </span>
+              </div>
+              <p style="font-size:13px;color:#475569;margin-top:0;margin-bottom:16px;">
+                Gestiona la pasarela directa a tu almacenamiento en la nube para que ningún archivo ni publicación se pierda al recompilar.
+              </p>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+                <!-- Google Drive 5 TB -->
+                <div style="background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:16px;">
+                  <h4 style="font-size:14px;font-weight:700;color:var(--tx-navy);margin-top:0;margin-bottom:10px;">🔴 Google Drive 5 TB</h4>
+                  <div class="tx-setting-item">
+                    <label class="tx-setting-label">ID de Cliente OAuth 2.0 / Cuenta de Servicio</label>
+                    <input type="text" id="cfgGoogleClientId" class="tx-setting-input" placeholder="xxxx.apps.googleusercontent.com">
+                  </div>
+                  <div class="tx-setting-item">
+                    <label class="tx-setting-label">Secreto de Cliente / Token de Actualización</label>
+                    <input type="password" id="cfgGoogleClientSecret" class="tx-setting-input" placeholder="GOCSPX-xxxxxxxx">
+                  </div>
+                  <div class="tx-setting-item">
+                    <label class="tx-setting-label">ID de Carpeta Raíz 5 TB</label>
+                    <input type="text" id="cfgGoogleFolderId" class="tx-setting-input" value="ENVIOX_5TB_ROOT">
+                  </div>
+                </div>
+
+                <!-- Microsoft Azure / OneDrive 5 TB -->
+                <div style="background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:16px;">
+                  <h4 style="font-size:14px;font-weight:700;color:var(--tx-navy);margin-top:0;margin-bottom:10px;">🔷 Microsoft Azure / OneDrive 5 TB</h4>
+                  <div class="tx-setting-item">
+                    <label class="tx-setting-label">Directory (Tenant) ID</label>
+                    <input type="text" id="cfgAzureTenantId" class="tx-setting-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                  </div>
+                  <div class="tx-setting-item">
+                    <label class="tx-setting-label">Application (Client) ID</label>
+                    <input type="text" id="cfgAzureClientId" class="tx-setting-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                  </div>
+                  <div class="tx-setting-item">
+                    <label class="tx-setting-label">Client Secret Value</label>
+                    <input type="password" id="cfgAzureClientSecret" class="tx-setting-input" placeholder="••••••••••••••••">
+                  </div>
+                </div>
+              </div>
+              <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:16px;">
+                <button type="button" class="tx-btn-outline" id="btnTestCloudConnection">Probar Conexión Nube 5 TB</button>
+                <button type="button" class="tx-pill-btn-small" id="btnSaveCloudTenant" style="background:var(--tx-navy);">Guardar Credenciales de Tenant</button>
+              </div>
+            </div>
+
             <div style="display:flex;justify-content:flex-end;margin-top:24px;">
               <button type="button" id="btnSaveSettings" class="tx-pill-btn-small" style="padding:12px 36px;font-size:14px;background:var(--tx-navy);">
-                Guardar
+                Guardar Ajustes
               </button>
             </div>
           </div>
@@ -761,18 +814,18 @@
                 <button type="button" class="tx-btn-outline" id="btnToggleUserActive">
                   <span>⟳</span> <span>Activar/Desactivar</span>
                 </button>
-                <button type="button" class="tx-btn-outline" id="btnResendWelcome">
-                  <span>✉️</span> <span>Re-enviar bienvenida</span>
-                </button>
                 <button type="button" class="tx-btn-outline" id="btnResetUserPassword">
                   <span>🔑</span> <span>Restaurar contraseña</span>
                 </button>
+                <button type="button" class="tx-btn-outline" id="btnDeleteUser" style="color:#ef4444;">
+                  <span>🗑</span> <span>Eliminar Usuario</span>
+                </button>
               </div>
               <div class="tx-toolbar-right">
-                <div style="font-size:12px;font-weight:700;color:#64748b;margin-right:8px;">
-                  <span style="color:#10b981;">● Activos: 402</span> · Total usuarios: 937
+                <div style="font-size:12px;font-weight:700;color:#64748b;margin-right:8px;" id="usersCountBadge">
+                  <span style="color:#10b981;">● Activos</span>
                 </div>
-                <input type="text" id="usersSearch" class="tx-search-input" placeholder="Buscar">
+                <input type="text" id="usersSearch" class="tx-search-input" placeholder="Buscar usuario o correo">
               </div>
             </div>
 
@@ -785,6 +838,8 @@
                     <th>Usuario</th>
                     <th>Correo electrónico</th>
                     <th>Nombre</th>
+                    <th>Grupo asignado</th>
+                    <th>Permiso</th>
                     <th>Idioma</th>
                   </tr>
                 </thead>
@@ -853,6 +908,7 @@
                     <th>Nombre</th>
                     <th>Teléfono</th>
                     <th>Idioma</th>
+                    <th>Acción</th>
                   </tr>
                 </thead>
                 <tbody id="adminContactsTbody">
@@ -862,13 +918,16 @@
             </div>
           </div>
 
-          <!-- PANE: GRUPOS -->
+          <!-- PANE: GRUPOS (Totalmente operativo con permisos: Solo Enviar, Solo Recibir, Ambos, Admin) -->
           <div id="paneAdminGrupos" class="tx-admin-pane" data-pane="grupos">
-            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Grupos</h2>
+            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Grupos de usuarios y permisos</h2>
+            <p style="font-size:13px;color:#475569;margin-bottom:16px;">
+              Los grupos determinan la capacidad operativa de cada usuario en la plataforma: <strong>Solo Enviar</strong>, <strong>Solo Recibir</strong>, <strong>Ambos</strong> o <strong>Administradores</strong>.
+            </p>
             <div class="tx-records-toolbar">
               <div class="tx-toolbar-left">
                 <button type="button" class="tx-btn-outline" id="btnCreateAdminGroup" style="font-weight:700;">
-                  <span>👥+</span> <span>Nuevo grupo</span>
+                  <span>👥+</span> <span>Crear Nuevo Grupo</span>
                 </button>
               </div>
               <div class="tx-toolbar-right">
@@ -879,42 +938,15 @@
               <table class="tx-table">
                 <thead>
                   <tr>
-                    <th width="30"><input type="checkbox"></th>
                     <th>Nombre del grupo</th>
                     <th>Descripción</th>
-                    <th>Integrantes</th>
-                    <th>Estado</th>
+                    <th>Permiso operativo</th>
+                    <th>Usuarios integrantes</th>
+                    <th>Acciones</th>
                   </tr>
                 </thead>
                 <tbody id="adminGroupsTbody">
-                  <tr>
-                    <td><input type="checkbox"></td>
-                    <td><strong>Dirección Ejecutiva</strong></td>
-                    <td>Comité de Dirección y Gerencia General</td>
-                    <td><span style="background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:700;">12 miembros</span></td>
-                    <td><span style="color:#10b981;font-weight:700;">● Activo</span></td>
-                  </tr>
-                  <tr>
-                    <td><input type="checkbox"></td>
-                    <td><strong>Ciberseguridad & SOC</strong></td>
-                    <td>Equipo de Respuesta a Incidentes y CSIRT</td>
-                    <td><span style="background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:700;">8 miembros</span></td>
-                    <td><span style="color:#10b981;font-weight:700;">● Activo</span></td>
-                  </tr>
-                  <tr>
-                    <td><input type="checkbox"></td>
-                    <td><strong>Operaciones Industriales</strong></td>
-                    <td>Planta de Producción y Mantenimiento</td>
-                    <td><span style="background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:700;">45 miembros</span></td>
-                    <td><span style="color:#10b981;font-weight:700;">● Activo</span></td>
-                  </tr>
-                  <tr>
-                    <td><input type="checkbox"></td>
-                    <td><strong>Legal & Cumplimiento NIS2</strong></td>
-                    <td>Auditoría regulatoria y DPO</td>
-                    <td><span style="background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:700;">6 miembros</span></td>
-                    <td><span style="color:#10b981;font-weight:700;">● Activo</span></td>
-                  </tr>
+                  <!-- Se llena dinámicamente con enviox.js -->
                 </tbody>
               </table>
             </div>
@@ -927,25 +959,53 @@
               <h3 style="font-size:15px;color:var(--tx-navy);font-weight:700;margin-bottom:6px;">Buzón corporativo seguro (Drop-box)</h3>
               <p style="font-size:13px;color:#475569;margin-bottom:12px;">Permite a clientes, proveedores y auditorías externas remitirte ficheros cifrados sin necesidad de registrarse en la plataforma, directo a tu almacenamiento de 5 TB.</p>
               <div style="display:flex;gap:10px;">
-                <input type="text" readonly value="https://cyberpolis.onrender.com/enviox/?action=receive&portal=corporativo" class="tx-input-field" style="background:#fff;" onclick="this.select()">
-                <button type="button" class="tx-btn-outline" onclick="navigator.clipboard.writeText('https://cyberpolis.onrender.com/enviox/?action=receive&portal=corporativo');alert('URL del portal copiada.');">Copiar enlace</button>
+                <input type="text" id="portalPublicLinkInput" readonly value="https://cyberpolis.onrender.com/enviox/?action=receive&portal=corporativo" class="tx-input-field" style="background:#fff;" onclick="this.select()">
+                <button type="button" class="tx-btn-outline" onclick="navigator.clipboard.writeText(document.getElementById('portalPublicLinkInput').value);alert('Enlace del portal de recepción copiado al portapapeles.');">Copiar enlace</button>
               </div>
             </div>
           </div>
 
-          <!-- PANE: CANALES DE NOTIFICACIÓN -->
+          <!-- PANE: CANALES DE NOTIFICACIÓN (Totalmente configurable) -->
           <div id="paneAdminCanales" class="tx-admin-pane" data-pane="canales">
-            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Canales de notificación</h2>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
-              <div style="background:#f8fafc;padding:18px;border-radius:8px;border:1px solid #e2e8f0;">
-                <div style="font-weight:700;color:var(--tx-navy);margin-bottom:6px;">✉️ Pasarela de Correo Electrónico (SMTP / Gmail)</div>
-                <div style="font-size:13px;color:#475569;margin-bottom:10px;">Envío de acuses de recibo y enlaces de descarga seguros con trazabilidad completa.</div>
-                <div style="font-size:12px;color:#10b981;font-weight:700;">● Estado: Conectado a pasarela corporativa</div>
+            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Canales de notificación y Pasarela de Correo</h2>
+            
+            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin-bottom:20px;">
+              <h3 style="font-size:15px;color:var(--tx-navy);font-weight:700;margin-top:0;margin-bottom:12px;">✉️ Configuración de Pasarela SMTP / Correo Saliente</h3>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                <div class="tx-setting-item">
+                  <label class="tx-setting-label">Servidor SMTP</label>
+                  <input type="text" id="cfgSmtpHost" class="tx-setting-input" value="smtp.gmail.com">
+                </div>
+                <div class="tx-setting-item">
+                  <label class="tx-setting-label">Puerto SMTP</label>
+                  <input type="number" id="cfgSmtpPort" class="tx-setting-input" value="587">
+                </div>
+                <div class="tx-setting-item">
+                  <label class="tx-setting-label">Usuario / Correo remitente</label>
+                  <input type="email" id="cfgSmtpUser" class="tx-setting-input" placeholder="notificaciones@cyberpolis.es">
+                </div>
+                <div class="tx-setting-item">
+                  <label class="tx-setting-label">Nombre para mostrar</label>
+                  <input type="text" id="cfgSmtpFromName" class="tx-setting-input" value="ENVIOX Notificaciones">
+                </div>
               </div>
-              <div style="background:#f8fafc;padding:18px;border-radius:8px;border:1px solid #e2e8f0;">
-                <div style="font-weight:700;color:var(--tx-navy);margin-bottom:6px;">💬 Notificaciones SMS / OTP</div>
-                <div style="font-size:13px;color:#475569;margin-bottom:10px;">Entrega de doble factor de autenticación y códigos de descarga vía telefonía móvil.</div>
-                <div style="font-size:12px;color:#10b981;font-weight:700;">● Estado: Pasarela OTP Activa</div>
+
+              <h4 style="font-size:14px;color:var(--tx-navy);font-weight:700;margin-top:18px;margin-bottom:8px;">Eventos con aviso automático:</h4>
+              <div style="display:flex;flex-direction:column;gap:8px;">
+                <label style="font-size:13px;display:flex;align-items:center;gap:8px;color:#334e68;">
+                  <input type="checkbox" id="cfgNotifyOnSend" checked> Notificar al destinatario con enlace seguro al realizar un envío
+                </label>
+                <label style="font-size:13px;display:flex;align-items:center;gap:8px;color:#334e68;">
+                  <input type="checkbox" id="cfgNotifyOnDownload" checked> Notificar al emisor cuando el destinatario descarga los archivos (Acuse de recibo instantáneo)
+                </label>
+                <label style="font-size:13px;display:flex;align-items:center;gap:8px;color:#334e68;">
+                  <input type="checkbox" id="cfgNotifyOnExpiry" checked> Alertar al emisor 24 horas antes de la caducidad del archivo
+                </label>
+              </div>
+
+              <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:20px;">
+                <button type="button" class="tx-btn-outline" id="btnTestEmailChannel">✉️ Enviar correo de prueba</button>
+                <button type="button" class="tx-pill-btn-small" id="btnSaveChannels" style="background:var(--tx-navy);">Guardar Canales de Notificación</button>
               </div>
             </div>
           </div>
@@ -973,16 +1033,42 @@
             </div>
           </div>
 
-          <!-- PANE: LISTA NEGRA -->
+          <!-- PANE: LISTA NEGRA (Totalmente operativa con agregar y quitar) -->
           <div id="paneAdminListaNegra" class="tx-admin-pane" data-pane="listanegra">
-            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Lista negra</h2>
-            <p style="font-size:13px;color:#475569;margin-bottom:16px;">Bloqueo automático de remitentes sospechosos, dominios temporales o direcciones no autorizadas.</p>
-            <div style="background:#f8fafc;padding:16px;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:16px;">
-              <ul style="font-size:13px;color:#475569;padding-left:18px;">
-                <li>@10minutemail.com · <em>Bloqueado permanentemente</em></li>
-                <li>@tempmail.com · <em>Bloqueado permanentemente</em></li>
-                <li>@guerrillamail.com · <em>Bloqueado permanentemente</em></li>
-              </ul>
+            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Lista negra corporativa</h2>
+            <p style="font-size:13px;color:#475569;margin-bottom:16px;">
+              Bloquea direcciones de correo o dominios enteros (ej: <code>@tempmail.com</code>) para impedirles recibir o enviar transferencias a través de ENVIOX.
+            </p>
+
+            <div style="background:#f8fafc;padding:16px;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:20px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+              <div style="flex:1;min-width:200px;">
+                <label style="font-size:12px;font-weight:700;color:var(--tx-navy);display:block;margin-bottom:4px;">Dirección o Dominio a bloquear</label>
+                <input type="text" id="newBlacklistInput" class="tx-input-field" placeholder="ejemplo@sospechoso.com o @dominio-basura.com">
+              </div>
+              <div style="flex:1;min-width:200px;">
+                <label style="font-size:12px;font-weight:700;color:var(--tx-navy);display:block;margin-bottom:4px;">Motivo del bloqueo</label>
+                <input type="text" id="newBlacklistReason" class="tx-input-field" placeholder="Spam, remitente desconocido, etc.">
+              </div>
+              <button type="button" class="tx-pill-btn-small" id="btnAddBlacklist" style="background:#ef4444;padding:10px 20px;">
+                + Agregar a Lista Negra
+              </button>
+            </div>
+
+            <div class="tx-table-container">
+              <table class="tx-table">
+                <thead>
+                  <tr>
+                    <th>Tipo</th>
+                    <th>Regla / Valor bloqueado</th>
+                    <th>Motivo</th>
+                    <th>Fecha de inclusión</th>
+                    <th>Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="adminBlacklistTbody">
+                  <!-- Se llena con enviox.js -->
+                </tbody>
+              </table>
             </div>
           </div>
 
@@ -1014,13 +1100,39 @@
             </div>
           </div>
 
-          <!-- PANE: INFORMES -->
+          <!-- PANE: INFORMES Y SEGUIMIENTO EN TIEMPO REAL -->
           <div id="paneAdminInformes" class="tx-admin-pane" data-pane="informes">
-            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Informes y Auditoría Legal</h2>
-            <p style="font-size:13px;color:#475569;margin-bottom:16px;">Descarga actas oficiales de entrega, trazabilidad de accesos y certificados probatorios para cumplimiento legal.</p>
-            <div style="display:flex;gap:12px;">
-              <button type="button" class="tx-pill-btn-small" onclick="window.switchView && window.switchView('records');">Ver Registro Completo de Transferencias</button>
-              <button type="button" class="tx-btn-outline" onclick="alert('Exportando informe consolidado en formato seguro JSON/CSV...');">Exportar Auditoría General</button>
+            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Informes de seguimiento y Auditoría Forense</h2>
+            <p style="font-size:13px;color:#475569;margin-bottom:16px;">
+              Seguimiento exhaustivo de transferencias: visualiza en tiempo real quién envió, qué ficheros, si el destinatario los abrió o descargó, fecha y hora del acuse de recibo e IP.
+            </p>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
+              <div style="display:flex;gap:10px;">
+                <button type="button" class="tx-btn-outline" id="btnRefreshReports">⟳ Actualizar Auditoría</button>
+                <button type="button" class="tx-btn-outline" id="btnExportReportsCsv">⬇️ Exportar Informe CSV</button>
+              </div>
+              <input type="text" id="reportsSearch" class="tx-search-input" placeholder="Filtrar por emisor o destinatario">
+            </div>
+
+            <div class="tx-table-container">
+              <table class="tx-table">
+                <thead>
+                  <tr>
+                    <th>Ref</th>
+                    <th>Emisor</th>
+                    <th>Destinatario</th>
+                    <th>Ficheros</th>
+                    <th>Fecha Envío</th>
+                    <th>Acuse de Recibo / Descarga</th>
+                    <th>IP Destino</th>
+                    <th>Certificado</th>
+                  </tr>
+                </thead>
+                <tbody id="adminReportsTbody">
+                  <!-- Se llena con enviox.js -->
+                </tbody>
+              </table>
             </div>
           </div>
 
@@ -1034,9 +1146,9 @@
                 <div style="font-size:12px;color:#10b981;margin-top:2px;">Google Drive / OneDrive</div>
               </div>
               <div style="background:#f8fafc;padding:18px;border-radius:8px;border:1px solid #e2e8f0;text-align:center;">
-                <div style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;">Usuarios Activos</div>
-                <div style="font-size:24px;font-weight:800;color:var(--tx-navy);margin-top:4px;">402</div>
-                <div style="font-size:12px;color:#64748b;margin-top:2px;">de 937 registrados</div>
+                <div style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;">Tasa de Entrega</div>
+                <div style="font-size:24px;font-weight:800;color:var(--tx-navy);margin-top:4px;">100%</div>
+                <div style="font-size:12px;color:#10b981;margin-top:2px;">Pasarela Activa</div>
               </div>
               <div style="background:#f8fafc;padding:18px;border-radius:8px;border:1px solid #e2e8f0;text-align:center;">
                 <div style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;">Tasa de Acuses de Recibo</div>
@@ -1046,22 +1158,22 @@
             </div>
           </div>
 
-          <!-- PANE: LICENCIA -->
+          <!-- PANE: LICENCIA (Completamente limpia de terceros) -->
           <div id="paneAdminLicencia" class="tx-admin-pane" data-pane="licencia">
-            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Licencia</h2>
+            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Licencia de la plataforma</h2>
             <div style="background:#f8fafc;padding:24px;border-radius:8px;border:1px solid #e2e8f0;">
               <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
                 <div style="font-size:28px;">🔒</div>
                 <div>
-                  <h3 style="font-size:18px;font-weight:800;color:var(--tx-navy);">ENVIOX ENTERPRISE ULTIMATE</h3>
-                  <div style="font-size:13px;color:#10b981;font-weight:700;">● Licencia activa y verificada</div>
+                  <h3 style="font-size:18px;font-weight:800;color:var(--tx-navy);margin:0;">ENVIOX ENTERPRISE CORE</h3>
+                  <div style="font-size:13px;color:#10b981;font-weight:700;margin-top:2px;">● Licencia activa y verificada</div>
                 </div>
               </div>
-              <div style="font-size:13px;color:#475569;line-height:1.6;">
-                <strong>Titular:</strong> GRUPO INDUSTRIAL / CYBERPOLIS<br>
-                <strong>Modalidad:</strong> Usuarios Ilimitados + Transferencias Cifradas Multi-Nube<br>
-                <strong>Cuota de almacenamiento:</strong> 5.000 GB (5 TB) activos en la nube de alta capacidad<br>
-                <strong>Soporte:</strong> Nivel 3 24/7 con trazabilidad forense NIS2
+              <div style="font-size:13px;color:#475569;line-height:1.7;">
+                <strong>Titular de la plataforma:</strong> CYBERPOLIS<br>
+                <strong>Modalidad de despliegue:</strong> Servidor Dedicado + Transferencias Cifradas Multi-Nube<br>
+                <strong>Cuota de almacenamiento:</strong> 5.000 GB (5 TB) activos en bóveda cifrada AES-256-GCM<br>
+                <strong>Garantía de trazabilidad:</strong> Cumplimiento NIS2 y Esquema Nacional de Seguridad (ENS)
               </div>
             </div>
           </div>

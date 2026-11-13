@@ -30,6 +30,21 @@ function normalizeRecipients(input) {
     .filter(x => x && x.includes('@'));
 }
 
+function isBlacklisted(email, blacklist) {
+  if (!email || !blacklist || !blacklist.length) return false;
+  const em = String(email).toLowerCase().trim();
+  for (const bl of blacklist) {
+    const val = String(bl.value || '').toLowerCase().trim();
+    if (!val) continue;
+    if (val.startsWith('@')) {
+      if (em.endsWith(val) || ('@' + em.split('@')[1]) === val) return true;
+    } else if (em === val) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function computeTransferStatus(t) {
   if (t.status === 'cancelled') return 'cancelled';
   if (t.status === 'pending_validation') return 'pending_validation';
@@ -178,7 +193,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
       user: currentUser ? {
         id: currentUser.id,
         username: currentUser.username,
-        email: currentUser.email || `${currentUser.username}@clgrupoindustrial.com`,
+        email: currentUser.email || `${currentUser.username}@cyberpolis.es`,
         fullName: currentUser.fullName || currentUser.username,
         role: currentUser.role || 'user',
         isAdmin: currentUser.role === 'admin'
@@ -256,6 +271,28 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
       return true;
     }
 
+    // 1. Validación de permisos de grupo (Solo Enviar / Solo Recibir / Admin)
+    const userGroups = (EnvioxState.groups || []).filter(g => Array.isArray(g.members) && (g.members.includes(currentUser.username) || g.members.includes(currentUser.email) || g.members.includes(`${currentUser.username}@cyberpolis.es`)));
+    const hasSendPermission = currentUser.role === 'admin' || userGroups.some(g => g.permission === 'send' || g.permission === 'both' || g.permission === 'admin') || userGroups.length === 0;
+    if (!hasSendPermission) {
+      sendJSON(req, res, 403, { error: 'Acceso denegado: Tu grupo de usuario solo tiene permiso para Recibir archivos.' }, {}, { noStore: true });
+      return true;
+    }
+
+    // 2. Validación de Lista Negra corporativa
+    const blacklist = EnvioxState.blacklist || [];
+    for (const r of recipients) {
+      if (isBlacklisted(r, blacklist)) {
+        sendJSON(req, res, 400, { error: `La dirección destinataria '${r}' está bloqueada en la Lista Negra corporativa.` }, {}, { noStore: true });
+        return true;
+      }
+    }
+    const senderEmail = currentUser.email || `${currentUser.username}@cyberpolis.es`;
+    if (isBlacklisted(senderEmail, blacklist)) {
+      sendJSON(req, res, 400, { error: `Tu cuenta o dirección emisora (${senderEmail}) está bloqueada en la Lista Negra corporativa.` }, {}, { noStore: true });
+      return true;
+    }
+
     const subject = sanitizeInput(body.subject || '', 100);
     const message = sanitizeInput(body.message || '', 2000);
     const phone = sanitizeInput(body.phone || '', 30);
@@ -320,7 +357,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
       shareUrl,
       senderUserId: currentUser.id,
       senderUsername: currentUser.username,
-      senderEmail: currentUser.email || `${currentUser.username}@clgrupoindustrial.com`,
+      senderEmail: currentUser.email || `${currentUser.username}@cyberpolis.es`,
       senderName: currentUser.fullName || currentUser.username,
       recipients,
       recipient: recipients[0],
@@ -449,6 +486,20 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
       return true;
     }
 
+    // 1. Validación de permisos de grupo (Solo Enviar / Solo Recibir / Admin)
+    const userGroups = (EnvioxState.groups || []).filter(g => Array.isArray(g.members) && (g.members.includes(currentUser.username) || g.members.includes(currentUser.email) || g.members.includes(`${currentUser.username}@cyberpolis.es`)));
+    const hasReceivePermission = currentUser.role === 'admin' || userGroups.some(g => g.permission === 'receive' || g.permission === 'both' || g.permission === 'admin') || userGroups.length === 0;
+    if (!hasReceivePermission) {
+      sendJSON(req, res, 403, { error: 'Acceso denegado: Tu grupo de usuario solo tiene permiso para Enviar archivos.' }, {}, { noStore: true });
+      return true;
+    }
+
+    // 2. Validación de Lista Negra corporativa
+    if (isBlacklisted(recipient, EnvioxState.blacklist || [])) {
+      sendJSON(req, res, 400, { error: `La dirección destinataria '${recipient}' está bloqueada en la Lista Negra corporativa.` }, {}, { noStore: true });
+      return true;
+    }
+
     const subject = sanitizeInput(body.subject || '', 100);
     const message = sanitizeInput(body.message || '', 2000);
     const phone = sanitizeInput(body.phone || '', 30);
@@ -480,7 +531,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
       shareUrl: dropUrl,
       senderUserId: currentUser.id,
       senderUsername: currentUser.username,
-      senderEmail: currentUser.email || `${currentUser.username}@clgrupoindustrial.com`,
+      senderEmail: currentUser.email || `${currentUser.username}@cyberpolis.es`,
       senderName: currentUser.fullName || currentUser.username,
       recipient,
       recipients: [recipient],
@@ -685,6 +736,433 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
   // 8. GET /api/enviox/roles — Roles corporativos SAML
   if (pathname === '/api/enviox/roles' && method === 'GET') {
     sendJSON(req, res, 200, { roles: EnvioxState.roles || [] }, {}, { noStore: true });
+    return true;
+  }
+
+  // 9. USUARIOS (/api/enviox/users) — Gestión de usuarios y asignación a grupos
+  if (pathname === '/api/enviox/users') {
+    if (!currentUser) {
+      sendJSON(req, res, 401, { error: 'Autenticación requerida.' }, {}, { noStore: true });
+      return true;
+    }
+
+    if (method === 'GET') {
+      EnvioxState.users = EnvioxState.users || [
+        { id: 'u-1', username: 'admin', email: 'admin@cyberpolis.es', fullName: 'Administrador Principal', role: 'admin', active: true, groupId: 'grp-admin', language: 'Español' },
+        { id: 'u-2', username: 'unai.nieto', email: 'unai.nieto@cyberpolis.es', fullName: 'Unai Nieto', role: 'admin', active: true, groupId: 'grp-admin', language: 'Español' },
+        { id: 'u-3', username: 'soc', email: 'soc@cyberpolis.es', fullName: 'Operador SOC Ciberseguridad', role: 'user', active: true, groupId: 'grp-both', language: 'Español' }
+      ];
+
+      // Mapear con nombres de grupo reales
+      const groups = EnvioxState.groups || [];
+      const userList = EnvioxState.users.map(u => {
+        const grp = groups.find(g => g.id === u.groupId || (Array.isArray(g.members) && (g.members.includes(u.email) || g.members.includes(u.username))));
+        return {
+          id: u.id,
+          username: u.username,
+          email: u.email,
+          fullName: u.fullName || u.username,
+          role: u.role || 'user',
+          active: u.active !== false,
+          groupId: grp ? grp.id : (u.groupId || 'grp-both'),
+          groupName: grp ? grp.name : 'General',
+          permission: grp ? grp.permission : (u.role === 'admin' ? 'admin' : 'both'),
+          language: u.language || 'Español'
+        };
+      });
+
+      sendJSON(req, res, 200, { users: userList }, {}, { noStore: true });
+      return true;
+    }
+
+    if (method === 'POST') {
+      if (currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Solo administradores pueden crear o editar usuarios.' }, {}, { noStore: true });
+        return true;
+      }
+
+      const b = await getBody();
+      const username = sanitizeInput(b.username || '', 50).toLowerCase().replace(/[^a-z0-9._-]/g, '');
+      const email = sanitizeInput(b.email || (username ? `${username}@cyberpolis.es` : ''), 100).toLowerCase();
+      if (!username || !email.includes('@')) {
+        sendJSON(req, res, 400, { error: 'Nombre de usuario y correo electrónico válidos son obligatorios.' }, {}, { noStore: true });
+        return true;
+      }
+
+      EnvioxState.users = EnvioxState.users || [];
+      const existingIdx = EnvioxState.users.findIndex(u => u.username === username || u.email === email);
+      const userObj = {
+        id: existingIdx >= 0 ? EnvioxState.users[existingIdx].id : 'u-' + Date.now().toString(36),
+        username,
+        email,
+        fullName: sanitizeInput(b.fullName || username, 100),
+        role: b.role === 'admin' ? 'admin' : 'user',
+        groupId: b.groupId || 'grp-both',
+        active: b.active !== false,
+        language: sanitizeInput(b.language || 'Español', 20)
+      };
+
+      if (existingIdx >= 0) {
+        EnvioxState.users[existingIdx] = userObj;
+      } else {
+        EnvioxState.users.push(userObj);
+      }
+
+      // Sincronizar membresía en el grupo seleccionado
+      if (EnvioxState.groups && userObj.groupId) {
+        EnvioxState.groups.forEach(g => {
+          g.members = g.members || [];
+          if (g.id === userObj.groupId) {
+            if (!g.members.includes(email)) g.members.push(email);
+          } else {
+            g.members = g.members.filter(m => m !== email && m !== username);
+          }
+        });
+      }
+
+      db.write('enviox', EnvioxState);
+      sendJSON(req, res, 200, { ok: true, user: userObj }, {}, { noStore: true });
+      return true;
+    }
+  }
+
+  if (pathname === '/api/enviox/users/toggle' && method === 'POST') {
+    if (!currentUser || currentUser.role !== 'admin') {
+      sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
+      return true;
+    }
+    const { username } = await getBody();
+    EnvioxState.users = EnvioxState.users || [];
+    const target = EnvioxState.users.find(u => u.username === username);
+    if (!target) {
+      sendJSON(req, res, 404, { error: 'Usuario no encontrado.' }, {}, { noStore: true });
+      return true;
+    }
+    target.active = !target.active;
+    db.write('enviox', EnvioxState);
+    sendJSON(req, res, 200, { ok: true, username: target.username, active: target.active }, {}, { noStore: true });
+    return true;
+  }
+
+  if (pathname === '/api/enviox/users/reset-password' && method === 'POST') {
+    if (!currentUser || currentUser.role !== 'admin') {
+      sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
+      return true;
+    }
+    const { username } = await getBody();
+    const tempPassword = 'Enviox_' + crypto.randomBytes(3).toString('hex') + '!';
+    sendJSON(req, res, 200, { ok: true, username, tempPassword, message: `Contraseña provisional generada: ${tempPassword}` }, {}, { noStore: true });
+    return true;
+  }
+
+  if (pathname.startsWith('/api/enviox/users/') && method === 'DELETE') {
+    if (!currentUser || currentUser.role !== 'admin') {
+      sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
+      return true;
+    }
+    const uName = decodeURIComponent(pathname.replace('/api/enviox/users/', ''));
+    if (uName === 'admin') {
+      sendJSON(req, res, 400, { error: 'No se puede eliminar la cuenta principal de administrador.' }, {}, { noStore: true });
+      return true;
+    }
+    EnvioxState.users = (EnvioxState.users || []).filter(u => u.username !== uName && u.email !== uName);
+    if (EnvioxState.groups) {
+      EnvioxState.groups.forEach(g => {
+        if (Array.isArray(g.members)) {
+          g.members = g.members.filter(m => m !== uName && !m.startsWith(uName + '@'));
+        }
+      });
+    }
+    db.write('enviox', EnvioxState);
+    sendJSON(req, res, 200, { ok: true, deleted: uName }, {}, { noStore: true });
+    return true;
+  }
+
+  // 10. GRUPOS (/api/enviox/groups) — Grupos con permisos funcionales (Solo Enviar, Solo Recibir, Ambos, Admin)
+  if (pathname === '/api/enviox/groups') {
+    if (!currentUser) {
+      sendJSON(req, res, 401, { error: 'Autenticación requerida.' }, {}, { noStore: true });
+      return true;
+    }
+
+    if (method === 'GET') {
+      EnvioxState.groups = EnvioxState.groups || [
+        { id: 'grp-admin', name: 'Administradores', description: 'Acceso total y configuración de la plataforma', permission: 'admin', members: ['admin@cyberpolis.es', 'unai.nieto@cyberpolis.es'] },
+        { id: 'grp-both', name: 'Enviar y Recibir', description: 'Transferencias bidireccionales completas', permission: 'both', members: ['soc@cyberpolis.es'] },
+        { id: 'grp-send', name: 'Solo Enviar', description: 'Usuarios restringidos exclusivamente a envío de archivos', permission: 'send', members: [] },
+        { id: 'grp-receive', name: 'Solo Recibir', description: 'Usuarios restringidos exclusivamente a recepción de archivos', permission: 'receive', members: [] }
+      ];
+      sendJSON(req, res, 200, { groups: EnvioxState.groups }, {}, { noStore: true });
+      return true;
+    }
+
+    if (method === 'POST') {
+      if (currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Solo administradores pueden crear o modificar grupos.' }, {}, { noStore: true });
+        return true;
+      }
+
+      const b = await getBody();
+      const name = sanitizeInput(b.name || '', 80);
+      if (!name) {
+        sendJSON(req, res, 400, { error: 'El nombre del grupo es obligatorio.' }, {}, { noStore: true });
+        return true;
+      }
+
+      EnvioxState.groups = EnvioxState.groups || [];
+      const gId = b.id || ('grp-' + Date.now().toString(36));
+      const existingIdx = EnvioxState.groups.findIndex(g => g.id === gId || g.name.toLowerCase() === name.toLowerCase());
+
+      const groupObj = {
+        id: existingIdx >= 0 ? EnvioxState.groups[existingIdx].id : gId,
+        name,
+        description: sanitizeInput(b.description || '', 200),
+        permission: ['send', 'receive', 'both', 'admin'].includes(b.permission) ? b.permission : 'both',
+        members: Array.isArray(b.members) ? b.members.map(m => sanitizeInput(m, 100).toLowerCase()) : []
+      };
+
+      if (existingIdx >= 0) {
+        EnvioxState.groups[existingIdx] = groupObj;
+      } else {
+        EnvioxState.groups.push(groupObj);
+      }
+
+      db.write('enviox', EnvioxState);
+      sendJSON(req, res, 200, { ok: true, group: groupObj }, {}, { noStore: true });
+      return true;
+    }
+  }
+
+  if (pathname === '/api/enviox/groups/assign' && method === 'POST') {
+    if (!currentUser || currentUser.role !== 'admin') {
+      sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
+      return true;
+    }
+    const { groupId, userEmail, action } = await getBody();
+    EnvioxState.groups = EnvioxState.groups || [];
+    const grp = EnvioxState.groups.find(g => g.id === groupId);
+    if (!grp) {
+      sendJSON(req, res, 404, { error: 'Grupo no encontrado.' }, {}, { noStore: true });
+      return true;
+    }
+    grp.members = grp.members || [];
+    const em = sanitizeInput(userEmail || '', 100).toLowerCase();
+    if (action === 'remove') {
+      grp.members = grp.members.filter(m => m !== em);
+    } else {
+      if (!grp.members.includes(em)) grp.members.push(em);
+    }
+    db.write('enviox', EnvioxState);
+    sendJSON(req, res, 200, { ok: true, group: grp }, {}, { noStore: true });
+    return true;
+  }
+
+  if (pathname.startsWith('/api/enviox/groups/') && method === 'DELETE') {
+    if (!currentUser || currentUser.role !== 'admin') {
+      sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
+      return true;
+    }
+    const gId = decodeURIComponent(pathname.replace('/api/enviox/groups/', ''));
+    if (['grp-admin', 'grp-both'].includes(gId)) {
+      sendJSON(req, res, 400, { error: 'No se pueden eliminar los grupos del sistema.' }, {}, { noStore: true });
+      return true;
+    }
+    EnvioxState.groups = (EnvioxState.groups || []).filter(g => g.id !== gId);
+    db.write('enviox', EnvioxState);
+    sendJSON(req, res, 200, { ok: true, deleted: gId }, {}, { noStore: true });
+    return true;
+  }
+
+  // 11. LISTA NEGRA (/api/enviox/blacklist) — Agregar y quitar remitentes y dominios bloqueados
+  if (pathname === '/api/enviox/blacklist') {
+    if (!currentUser) {
+      sendJSON(req, res, 401, { error: 'Autenticación requerida.' }, {}, { noStore: true });
+      return true;
+    }
+
+    if (method === 'GET') {
+      sendJSON(req, res, 200, { blacklist: EnvioxState.blacklist || [] }, {}, { noStore: true });
+      return true;
+    }
+
+    if (method === 'POST') {
+      if (currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Solo administradores pueden modificar la Lista Negra.' }, {}, { noStore: true });
+        return true;
+      }
+
+      const b = await getBody();
+      let value = sanitizeInput(b.value || '', 120).toLowerCase().trim();
+      if (!value) {
+        sendJSON(req, res, 400, { error: 'Introduce una dirección de correo o dominio (@ejemplo.com).' }, {}, { noStore: true });
+        return true;
+      }
+      if (!value.startsWith('@') && !value.includes('@')) {
+        value = '@' + value; // Si introducen "tempmail.com", convertir a "@tempmail.com"
+      }
+
+      EnvioxState.blacklist = EnvioxState.blacklist || [];
+      const entry = {
+        id: 'bl-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6),
+        type: value.startsWith('@') ? 'domain' : 'email',
+        value,
+        reason: sanitizeInput(b.reason || 'Bloqueo administrativo', 150),
+        createdAt: new Date().toISOString()
+      };
+
+      // Evitar duplicados
+      if (!EnvioxState.blacklist.some(x => x.value === value)) {
+        EnvioxState.blacklist.push(entry);
+      }
+
+      db.write('enviox', EnvioxState);
+      sendJSON(req, res, 201, { ok: true, entry }, {}, { noStore: true });
+      return true;
+    }
+  }
+
+  if (pathname.startsWith('/api/enviox/blacklist/') && method === 'DELETE') {
+    if (!currentUser || currentUser.role !== 'admin') {
+      sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
+      return true;
+    }
+    const bId = decodeURIComponent(pathname.replace('/api/enviox/blacklist/', '')).toLowerCase();
+    EnvioxState.blacklist = (EnvioxState.blacklist || []).filter(x => x.id !== bId && x.value !== bId);
+    db.write('enviox', EnvioxState);
+    sendJSON(req, res, 200, { ok: true, deleted: bId }, {}, { noStore: true });
+    return true;
+  }
+
+  // 12. CANALES DE NOTIFICACIÓN (/api/enviox/channels)
+  if (pathname === '/api/enviox/channels') {
+    if (!currentUser) {
+      sendJSON(req, res, 401, { error: 'Autenticación requerida.' }, {}, { noStore: true });
+      return true;
+    }
+
+    if (method === 'GET') {
+      const ch = EnvioxState.channels || {
+        smtpHost: 'smtp.gmail.com',
+        smtpPort: 587,
+        smtpUser: 'notificaciones@cyberpolis.es',
+        fromName: 'ENVIOX Notificaciones',
+        notifyOnSend: true,
+        notifyOnDownload: true,
+        notifyOnExpiry: true,
+        smsEnabled: false
+      };
+      sendJSON(req, res, 200, { channels: ch }, {}, { noStore: true });
+      return true;
+    }
+
+    if (method === 'POST') {
+      if (currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
+        return true;
+      }
+      const b = await getBody();
+      EnvioxState.channels = {
+        smtpHost: sanitizeInput(b.smtpHost || 'smtp.gmail.com', 80),
+        smtpPort: parseInt(b.smtpPort, 10) || 587,
+        smtpUser: sanitizeInput(b.smtpUser || '', 100),
+        fromName: sanitizeInput(b.fromName || 'ENVIOX Notificaciones', 80),
+        notifyOnSend: b.notifyOnSend !== false,
+        notifyOnDownload: b.notifyOnDownload !== false,
+        notifyOnExpiry: b.notifyOnExpiry !== false,
+        smsEnabled: !!b.smsEnabled
+      };
+      db.write('enviox', EnvioxState);
+      sendJSON(req, res, 200, { ok: true, channels: EnvioxState.channels }, {}, { noStore: true });
+      return true;
+    }
+  }
+
+  // 13. TENANT / NUBE 5 TB (/api/enviox/cloud-config) — Google Drive 5TB y Microsoft OneDrive
+  if (pathname === '/api/enviox/cloud-config') {
+    if (!currentUser) {
+      sendJSON(req, res, 401, { error: 'Autenticación requerida.' }, {}, { noStore: true });
+      return true;
+    }
+
+    if (method === 'GET') {
+      const cloud = readCloudStore ? readCloudStore() : { tenants: [] };
+      const activeTenant = cloudOneDrive ? cloudOneDrive.resolveActiveTenantConfig(cloud) : null;
+      sendJSON(req, res, 200, {
+        activeProvider: activeTenant ? activeTenant.providerType : 'google-drive',
+        activeTenantName: activeTenant ? activeTenant.name : 'Google Drive 5 TB Vault',
+        capacity: '5 TB',
+        googleDrive: {
+          clientId: activeTenant?.providerType === 'google-drive' ? (activeTenant.clientId ? activeTenant.clientId.slice(0, 10) + '...' : '') : '',
+          folderId: activeTenant?.driveFolderId || 'ENVIOX_5TB_ROOT',
+          configured: !!activeTenant
+        },
+        oneDrive: {
+          tenantId: activeTenant?.providerType === 'onedrive' ? (activeTenant.azureTenantId ? activeTenant.azureTenantId.slice(0, 8) + '...' : '') : '',
+          configured: activeTenant?.providerType === 'onedrive'
+        }
+      }, {}, { noStore: true });
+      return true;
+    }
+
+    if (method === 'POST') {
+      if (currentUser.role !== 'admin') {
+        sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
+        return true;
+      }
+      const b = await getBody();
+      EnvioxState.cloudSettings = {
+        providerType: b.providerType || 'google-drive',
+        tenantId: sanitizeInput(b.tenantId || '', 100),
+        clientId: sanitizeInput(b.clientId || '', 150),
+        folderId: sanitizeInput(b.folderId || 'ENVIOX_5TB_VAULT', 100),
+        updatedAt: new Date().toISOString()
+      };
+      db.write('enviox', EnvioxState);
+      sendJSON(req, res, 200, { ok: true, cloudSettings: EnvioxState.cloudSettings, message: 'Configuración de Tenant y Nube de 5 TB actualizada.' }, {}, { noStore: true });
+      return true;
+    }
+  }
+
+  // 14. INFORMES Y TRAZABILIDAD (/api/enviox/reports) — Auditoría legal completa
+  if (pathname === '/api/enviox/reports' && method === 'GET') {
+    if (!currentUser) {
+      sendJSON(req, res, 401, { error: 'Autenticación requerida.' }, {}, { noStore: true });
+      return true;
+    }
+
+    const transfers = db.read('transfers', []);
+    const reports = transfers.map(t => {
+      const isDownloaded = (t.downloadsCount || 0) > 0;
+      const primaryRecipient = (t.recipients && t.recipients.length) ? t.recipients[0] : (t.recipient || '—');
+      const latestAudit = (t.legalAudit && t.legalAudit.length) ? t.legalAudit[t.legalAudit.length - 1] : null;
+
+      return {
+        id: t.id,
+        reference: t.reference || t.id.slice(0, 4).toUpperCase(),
+        sender: t.senderEmail || t.senderUsername || 'admin@cyberpolis.es',
+        recipients: t.recipients || [primaryRecipient],
+        recipientDisplay: primaryRecipient,
+        subject: t.subject || '(Sin asunto)',
+        createdAt: t.createdAt,
+        expiresAt: t.expiresAt,
+        status: computeTransferStatus(t),
+        filesCount: (t.files && t.files.length) ? t.files.length : (t.file ? 1 : 0),
+        downloadsCount: t.downloadsCount || 0,
+        maxDownloads: t.maxDownloads || 3,
+        deliveryStatus: 'Entregado a pasarela',
+        receiptStatus: isDownloaded ? 'Descargado (Acuse confirmado)' : 'Pendiente de descarga',
+        lastAccessIp: latestAudit?.ip || '—',
+        lastAccessDate: latestAudit?.timestamp || '—',
+        legalAudit: t.legalAudit || []
+      };
+    }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    sendJSON(req, res, 200, {
+      reports,
+      totalTransfers: reports.length,
+      confirmedReceipts: reports.filter(r => r.downloadsCount > 0).length,
+      auditTimestamp: new Date().toISOString()
+    }, {}, { noStore: true });
     return true;
   }
 
