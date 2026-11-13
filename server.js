@@ -13,6 +13,8 @@ const { exec } = require('child_process');
 const { CyberpolisStore } = require('./dbStore');
 const cloudOneDrive = require('./cloudOneDrive');
 const cloudGoogle = require('./cloudGoogle');
+const envioxBackend = require('./envioxBackend');
+const tranxferBackend = envioxBackend;
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const DATA_DIR = path.join(__dirname, 'data');
@@ -26,6 +28,7 @@ const CHAT_FILE = path.join(DATA_DIR, 'chat.json');
 const AUDIT_FILE = path.join(DATA_DIR, 'audit.json');
 const TRANSFERS_FILE = path.join(DATA_DIR, 'transfers.json');
 const CLOUD_FILE = path.join(DATA_DIR, 'cloud.json');
+const ENVIOX_FILE = path.join(DATA_DIR, 'enviox.json');
 const VAULT_DIR = path.join(DATA_DIR, 'vault');
 
 const FILE_TO_STORE_KEY = new Map([
@@ -38,7 +41,8 @@ const FILE_TO_STORE_KEY = new Map([
   [CHAT_FILE, 'chat'],
   [AUDIT_FILE, 'audit'],
   [TRANSFERS_FILE, 'transfers'],
-  [CLOUD_FILE, 'cloud']
+  [CLOUD_FILE, 'cloud'],
+  [ENVIOX_FILE, 'enviox']
 ]);
 
 const store = new CyberpolisStore();
@@ -1684,15 +1688,33 @@ function serveStatic(req, res, pathname, query = {}) {
     return;
   }
 
-  const normalized = path.posix.normalize(decodedPath === '/' ? '/index.html' : decodedPath);
+  let cleanPath = decodedPath;
+  if (cleanPath === '/enviox' || cleanPath === '/tranxfer') {
+    res.writeHead(301, { 'Location': '/enviox/' });
+    res.end();
+    return;
+  }
+  if (cleanPath === '/tranxfer/') {
+    res.writeHead(301, { 'Location': '/enviox/' });
+    res.end();
+    return;
+  }
+  if (cleanPath === '/enviox/') {
+    cleanPath = '/enviox/index.html';
+  }
+
+  const normalized = path.posix.normalize(cleanPath === '/' ? '/index.html' : cleanPath);
   const allowedExact =
     normalized === '/index.html' ||
     normalized === '/favicon.ico' ||
-    normalized === '/googlef43c9fcec7c53a25.html';
-  const allowedDir = normalized.startsWith('/assets/') || normalized.startsWith('/css/') || normalized.startsWith('/js/');
+    normalized === '/googlef43c9fcec7c53a25.html' ||
+    normalized === '/enviox/index.html';
+  const allowedDir = normalized.startsWith('/assets/') || normalized.startsWith('/css/') || normalized.startsWith('/js/') || normalized.startsWith('/enviox/');
+
+  const isBlockedServerFile = normalized === '/enviox/standalone-server.js' || normalized.endsWith('.json') || normalized.endsWith('.map');
 
   // Bloqueo estricto de /data/, /.git/, código fuente del servidor, dotfiles y JSON internos
-  if ((!allowedExact && !allowedDir) || /\/\./.test(normalized) || normalized.endsWith('.json') || normalized.endsWith('.map')) {
+  if ((!allowedExact && !allowedDir) || isBlockedServerFile || /\/\./.test(normalized)) {
     res.writeHead(403, { 'Content-Type': 'text/plain; charset=UTF-8', 'X-Content-Type-Options': 'nosniff' });
     res.end('Acceso denegado');
     return;
@@ -1716,7 +1738,7 @@ function serveStatic(req, res, pathname, query = {}) {
 
     const ext = path.extname(filePath).toLowerCase();
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-    const isMainIndex = normalized === '/index.html';
+    const isMainIndex = normalized === '/index.html' || normalized === '/enviox/index.html';
     const isVerificationFile = normalized === '/googlef43c9fcec7c53a25.html';
 
     const headers = buildSecurityHeaders(req, {
@@ -6407,6 +6429,32 @@ const server = http.createServer(async (req, res) => {
       writeJSON(TRANSFERS_FILE, all, { critical: true });
       sendJSON(req, res, 200, { success: true, deleted: transferId }, {}, { noStore: true });
       return;
+    }
+
+    if (pathname.startsWith('/api/enviox') || pathname.startsWith('/api/tranxfer')) {
+      const handled = await (envioxBackend.handleEnvioxApi || envioxBackend.handleTranxferApi)(req, res, pathname, method, {
+        getSessionUser,
+        parseBody,
+        getDbStore: () => store,
+        readCloudStore,
+        cloudOneDrive,
+        cloudGoogle,
+        storeEncryptedTransferFile,
+        loadDecryptedTransferFile,
+        sendTransferNotificationEmail: (tenantCfg, toEmail, subject, textBody, htmlBody, mailGateway) => {
+          return cloudOneDrive.sendTransferNotificationEmail(tenantCfg, {
+            to: toEmail,
+            subject,
+            textBody,
+            htmlBody,
+            mailGateway
+          });
+        },
+        sendJSON,
+        isSecureRequest,
+        getClientIp: (r) => extractClientIp(r)
+      });
+      if (handled) return;
     }
 
     if (pathname === '/api/status' && (method === 'GET' || method === 'HEAD')) {

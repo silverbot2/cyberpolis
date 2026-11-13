@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ENVIOX — Envío y Recepción Segura de Archivos (5 TB)</title>
+  <link rel="stylesheet" href="/enviox/enviox.css">
+</head>
+<body>
+
+  <!-- Top Navbar -->
+  <header class="tx-navbar">
+    <div class="tx-brand" onclick="location.reload()">
+      <div class="tx-logo-icon">E</div>
+      <div class="tx-brand-text">
+        <span class="tx-brand-name" id="txBrandName">ENVIOX</span>
+        <span class="tx-brand-sub" id="txBrandSub">Plataforma Segura 5 TB · Grupo Industrial</span>
+      </div>
+    </div>
+
+    <nav class="tx-nav-links">
+      <button type="button" class="tx-nav-item active" data-view="send">Enviar archivos</button>
+      <button type="button" class="tx-nav-item" data-view="receive">Recibir archivos</button>
+      
+      <div class="tx-dropdown-container">
+        <button type="button" class="tx-nav-item" id="txDropdownToggle">
+          Enviox link <span style="font-size:10px;margin-left:3px;">▾</span>
+        </button>
+        <div class="tx-dropdown-menu" id="txDropdownMenu">
+          <a class="tx-dropdown-item" data-action="send">Enviar</a>
+          <a class="tx-dropdown-item" data-action="receive">Recibir</a>
+        </div>
+      </div>
+
+      <button type="button" class="tx-nav-item" data-view="records">Registros</button>
+      <button type="button" class="tx-nav-item" data-view="contacts">Contactos</button>
+    </nav>
+
+    <div class="tx-nav-actions">
+      <a href="/" class="tx-portal-back-btn" title="Volver al portal CYBERPOLIS">
+        <span>🌐</span>
+        <span>CYBERPOLIS</span>
+      </a>
+
+      <div class="tx-user-avatar" id="txUserAvatar" title="Perfil de usuario">
+        U
+        <div class="tx-user-status-dot"></div>
+      </div>
+
+      <button type="button" class="tx-icon-btn" id="txSettingsBtn" title="Área de administración" onclick="document.querySelector('.tx-nav-item[data-view=\'admin\']')?.click() || (window.switchView && window.switchView('admin'))">
+        <span style="font-size:18px;">⚙️</span>
+      </button>
+
+      <!-- Invisible tab item for admin so switchView can highlight if needed -->
+      <button type="button" class="tx-nav-item" data-view="admin" style="display:none;"></button>
+      <button type="button" class="tx-nav-item" data-view="settings" style="display:none;"></button>
+      <button type="button" class="tx-nav-item" data-view="users" style="display:none;"></button>
+      <button type="button" class="tx-nav-item" data-view="roles" style="display:none;"></button>
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="tx-main-container">
+
+    <!-- ========================================================
+         VIEW 1: ENVIAR ARCHIVOS (Screenshot 1)
+         ======================================================== -->
+    <section id="viewSend" class="tx-view active">
+      <div class="tx-transfer-grid">
+        
+        <!-- Left Column -->
+        <div class="tx-grid-col-left">
+          
+          <!-- Card: Destinatarios -->
+          <div class="tx-card">
+            <div class="tx-card-header">
+              <h2 class="tx-card-title">Destinatarios</h2>
+              <button type="button" class="tx-pill-btn-small" id="btnAddMultipleRecipients">Añadir varios</button>
+            </div>
+
+            <div id="sendChipsContainer" class="tx-recipients-chips"></div>
+
+            <div class="tx-input-group">
+              <div class="tx-input-with-icon">
+                <span class="tx-input-icon">👤</span>
+                <input type="text" id="sendRecipientInput" class="tx-input-field" placeholder="Correo electrónico o nombre del grupo *">
+              </div>
+            </div>
+
+            <div class="tx-phone-row">
+              <div class="tx-phone-prefix">
+                <span>🇪🇸 +34</span>
+              </div>
+              <input type="text" id="sendPhone" class="tx-input-field" style="padding-left:14px;" placeholder="XXX XX XX XX">
+            </div>
+
+            <div class="tx-row-select">
+              <span>Idioma para notificaciones:</span>
+              <select id="sendLanguage" class="tx-select-pill">
+                <option value="Español">Español</option>
+                <option value="English">English</option>
+                <option value="Català">Català</option>
+                <option value="Euskara">Euskara</option>
+                <option value="Galego">Galego</option>
+                <option value="Français">Français</option>
+                <option value="Deutsch">Deutsch</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Card: Asunto y Mensaje -->
+          <div class="tx-card">
+            <div class="tx-subject-wrapper">
+              <div class="tx-input-with-icon">
+                <span class="tx-input-icon">⚲</span>
+                <input type="text" id="sendSubject" class="tx-input-field" maxlength="100" placeholder="Escribir el asunto">
+              </div>
+              <span id="sendSubjectCounter" class="tx-char-counter">0/100</span>
+            </div>
+
+            <div class="tx-input-group" style="margin-bottom:0;">
+              <textarea id="sendMessage" class="tx-textarea" placeholder="Escribir el mensaje del envío"></textarea>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Right Column -->
+        <div class="tx-grid-col-right">
+          
+          <!-- Card: Drag & Drop Files -->
+          <div class="tx-card">
+            <div id="sendDropzone" class="tx-dropzone">
+              <div class="tx-dropzone-badge">☁️</div>
+              <p class="tx-dropzone-text">Añadir o arrastrar aquí archivos</p>
+              <input type="file" id="sendFileInput" multiple style="display:none;">
+            </div>
+
+            <div id="sendStagedFiles" class="tx-staged-files"></div>
+          </div>
+
+          <!-- Card: Opciones del envío -->
+          <div class="tx-card">
+            <div class="tx-options-header">
+              <span>Opciones del envío</span>
+              <span style="font-size:13px;color:#94a3b8;cursor:help;" title="Configuración de trazabilidad y caducidad de la transferencia">ⓘ</span>
+            </div>
+
+            <div class="tx-toggle-row">
+              <span>Acuse de recibo</span>
+              <label class="tx-switch">
+                <input type="checkbox" id="sendReceiptAck" checked>
+                <span class="tx-slider"></span>
+              </label>
+            </div>
+
+            <div class="tx-toggle-row">
+              <span>Notificar expiración</span>
+              <label class="tx-switch">
+                <input type="checkbox" id="sendNotifyExpiry" checked>
+                <span class="tx-slider"></span>
+              </label>
+            </div>
+
+            <div class="tx-toggle-row">
+              <span>Enviar + Recibir</span>
+              <label class="tx-switch">
+                <input type="checkbox" id="sendAndReceive">
+                <span class="tx-slider"></span>
+              </label>
+            </div>
+
+            <div class="tx-expiry-row">
+              <span style="color:#334e68;font-weight:500;">Fecha de expiración</span>
+              <div class="tx-expiry-input">
+                <input type="date" id="sendExpiryDate">
+              </div>
+            </div>
+
+            <div class="tx-tags-group">
+              <label class="tx-tags-label">Etiquetas</label>
+              <input type="text" id="sendTags" class="tx-tags-input" placeholder="Añadir etiquetas">
+            </div>
+
+            <div id="sendCloudIndicator" style="font-size:11px;color:#64748b;margin-bottom:14px;display:flex;align-items:center;gap:6px;">
+              <span>📁</span>
+              <span>Almacenamiento: Conectado a la Nube 5 TB</span>
+            </div>
+
+            <button type="button" id="btnSubmitSend" class="tx-submit-btn">
+              <span>🔒</span>
+              <span>Enviar de forma segura</span>
+            </button>
+
+            <div class="tx-field-required-note">* Campo obligatorio</div>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================================
+         VIEW 2: RECIBIR ARCHIVOS (Screenshot 2)
+         ======================================================== -->
+    <section id="viewReceive" class="tx-view">
+      <div class="tx-transfer-grid">
+        
+        <!-- Left Column -->
+        <div class="tx-grid-col-left">
+          <div class="tx-card">
+            <h2 class="tx-card-title" style="margin-bottom:16px;">Destinatario</h2>
+
+            <div class="tx-input-group">
+              <div class="tx-input-with-icon">
+                <span class="tx-input-icon">👤</span>
+                <input type="text" id="receiveRecipientInput" class="tx-input-field" placeholder="Correo electrónico o nombre del grupo *">
+              </div>
+            </div>
+
+            <div class="tx-phone-row">
+              <div class="tx-phone-prefix">
+                <span>🇪🇸 +34</span>
+              </div>
+              <input type="text" id="receivePhone" class="tx-input-field" style="padding-left:14px;" placeholder="XXX XX XX XX">
+            </div>
+
+            <div class="tx-row-select">
+              <span>Idioma para notificaciones:</span>
+              <select id="receiveLanguage" class="tx-select-pill">
+                <option value="Español">Español</option>
+                <option value="English">English</option>
+                <option value="Català">Català</option>
+                <option value="Euskara">Euskara</option>
+                <option value="Galego">Galego</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column -->
+        <div class="tx-grid-col-right">
+          <div class="tx-card">
+            <div class="tx-subject-wrapper">
+              <div class="tx-input-with-icon">
+                <span class="tx-input-icon">⚲</span>
+                <input type="text" id="receiveSubject" class="tx-input-field" maxlength="100" placeholder="Escribir el asunto">
+              </div>
+              <span id="receiveSubjectCounter" class="tx-char-counter">0/100</span>
+            </div>
+
+            <div class="tx-input-group">
+              <textarea id="receiveMessage" class="tx-textarea" placeholder="Escribir el mensaje de la recepción"></textarea>
+            </div>
+
+            <div class="tx-options-header" style="margin-top:20px;">
+              <span>Opciones de la recepción</span>
+              <span style="font-size:13px;color:#94a3b8;cursor:help;">ⓘ</span>
+            </div>
+
+            <div class="tx-toggle-row">
+              <span>Acuse de recibo</span>
+              <label class="tx-switch">
+                <input type="checkbox" id="receiveReceiptAck" checked>
+                <span class="tx-slider"></span>
+              </label>
+            </div>
+
+            <div class="tx-toggle-row">
+              <span>Notificar expiración</span>
+              <label class="tx-switch">
+                <input type="checkbox" id="receiveNotifyExpiry" checked>
+                <span class="tx-slider"></span>
+              </label>
+            </div>
+
+            <div class="tx-expiry-row">
+              <span style="color:#334e68;font-weight:500;">Fecha de expiración</span>
+              <div class="tx-expiry-input">
+                <input type="date" id="receiveExpiryDate">
+              </div>
+            </div>
+
+            <div class="tx-tags-group">
+              <label class="tx-tags-label">Etiquetas</label>
+              <input type="text" id="receiveTags" class="tx-tags-input" placeholder="Añadir etiquetas">
+            </div>
+
+            <button type="button" id="btnSubmitReceive" class="tx-submit-btn ready">
+              <span>🔒</span>
+              <span>Recibir de forma segura</span>
+            </button>
+
+            <div class="tx-field-required-note">* Campo obligatorio</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================================
+         VIEW 3: REGISTROS (Screenshot 4)
+         ======================================================== -->
+    <section id="viewRecords" class="tx-view">
+      <div class="tx-records-layout">
+        
+        <!-- Left Filter Sidebar -->
+        <aside class="tx-records-sidebar">
+          <div class="tx-sidebar-title">Registros</div>
+          <ul class="tx-sidebar-nav">
+            <li class="tx-sidebar-item active" data-filter="todos">
+              <div class="tx-sidebar-item-left">
+                <span>⇄</span>
+                <span>Todos</span>
+              </div>
+              <span id="badgeTodos" class="tx-sidebar-badge">0</span>
+            </li>
+            <li class="tx-sidebar-item" data-filter="enviados">
+              <div class="tx-sidebar-item-left">
+                <span>⇥</span>
+                <span>Enviados</span>
+              </div>
+              <span id="badgeEnviados" class="tx-sidebar-badge">0</span>
+            </li>
+            <li class="tx-sidebar-item" data-filter="recibidos">
+              <div class="tx-sidebar-item-left">
+                <span>⇤</span>
+                <span>Recibidos</span>
+              </div>
+              <span id="badgeRecibidos" class="tx-sidebar-badge">0</span>
+            </li>
+            <li class="tx-sidebar-item" data-filter="activos">
+              <div class="tx-sidebar-item-left">
+                <span>✓</span>
+                <span>Activos</span>
+              </div>
+              <span id="badgeActivos" class="tx-sidebar-badge">0</span>
+            </li>
+            <li class="tx-sidebar-item" data-filter="caducados">
+              <div class="tx-sidebar-item-left">
+                <span>🕒</span>
+                <span>Caducados</span>
+              </div>
+              <span id="badgeCaducados" class="tx-sidebar-badge">0</span>
+            </li>
+            <li class="tx-sidebar-item" data-filter="cancelados">
+              <div class="tx-sidebar-item-left">
+                <span>ⓧ</span>
+                <span>Cancelados</span>
+              </div>
+              <span id="badgeCancelados" class="tx-sidebar-badge">0</span>
+            </li>
+            <li class="tx-sidebar-item" data-filter="pendientes_validacion">
+              <div class="tx-sidebar-item-left">
+                <span>⟳</span>
+                <span>Pendientes de validación</span>
+              </div>
+              <span id="badgePendientesVal" class="tx-sidebar-badge">0</span>
+            </li>
+            <li class="tx-sidebar-item" data-filter="pendientes_envio">
+              <div class="tx-sidebar-item-left">
+                <span>✈</span>
+                <span>Pendientes de envío</span>
+              </div>
+              <span id="badgePendientesEnv" class="tx-sidebar-badge">0</span>
+            </li>
+            <li class="tx-sidebar-item" data-filter="pendientes_error">
+              <div class="tx-sidebar-item-left">
+                <span>ⓘ</span>
+                <span>Pendientes de error</span>
+              </div>
+              <span id="badgePendientesErr" class="tx-sidebar-badge">0</span>
+            </li>
+          </ul>
+        </aside>
+
+        <!-- Main Content Table Area -->
+        <div class="tx-records-content">
+          <div class="tx-records-toolbar">
+            <div class="tx-toolbar-left">
+              <button type="button" class="tx-btn-outline" id="btnRefreshRecords">
+                <span>⟳</span> <span>Refrescar</span>
+              </button>
+              <button type="button" class="tx-btn-outline" id="btnCancelTransfer" style="color:#ef4444;">
+                <span>ⓧ</span> <span>Cancelar transferencia</span>
+              </button>
+            </div>
+            <div class="tx-toolbar-right">
+              <input type="text" id="recordsSearch" class="tx-search-input" placeholder="Buscar">
+              <button type="button" class="tx-btn-outline" id="btnExportRecords">
+                <span>⤓</span> <span>Exportar</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="tx-table-container">
+            <table class="tx-table">
+              <thead>
+                <tr>
+                  <th width="30"><input type="checkbox" id="cbSelectAllRecords"></th>
+                  <th width="40">Tipo</th>
+                  <th>Referencia</th>
+                  <th>Emisor</th>
+                  <th>Nombre grupo</th>
+                  <th>Destinatario</th>
+                  <th>Asunto</th>
+                  <th>Archivos</th>
+                  <th>Fecha de envío</th>
+                </tr>
+              </thead>
+              <tbody id="recordsTbody">
+                <!-- Se llena dinámicamente con tranxfer.js -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================================
+         VIEW 4: CONTACTOS (Screenshot 5)
+         ======================================================== -->
+    <section id="viewContacts" class="tx-view">
+      <div class="tx-records-layout">
+        
+        <aside class="tx-records-sidebar">
+          <div class="tx-sidebar-title">Contactos</div>
+          <ul class="tx-sidebar-nav">
+            <li class="tx-sidebar-item active" id="tabSubContacts">
+              <div class="tx-sidebar-item-left">
+                <span>👤</span>
+                <span>Contactos</span>
+              </div>
+            </li>
+            <li class="tx-sidebar-item" id="tabSubGroups">
+              <div class="tx-sidebar-item-left">
+                <span>👥</span>
+                <span>Grupos</span>
+              </div>
+            </li>
+          </ul>
+        </aside>
+
+        <div class="tx-records-content">
+          <div class="tx-records-toolbar">
+            <div class="tx-toolbar-left">
+              <button type="button" class="tx-btn-outline" id="btnCreateContact" style="font-weight:700;">
+                <span>👤+</span> <span>Crear contacto</span>
+              </button>
+              <button type="button" class="tx-btn-outline" style="color:#ef4444;">
+                <span>🗑</span> <span>Eliminar contacto</span>
+              </button>
+            </div>
+            <div class="tx-toolbar-right">
+              <input type="text" id="contactsSearch" class="tx-search-input" placeholder="Buscar por nombre">
+            </div>
+          </div>
+
+          <div class="tx-table-container">
+            <table class="tx-table">
+              <thead>
+                <tr>
+                  <th width="30"><input type="checkbox"></th>
+                  <th>Correo</th>
+                  <th>Nombre</th>
+                  <th>Teléfono</th>
+                  <th>Idioma para notificaciones</th>
+                </tr>
+              </thead>
+              <tbody id="contactsTbody">
+                <!-- Se llena con tranxfer.js -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================================
+         VIEW 5: ÁREA DE ADMINISTRACIÓN (Screenshot 6)
+         ======================================================== -->
+    <section id="viewAdmin" class="tx-view">
+      <div class="tx-card" style="padding: 32px;">
+        <div class="tx-admin-header">
+          <h1 class="tx-admin-title">Área de administración</h1>
+          <p class="tx-admin-sub">Resumen actual de tu plataforma Enviox</p>
+        </div>
+
+        <div class="tx-admin-grid">
+          
+          <button type="button" class="tx-admin-btn" data-target="settings">
+            <div class="tx-admin-btn-icon">🔨</div>
+            <div class="tx-admin-btn-label">Ajustes</div>
+          </button>
+
+          <button type="button" class="tx-admin-btn" data-target="users">
+            <div class="tx-admin-btn-icon">👤</div>
+            <div class="tx-admin-btn-label">Usuarios</div>
+          </button>
+
+          <button type="button" class="tx-admin-btn" data-target="contacts">
+            <div class="tx-admin-btn-icon">👤+</div>
+            <div class="tx-admin-btn-label">Contactos</div>
+          </button>
+
+          <button type="button" class="tx-admin-btn" data-target="contacts">
+            <div class="tx-admin-btn-icon">👥</div>
+            <div class="tx-admin-btn-label">Grupos</div>
+          </button>
+
+          <button type="button" class="tx-admin-btn" data-target="roles">
+            <div class="tx-admin-btn-icon">📑</div>
+            <div class="tx-admin-btn-label">Portales de recepción</div>
+          </button>
+
+          <button type="button" class="tx-admin-btn" data-target="settings">
+            <div class="tx-admin-btn-icon">📢</div>
+            <div class="tx-admin-btn-label">Canales de notificación</div>
+          </button>
+
+          <button type="button" class="tx-admin-btn" data-target="records">
+            <div class="tx-admin-btn-icon">ⓧ</div>
+            <div class="tx-admin-btn-label">Cancelar transferencias</div>
+          </button>
+
+          <button type="button" class="tx-admin-btn" data-target="settings">
+            <div class="tx-admin-btn-icon">📄</div>
+            <div class="tx-admin-btn-label">Lista negra</div>
+          </button>
+
+          <button type="button" class="tx-admin-btn" data-target="settings">
+            <div class="tx-admin-btn-icon">📁</div>
+            <div class="tx-admin-btn-label">Políticas de seguridad</div>
+          </button>
+
+          <button type="button" class="tx-admin-btn" data-target="records">
+            <div class="tx-admin-btn-icon">☰</div>
+            <div class="tx-admin-btn-label">Informes</div>
+          </button>
+
+          <button type="button" class="tx-admin-btn" data-target="records">
+            <div class="tx-admin-btn-icon">📊</div>
+            <div class="tx-admin-btn-label">Estadísticas</div>
+          </button>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================
+         VIEW 6: AJUSTES (Screenshot 7)
+         ======================================================== -->
+    <section id="viewSettings" class="tx-view">
+      <div class="tx-settings-layout">
+        
+        <!-- Sidebar Navigation de Administración -->
+        <aside class="tx-records-sidebar" style="background:#fff;border-right:1px solid #e2e8f0;">
+          <div class="tx-sidebar-title" style="padding:0 0 12px 0;">Ajustes</div>
+          <ul class="tx-sidebar-nav">
+            <li class="tx-sidebar-item active" onclick="switchView('settings')">
+              <div class="tx-sidebar-item-left"><span>🔨</span><span>Ajustes</span></div>
+            </li>
+            <li class="tx-sidebar-item" onclick="switchView('users')">
+              <div class="tx-sidebar-item-left"><span>👤</span><span>Usuarios</span></div>
+            </li>
+            <li class="tx-sidebar-item" onclick="switchView('contacts')">
+              <div class="tx-sidebar-item-left"><span>👤+</span><span>Contactos</span></div>
+            </li>
+            <li class="tx-sidebar-item" onclick="switchView('contacts')">
+              <div class="tx-sidebar-item-left"><span>👥</span><span>Grupos</span></div>
+            </li>
+            <li class="tx-sidebar-item" onclick="switchView('roles')">
+              <div class="tx-sidebar-item-left"><span>🔑</span><span>Roles</span></div>
+            </li>
+            <li class="tx-sidebar-item" onclick="switchView('admin')">
+              <div class="tx-sidebar-item-left"><span>⬅️</span><span>Volver a Inicio Admin</span></div>
+            </li>
+          </ul>
+        </aside>
+
+        <!-- 3 Columns Form -->
+        <div style="display:flex;flex-direction:column;gap:20px;">
+          <div class="tx-settings-cols">
+            
+            <!-- Col 1: Transferencia -->
+            <div>
+              <h3 class="tx-col-title">Transferencia</h3>
+
+              <div class="tx-setting-item">
+                <label class="tx-setting-label">Nº máximo de destinatarios</label>
+                <input type="number" id="cfgMaxRecipients" class="tx-setting-input" value="20">
+              </div>
+
+              <div class="tx-setting-item">
+                <label class="tx-setting-label">Nº máximo de ficheros</label>
+                <input type="number" id="cfgMaxFiles" class="tx-setting-input" value="50">
+              </div>
+
+              <div class="tx-setting-item">
+                <label class="tx-setting-label">Tamaño máximo de fichero(en MB)</label>
+                <input type="number" id="cfgMaxFileSizeMb" class="tx-setting-input" value="40960">
+              </div>
+
+              <div class="tx-setting-item">
+                <label class="tx-setting-label">Nº máximo de descargas por fichero y destinatario</label>
+                <input type="number" id="cfgMaxDownloads" class="tx-setting-input" value="3">
+              </div>
+
+              <div class="tx-setting-item">
+                <label class="tx-setting-label">Tamaño máximo de transferencia(en MB)</label>
+                <input type="number" id="cfgMaxTransferSizeMb" class="tx-setting-input" value="40960">
+              </div>
+
+              <div class="tx-setting-item">
+                <label class="tx-setting-label">Expiración máxima(en días)</label>
+                <input type="number" id="cfgMaxExpiryDays" class="tx-setting-input" value="14">
+              </div>
+
+              <div class="tx-setting-item">
+                <label class="tx-setting-label">Expiración por defecto(en días)</label>
+                <input type="number" id="cfgDefaultExpiryDays" class="tx-setting-input" value="8">
+              </div>
+
+              <div class="tx-setting-item">
+                <label class="tx-setting-label">Texto para marca de agua en previsualizaciones</label>
+                <input type="text" id="cfgWatermark" class="tx-setting-input" placeholder="CONFIDENCIAL">
+              </div>
+
+              <div class="tx-toggle-row" style="margin-top:14px;">
+                <span style="font-size:13px;">Estado acuse de recibo predeterminado</span>
+                <label class="tx-switch">
+                  <input type="checkbox" id="cfgDefaultReceipt" checked>
+                  <span class="tx-slider"></span>
+                </label>
+              </div>
+
+              <div class="tx-toggle-row">
+                <span style="font-size:13px;">Estado notificacion de expiración predeterminado</span>
+                <label class="tx-switch">
+                  <input type="checkbox" id="cfgDefaultExpiryNotice" checked>
+                  <span class="tx-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Col 2: Seguridad -->
+            <div>
+              <h3 class="tx-col-title">Seguridad</h3>
+
+              <div class="tx-toggle-row" style="margin-bottom:18px;">
+                <span style="font-size:13px;">Sin bloqueo por logones fallidos</span>
+                <label class="tx-switch">
+                  <input type="checkbox" id="cfgNoLockout" checked>
+                  <span class="tx-slider"></span>
+                </label>
+              </div>
+
+              <div style="font-size:13px;line-height:1.4;color:#334e68;margin-bottom:18px;display:flex;align-items:flex-start;gap:8px;">
+                <input type="checkbox" id="cfgAutoSaveContacts" checked style="margin-top:3px;">
+                <label for="cfgAutoSaveContacts">Habilitar listado y almacenamiento de contactos automáticamente para las transferencias</label>
+              </div>
+
+              <div class="tx-setting-item" style="margin-top:24px;">
+                <label class="tx-setting-label">Nombre de la Empresa / Marca</label>
+                <input type="text" id="cfgBrandName" class="tx-setting-input" value="GRUPO INDUSTRIAL">
+              </div>
+            </div>
+
+            <!-- Col 3: Configuración -->
+            <div>
+              <h3 class="tx-col-title">Configuración</h3>
+
+              <div class="tx-config-link-row">
+                <span>☑️</span>
+                <div style="flex:1;">
+                  <div>Correo electrónico</div>
+                  <div id="cfgMailStatusText" style="font-size:11px;color:#10b981;">Activo (Pasarela de Correo)</div>
+                </div>
+              </div>
+
+              <div class="tx-config-link-row">
+                <span>☑️</span>
+                <span>Términos y condiciones</span>
+              </div>
+
+              <div class="tx-config-link-row">
+                <span>👤</span>
+                <span>SAML</span>
+              </div>
+
+              <div class="tx-config-link-row">
+                <span>✈️</span>
+                <span>Enviox link</span>
+              </div>
+
+              <div class="tx-config-link-row">
+                <span>💬</span>
+                <span>Métodos de entrega de código</span>
+              </div>
+
+              <div class="tx-config-link-row">
+                <span>🪟</span>
+                <div>
+                  <div>Microsoft Entra ID / Google Drive</div>
+                  <div style="font-size:11px;color:#64748b;">Nube de 5 TB conectada</div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+            <button type="button" id="btnSaveSettings" class="tx-pill-btn-small" style="padding:12px 32px;font-size:14px;background:var(--tx-navy);">
+              Guardar
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================================
+         VIEW 7: USUARIOS (Screenshot 8)
+         ======================================================== -->
+    <section id="viewUsers" class="tx-view">
+      <div class="tx-records-layout">
+        
+        <aside class="tx-records-sidebar">
+          <div class="tx-sidebar-title">Usuarios</div>
+          <ul class="tx-sidebar-nav">
+            <li class="tx-sidebar-item" onclick="switchView('settings')">
+              <div class="tx-sidebar-item-left"><span>🔨</span><span>Ajustes</span></div>
+            </li>
+            <li class="tx-sidebar-item active">
+              <div class="tx-sidebar-item-left"><span>👤</span><span>Usuarios</span></div>
+            </li>
+            <li class="tx-sidebar-item" onclick="switchView('roles')">
+              <div class="tx-sidebar-item-left"><span>🔑</span><span>Roles</span></div>
+            </li>
+          </ul>
+        </aside>
+
+        <div class="tx-records-content">
+          <div class="tx-records-toolbar">
+            <div class="tx-toolbar-left">
+              <button type="button" class="tx-btn-outline" style="font-weight:700;">
+                <span>👤+</span> <span>Crear Usuario</span>
+              </button>
+              <button type="button" class="tx-btn-outline">
+                <span>⟳</span> <span>Activar/Desactivar</span>
+              </button>
+              <button type="button" class="tx-btn-outline">
+                <span>✉️</span> <span>Re-enviar bienvenida</span>
+              </button>
+              <button type="button" class="tx-btn-outline">
+                <span>🔑</span> <span>Restaurar contraseña</span>
+              </button>
+            </div>
+            <div class="tx-toolbar-right">
+              <div style="font-size:12px;font-weight:700;color:#64748b;margin-right:8px;">
+                <span style="color:#10b981;">● Activos: 402</span> · Total usuarios: 937
+              </div>
+              <input type="text" class="tx-search-input" placeholder="Buscar">
+            </div>
+          </div>
+
+          <div class="tx-table-container">
+            <table class="tx-table">
+              <thead>
+                <tr>
+                  <th width="30"><input type="checkbox"></th>
+                  <th width="40">Estado</th>
+                  <th>Usuario</th>
+                  <th>Correo electrónico</th>
+                  <th>Nombre</th>
+                  <th>Idioma</th>
+                </tr>
+              </thead>
+              <tbody id="usersTbody">
+                <!-- Se llena con tranxfer.js -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================================
+         VIEW 8: ROLES (Screenshot 9)
+         ======================================================== -->
+    <section id="viewRoles" class="tx-view">
+      <div class="tx-records-layout">
+        
+        <aside class="tx-records-sidebar">
+          <div class="tx-sidebar-title">Roles</div>
+          <ul class="tx-sidebar-nav">
+            <li class="tx-sidebar-item" onclick="switchView('settings')">
+              <div class="tx-sidebar-item-left"><span>🔨</span><span>Ajustes</span></div>
+            </li>
+            <li class="tx-sidebar-item" onclick="switchView('users')">
+              <div class="tx-sidebar-item-left"><span>👤</span><span>Usuarios</span></div>
+            </li>
+            <li class="tx-sidebar-item active">
+              <div class="tx-sidebar-item-left"><span>🔑</span><span>Roles</span></div>
+            </li>
+          </ul>
+        </aside>
+
+        <div class="tx-records-content">
+          <div class="tx-records-toolbar">
+            <div class="tx-toolbar-left">
+              <button type="button" class="tx-btn-outline" style="font-weight:700;">
+                <span>+</span> <span>Nuevo rol</span>
+              </button>
+              <button type="button" class="tx-btn-outline" style="color:#ef4444;">
+                <span>🗑</span> <span>Eliminar rol</span>
+              </button>
+            </div>
+            <div class="tx-toolbar-right">
+              <input type="text" class="tx-search-input" placeholder="Buscar">
+            </div>
+          </div>
+
+          <div class="tx-table-container">
+            <table class="tx-table">
+              <thead>
+                <tr>
+                  <th width="30"><input type="checkbox"></th>
+                  <th>Nombre</th>
+                  <th>Descripción</th>
+                  <th>Tipo</th>
+                  <th>Permisos</th>
+                </tr>
+              </thead>
+              <tbody id="rolesTbody">
+                <!-- Se llena con tranxfer.js -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Global Modal Overlay -->
+  <div id="txModalOverlay" class="tx-modal-overlay">
+    <div class="tx-modal">
+      <div class="tx-modal-header">
+        <h3 id="txModalTitle" class="tx-modal-title">Título del modal</h3>
+        <button type="button" id="txModalClose" class="tx-modal-close">&times;</button>
+      </div>
+      <div id="txModalBody" class="tx-modal-body"></div>
+      <div id="txModalFooter" class="tx-modal-footer"></div>
+    </div>
+  </div>
+
+  <script src="/enviox/enviox.js"></script>
+</body>
+</html>

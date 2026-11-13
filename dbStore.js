@@ -38,6 +38,48 @@ const STORE_DEFS = {
       mutedNicks: [],
       bannedEntries: []
     }
+  },
+  enviox: {
+    filename: 'enviox.json',
+    fallback: {
+      settings: {
+        maxRecipients: 20,
+        maxFiles: 50,
+        maxFileSizeMb: 40960,
+        maxDownloadsPerFile: 3,
+        maxTransferSizeMb: 40960,
+        maxExpiryDays: 14,
+        defaultExpiryDays: 8,
+        watermarkText: '',
+        defaultReceiptAck: true,
+        defaultExpiryNotice: true,
+        noLockoutOnFailedLogins: true,
+        autoSaveContacts: true,
+        brandName: 'ENVIOX',
+        brandSubtitle: 'Plataforma Enviox Segura'
+      },
+      contacts: [
+        { id: 'ct-1', email: 'sergio.suarez@clgrupoindustrial.com', name: 'Sergio Suárez', phone: '', language: 'Español' },
+        { id: 'ct-2', email: 'josecarrasco@clgrupoindustrial.com', name: 'José Carrasco', phone: '', language: 'Español' },
+        { id: 'ct-3', email: 'aortiz@clgrupoindustrial.com', name: 'Alberto Ortiz', phone: '', language: 'Español' },
+        { id: 'ct-4', email: 'unai.nieto@gicl.es', name: 'Unai Nieto', phone: '+34 600 000 000', language: 'Español' }
+      ],
+      groups: [
+        { id: 'grp-1', name: 'Comité Ciberseguridad', members: ['unai.nieto@gicl.es', 'aortiz@clgrupoindustrial.com'] },
+        { id: 'grp-2', name: 'Auditoría Externa', members: ['sergio.suarez@clgrupoindustrial.com'] }
+      ],
+      roles: [
+        { id: 'role-admin', name: 'Admin', description: 'Plantilla: perfil SAML ADMIN', type: 'Plantilla', permissionsCount: 12 },
+        { id: 'role-send-rec', name: 'Enviar + Recibir', description: 'Plantilla: perfil SAML ENVIAR + RECIBIR', type: 'Plantilla', permissionsCount: 2 },
+        { id: 'role-send', name: 'Enviar', description: 'Plantilla: perfil SAML ENVIAR', type: 'Plantilla', permissionsCount: 1 },
+        { id: 'role-rec', name: 'Recibir', description: 'Plantilla: perfil SAML RECIBIR', type: 'Plantilla', permissionsCount: 1 },
+        { id: 'role-total', name: 'Total', description: 'Plantilla: perfil SAML TOTAL', type: 'Plantilla', permissionsCount: 18 },
+        { id: 'role-restore', name: 'Restaurar', description: 'Plantilla: perfil SAML RESTAURAR', type: 'Plantilla', permissionsCount: 2 },
+        { id: 'role-link', name: 'EnvioxLink', description: 'Plantilla: perfil SAML ENVIOXLINK', type: 'Plantilla', permissionsCount: 2 }
+      ],
+      blacklist: [],
+      securityPolicies: []
+    }
   }
 };
 
@@ -586,7 +628,8 @@ class CyberpolisStore {
       forum: cloneValue(this.read('forum', [])),
       analytics: cloneValue(this.read('analytics', { totalViews: 0, dailyStats: {}, visitors: [] })),
       transfers: cloneValue(this.read('transfers', [])),
-      chat: cloneValue(this.read('chat', STORE_DEFS.chat.fallback))
+      chat: cloneValue(this.read('chat', STORE_DEFS.chat.fallback)),
+      enviox: cloneValue(this.read('enviox', STORE_DEFS.enviox.fallback))
     };
   }
 }
