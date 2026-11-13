@@ -2,6 +2,7 @@
 // Soporta cifrado AES-256-GCM en reposo para secretos y archivos binarios.
 
 const crypto = require('crypto');
+const fs = require('fs');
 const tls = require('tls');
 const net = require('net');
 
