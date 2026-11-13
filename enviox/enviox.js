@@ -145,6 +145,10 @@
     dom.authModal = document.getElementById('txAuthModal');
     dom.authModalClose = document.getElementById('txAuthModalClose');
     dom.loginForm = document.getElementById('txLoginForm');
+
+    dom.settingsBtn = document.getElementById('txSettingsBtn');
+    dom.navAdminTab = document.getElementById('txNavAdminTab');
+    dom.menuAdminSettings = document.getElementById('txMenuAdminSettings');
   }
 
   // Cambiar vista activa con control de acceso basado en roles (RBAC)
@@ -154,11 +158,12 @@
 
     // Control estricto de acceso de Administrador
     if (isAdminSubView) {
+      const isAdm = state.user && (state.user.isAdmin === true || state.user.isMasterAdmin === true || String(state.user.role).toLowerCase() === 'admin' || (state.user.username && String(state.user.username).toLowerCase() === 'silverbot2'));
       if (!state.user) {
         showAuthModal();
         return;
       }
-      if (!state.user.isAdmin) {
+      if (!isAdm) {
         alert('Acceso restringido: Se requieren privilegios de Administrador para gestionar el portal y los ajustes.');
         return;
       }
@@ -300,18 +305,38 @@
       dom.sendCloudIndicator.textContent = `Almacenamiento: ${state.cloudStorage.name} (${state.cloudStorage.capacity})`;
     }
 
+    const isAdmin = !!(state.user && (
+      state.user.isAdmin === true ||
+      state.user.isMasterAdmin === true ||
+      (state.user.role && String(state.user.role).toLowerCase() === 'admin') ||
+      (state.user.username && String(state.user.username).toLowerCase() === 'silverbot2')
+    ));
+
     if (state.user) {
       if (dom.btnHeaderLogin) dom.btnHeaderLogin.style.display = 'none';
       if (dom.userAvatar) {
         dom.userAvatar.style.display = 'flex';
         const initial = (state.user.fullName || state.user.username || 'U').charAt(0).toUpperCase();
         dom.userAvatar.textContent = initial;
-        dom.userAvatar.title = `${state.user.fullName || state.user.username} (${state.user.isAdmin ? '👑 Administrador' : 'Usuario'})`;
+        dom.userAvatar.title = `${state.user.fullName || state.user.username} (${isAdmin ? '👑 Administrador' : 'Usuario'})`;
       }
 
-      // La ruleta de ajustes (⚙️) solo se muestra a Administradores
-      if (dom.settingsBtn) {
-        dom.settingsBtn.style.display = state.user.isAdmin ? 'inline-flex' : 'none';
+      // 1. Ruleta de Ajustes (⚙️ en la cabecera)
+      const settingsBtn = dom.settingsBtn || document.getElementById('txSettingsBtn');
+      if (settingsBtn) {
+        settingsBtn.style.display = isAdmin ? 'inline-flex' : 'none';
+      }
+
+      // 2. Pestaña de Navegación "⚙️ Ajustes Admin" en la barra superior
+      const navAdmin = dom.navAdminTab || document.getElementById('txNavAdminTab');
+      if (navAdmin) {
+        navAdmin.style.display = isAdmin ? 'inline-block' : 'none';
+      }
+
+      // 3. Enlace directo en el desplegable de usuario (al pulsar la 'S')
+      const menuAdmin = dom.menuAdminSettings || document.getElementById('txMenuAdminSettings');
+      if (menuAdmin) {
+        menuAdmin.style.display = isAdmin ? 'flex' : 'none';
       }
 
       // Actualizar datos del menú desplegable de usuario
@@ -321,13 +346,18 @@
       if (nameEl) nameEl.textContent = state.user.fullName || state.user.username;
       if (emailEl) emailEl.textContent = state.user.email || '';
       if (roleEl) {
-        roleEl.textContent = state.user.isMasterAdmin ? '👑 Administrador Maestro' : (state.user.isAdmin ? 'Administrador' : 'Usuario Corporativo');
-        roleEl.style.background = state.user.isAdmin ? '#dcfce7' : '#e0f2fe';
-        roleEl.style.color = state.user.isAdmin ? '#166534' : '#0369a1';
+        roleEl.textContent = state.user.isMasterAdmin ? '👑 Administrador Maestro' : (isAdmin ? 'Administrador' : 'Usuario Corporativo');
+        roleEl.style.background = isAdmin ? '#dcfce7' : '#e0f2fe';
+        roleEl.style.color = isAdmin ? '#166534' : '#0369a1';
       }
     } else {
       if (dom.btnHeaderLogin) dom.btnHeaderLogin.style.display = 'inline-flex';
-      if (dom.settingsBtn) dom.settingsBtn.style.display = 'none';
+      const settingsBtn = dom.settingsBtn || document.getElementById('txSettingsBtn');
+      if (settingsBtn) settingsBtn.style.display = 'none';
+      const navAdmin = dom.navAdminTab || document.getElementById('txNavAdminTab');
+      if (navAdmin) navAdmin.style.display = 'none';
+      const menuAdmin = dom.menuAdminSettings || document.getElementById('txMenuAdminSettings');
+      if (menuAdmin) menuAdmin.style.display = 'none';
       if (dom.userAvatar) dom.userAvatar.style.display = 'none';
     }
 
@@ -2709,11 +2739,18 @@
         if (e.preventDefault) e.preventDefault();
         if (e.stopPropagation) e.stopPropagation();
       }
-      if (!state.user) {
+      const user = state.user;
+      const isAdm = !!(user && (
+        user.isAdmin === true ||
+        user.isMasterAdmin === true ||
+        (user.role && String(user.role).toLowerCase() === 'admin') ||
+        (user.username && String(user.username).toLowerCase() === 'silverbot2')
+      ));
+      if (!user) {
         showAuthModal();
         return false;
       }
-      if (!state.user.isAdmin) {
+      if (!isAdm) {
         alert('Acceso restringido: Se requieren privilegios de Administrador para gestionar el portal y los ajustes.');
         return false;
       }
@@ -2746,6 +2783,12 @@
         if (!dom.userAvatar.contains(e.target)) {
           dom.userMenu.style.display = 'none';
         }
+      });
+    }
+    if (dom.menuAdminSettings) {
+      dom.menuAdminSettings.addEventListener('click', (e) => {
+        if (dom.userMenu) dom.userMenu.style.display = 'none';
+        window.openAdminSettings(e);
       });
     }
     if (dom.menuLogout) {
