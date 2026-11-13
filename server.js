@@ -5756,7 +5756,8 @@ const server = http.createServer(async (req, res) => {
       const proto = isSecureRequest(req) ? 'https' : 'http';
       const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'cyberpolis.onrender.com').split(',')[0].trim();
       const redirectUri = `${proto}://${host}/api/cloud/oauth/callback`;
-      cloudOAuthStates.set(stateNonce, { tenantRecordId: tCfg.id, providerType: tCfg.providerType || 'onedrive', redirectUri, createdAt: Date.now(), adminId: currentUser.id });
+      const returnTo = sanitizeInput((parsedUrl.query && parsedUrl.query.returnTo) || '', 160);
+      cloudOAuthStates.set(stateNonce, { tenantRecordId: tCfg.id, providerType: tCfg.providerType || 'onedrive', redirectUri, returnTo, createdAt: Date.now(), adminId: currentUser.id });
 
       const authUrl = tCfg.providerType === 'google-drive'
         ? cloudGoogle.buildGoogleOAuthAuthorizeUrl({
@@ -5812,7 +5813,10 @@ const server = http.createServer(async (req, res) => {
           cloud.tenants[idx].authMode = 'google_oauth2';
           cloud.tenants[idx].updatedAt = new Date().toISOString();
           writeCloudStore(cloud);
-          res.writeHead(302, { 'Location': '/?cloudOAuth=ok' });
+          const dest = (st && st.returnTo)
+            ? (st.returnTo.includes('?') ? `${st.returnTo}&cloudOAuth=ok` : `${st.returnTo}?cloudOAuth=ok`)
+            : '/?cloudOAuth=ok';
+          res.writeHead(302, { 'Location': dest });
           res.end();
         } catch (gErr) {
           res.writeHead(400, { 'Content-Type': 'text/html; charset=UTF-8' });
@@ -5846,7 +5850,10 @@ const server = http.createServer(async (req, res) => {
       cloud.tenants[idx].authMode = 'delegated_oauth2';
       cloud.tenants[idx].updatedAt = new Date().toISOString();
       writeCloudStore(cloud);
-      res.writeHead(302, { 'Location': '/?cloudOAuth=ok' });
+      const destMs = (st && st.returnTo)
+        ? (st.returnTo.includes('?') ? `${st.returnTo}&cloudOAuth=ok` : `${st.returnTo}?cloudOAuth=ok`)
+        : '/?cloudOAuth=ok';
+      res.writeHead(302, { 'Location': destMs });
       res.end();
       return;
     }

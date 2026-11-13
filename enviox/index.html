@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ENVIOX — Envío y Recepción Segura de Archivos (5 TB)</title>
-  <link rel="stylesheet" href="/enviox/enviox.css?v=8.3.3">
+  <link rel="stylesheet" href="/enviox/enviox.css?v=8.3.4">
   <script>
     // Acceso directo e infalible a Ajustes y Administración desde el engranaje ⚙️
     function openAdminSettings(e) {
@@ -802,42 +802,84 @@
               </p>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
                 <!-- Google Drive 5 TB -->
-                <div style="background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:16px;">
-                  <h4 style="font-size:14px;font-weight:700;color:var(--tx-navy);margin-top:0;margin-bottom:10px;">🔴 Google Drive 5 TB</h4>
-                  <div class="tx-setting-item">
-                    <label class="tx-setting-label">ID de Cliente OAuth 2.0 / Cuenta de Servicio</label>
-                    <input type="text" id="cfgGoogleClientId" class="tx-setting-input" placeholder="xxxx.apps.googleusercontent.com">
+                <div style="background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:16px;display:flex;flex-direction:column;justify-content:space-between;">
+                  <div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                      <h4 style="font-size:14px;font-weight:700;color:var(--tx-navy);margin:0;">🔴 Google Drive 5 TB (Google One / Workspace)</h4>
+                      <span id="cfgGoogleStatusBadge" style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:#f1f5f9;color:#475569;">Verificando...</span>
+                    </div>
+
+                    <div class="tx-setting-item">
+                      <label class="tx-setting-label">Tu Cuenta de Google (Gmail / Workspace)</label>
+                      <input type="email" id="cfgGoogleUserEmail" class="tx-setting-input" placeholder="tu.cuenta@gmail.com">
+                    </div>
+
+                    <div class="tx-setting-item">
+                      <label class="tx-setting-label">ID de Cliente OAuth 2.0 (Google Cloud)</label>
+                      <input type="text" id="cfgGoogleClientId" class="tx-setting-input" placeholder="xxxx.apps.googleusercontent.com">
+                    </div>
+
+                    <div class="tx-setting-item">
+                      <label class="tx-setting-label">Secreto de Cliente (Client Secret)</label>
+                      <input type="password" id="cfgGoogleClientSecret" class="tx-setting-input" placeholder="GOCSPX-xxxxxxxx" autocomplete="new-password">
+                    </div>
+
+                    <div class="tx-setting-item">
+                      <label class="tx-setting-label">Carpeta Raíz en Drive (Bóveda Cifrada)</label>
+                      <input type="text" id="cfgGoogleFolderId" class="tx-setting-input" value="CYBERPOLIS_VAULT">
+                    </div>
+
+                    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:10px;margin-top:10px;font-size:12px;color:#1e40af;line-height:1.45;">
+                      <strong>📌 Configuración en Google Cloud Console:</strong><br>
+                      1. En <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:#1d4ed8;font-weight:bold;text-decoration:underline;">Google Cloud Console</a> pulsa <em>Crear credenciales</em> → <strong>ID de cliente de OAuth</strong> (Tipo: <em>Aplicación Web</em>).<br>
+                      2. En <strong>URI de redirección autorizados</strong> escribe:<br>
+                      <code style="background:#dbeafe;padding:2px 6px;border-radius:4px;word-break:break-all;font-size:11px;color:#0c4a6e;display:inline-block;margin-top:3px;">https://cyberpolis.onrender.com/api/cloud/oauth/callback</code><br>
+                      3. Guarda abajo y luego pulsa <strong>"🔑 Conectar Google 1-Clic"</strong>.
+                    </div>
                   </div>
-                  <div class="tx-setting-item">
-                    <label class="tx-setting-label">Secreto de Cliente / Token de Actualización</label>
-                    <input type="password" id="cfgGoogleClientSecret" class="tx-setting-input" placeholder="GOCSPX-xxxxxxxx">
-                  </div>
-                  <div class="tx-setting-item">
-                    <label class="tx-setting-label">ID de Carpeta Raíz 5 TB</label>
-                    <input type="text" id="cfgGoogleFolderId" class="tx-setting-input" value="ENVIOX_5TB_ROOT">
+
+                  <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;border-top:1px solid #f1f5f9;padding-top:12px;">
+                    <button type="button" class="tx-pill-btn-small" id="btnSaveGoogleDrive" style="background:var(--tx-navy);">💾 Guardar</button>
+                    <button type="button" class="tx-btn-outline" id="btnConnectGoogleOAuth" style="background:#2563eb;color:#ffffff;border-color:#2563eb;font-weight:700;">🔑 Conectar Google 1-Clic</button>
+                    <button type="button" class="tx-btn-outline" id="btnTestGoogleDrive">🔌 Probar Conexión</button>
                   </div>
                 </div>
 
                 <!-- Microsoft Azure / OneDrive 5 TB -->
-                <div style="background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:16px;">
-                  <h4 style="font-size:14px;font-weight:700;color:var(--tx-navy);margin-top:0;margin-bottom:10px;">🔷 Microsoft Azure / OneDrive 5 TB</h4>
-                  <div class="tx-setting-item">
-                    <label class="tx-setting-label">Directory (Tenant) ID</label>
-                    <input type="text" id="cfgAzureTenantId" class="tx-setting-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                <div style="background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:16px;display:flex;flex-direction:column;justify-content:space-between;">
+                  <div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                      <h4 style="font-size:14px;font-weight:700;color:var(--tx-navy);margin:0;">🔷 Microsoft Azure / OneDrive 5 TB</h4>
+                      <span id="cfgAzureStatusBadge" style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:#f1f5f9;color:#475569;">Verificando...</span>
+                    </div>
+
+                    <div class="tx-setting-item">
+                      <label class="tx-setting-label">Directory (Tenant) ID</label>
+                      <input type="text" id="cfgAzureTenantId" class="tx-setting-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                    </div>
+
+                    <div class="tx-setting-item">
+                      <label class="tx-setting-label">Application (Client) ID</label>
+                      <input type="text" id="cfgAzureClientId" class="tx-setting-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                    </div>
+
+                    <div class="tx-setting-item">
+                      <label class="tx-setting-label">Client Secret Value</label>
+                      <input type="password" id="cfgAzureClientSecret" class="tx-setting-input" placeholder="••••••••••••••••" autocomplete="new-password">
+                    </div>
+
+                    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:10px;margin-top:10px;font-size:12px;color:#166534;line-height:1.45;">
+                      <strong>📌 Configuración en Microsoft Entra ID (Azure):</strong><br>
+                      Crea un registro de aplicación con permisos Graph <code>Files.ReadWrite.All</code> y <code>Mail.Send</code> para almacenamiento empresarial redundante de 5 TB.
+                    </div>
                   </div>
-                  <div class="tx-setting-item">
-                    <label class="tx-setting-label">Application (Client) ID</label>
-                    <input type="text" id="cfgAzureClientId" class="tx-setting-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-                  </div>
-                  <div class="tx-setting-item">
-                    <label class="tx-setting-label">Client Secret Value</label>
-                    <input type="password" id="cfgAzureClientSecret" class="tx-setting-input" placeholder="••••••••••••••••">
+
+                  <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;border-top:1px solid #f1f5f9;padding-top:12px;">
+                    <button type="button" class="tx-pill-btn-small" id="btnSaveAzureTenant" style="background:var(--tx-navy);">💾 Guardar</button>
+                    <button type="button" class="tx-btn-outline" id="btnConnectAzureOAuth" style="background:#0284c7;color:#ffffff;border-color:#0284c7;font-weight:700;">🔑 Conectar Azure M365</button>
+                    <button type="button" class="tx-btn-outline" id="btnTestAzureTenant">🔌 Probar OneDrive</button>
                   </div>
                 </div>
-              </div>
-              <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:16px;">
-                <button type="button" class="tx-btn-outline" id="btnTestCloudConnection">Probar Conexión Nube 5 TB</button>
-                <button type="button" class="tx-pill-btn-small" id="btnSaveCloudTenant" style="background:var(--tx-navy);">Guardar Credenciales de Tenant</button>
               </div>
             </div>
 
@@ -1013,7 +1055,12 @@
 
           <!-- PANE: CANALES DE NOTIFICACIÓN (Totalmente configurable) -->
           <div id="paneAdminCanales" class="tx-admin-pane" data-pane="canales">
-            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Canales de notificación y Pasarela de Correo</h2>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;flex-wrap:wrap;gap:10px;">
+              <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin:0;">Canales de notificación y Pasarela de Correo</h2>
+              <span id="cfgMailStatusBadge" style="font-size:12px;font-weight:700;padding:3px 12px;border-radius:12px;background:#fef3c7;color:#92400e;">
+                Comprobando pasarela...
+              </span>
+            </div>
             
             <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin-bottom:20px;">
               <h3 style="font-size:15px;color:var(--tx-navy);font-weight:700;margin-top:0;margin-bottom:8px;">✉️ Pasarela de Correo Electrónico (Tu Gmail / Contraseña de Aplicación / SMTP)</h3>
@@ -1025,9 +1072,9 @@
                 <div class="tx-setting-item" style="grid-column: 1 / -1;">
                   <label class="tx-setting-label">Método de Envío / Tipo de Pasarela</label>
                   <select id="cfgMailMode" class="tx-setting-input">
-                    <option value="gmail_app_password" selected>⭐ Gmail + Contraseña de Aplicación (smtp.gmail.com:465) — Recomendado</option>
-                    <option value="gmail_oauth2">🔑 Gmail API (Google OAuth2 vinculado con Google Drive)</option>
-                    <option value="custom_smtp">🏢 SMTP Personalizado / Servidor Corporativo</option>
+                    <option value="gmail_app_password" selected>⭐ Gmail + Contraseña de Aplicación (smtp.gmail.com:465) — Recomendado · Rápido y Directo</option>
+                    <option value="gmail_oauth2">🔑 Gmail API (Google OAuth2 vinculado en Ajustes &gt; Google Drive 5 TB)</option>
+                    <option value="custom_smtp">🏢 Servidor SMTP Personalizado / Puerto Propio</option>
                   </select>
                 </div>
 
@@ -1057,12 +1104,16 @@
                 </div>
               </div>
 
-              <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:12px;margin-top:14px;font-size:12.5px;color:#1e40af;line-height:1.5;">
-                💡 <strong>¿Cómo obtener tu Contraseña de Aplicación en Google?</strong><br>
+              <div id="cfgMailHelpAppPass" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:12px;margin-top:14px;font-size:12.5px;color:#1e40af;line-height:1.5;">
+                💡 <strong>¿Cómo obtener tu Contraseña de Aplicación en Google en 1 minuto?</strong><br>
                 1. Ve a tu cuenta de Google (<a href="https://myaccount.google.com/security" target="_blank" style="color:#1d4ed8;font-weight:bold;text-decoration:underline;">myaccount.google.com/security</a>).<br>
-                2. En la sección <em>Seguridad</em>, asegúrate de tener activada la <strong>Verificación en dos pasos</strong>.<br>
-                3. Haz clic en <strong>Contraseñas de aplicaciones</strong>, escribe de nombre <code>Cyberpolis Enviox</code> y pulsa <em>Crear</em>.<br>
-                4. Copia las 16 letras que genera Google y pégalas en el campo de arriba. ¡Listo!
+                2. En <em>Seguridad</em>, activa la <strong>Verificación en dos pasos</strong> si no la tienes activa.<br>
+                3. Entra en <strong><a href="https://myaccount.google.com/apppasswords" target="_blank" style="color:#1d4ed8;font-weight:bold;text-decoration:underline;">Contraseñas de aplicaciones</a></strong>, pon de nombre <code>Cyberpolis Enviox</code> y pulsa <em>Crear</em>.<br>
+                4. Copia las 16 letras que genera Google (sin espacios) y pégalas en el campo de arriba. ¡Listo!
+              </div>
+
+              <div id="cfgMailHelpOAuth" style="display:none;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:12px;margin-top:14px;font-size:12.5px;color:#166534;line-height:1.5;">
+                🔑 <strong>Modo Gmail API (OAuth2):</strong> Los correos se enviarán directamente mediante la API oficial de Google usando la cuenta de 5 TB que vincules en la pestaña <em>Ajustes → Google Drive 5 TB</em> mediante el botón <strong>"🔑 Conectar Google 1-Clic"</strong>. No necesitas contraseña de aplicación en este modo.
               </div>
 
               <h4 style="font-size:14px;color:var(--tx-navy);font-weight:700;margin-top:20px;margin-bottom:8px;">Eventos con aviso automático por correo:</h4>
@@ -1079,13 +1130,15 @@
               </div>
 
               <div style="display:flex;justify-content:space-between;align-items:center;margin-top:24px;flex-wrap:wrap;gap:12px;border-top:1px solid #e2e8f0;padding-top:18px;">
-                <div style="display:flex;align-items:center;gap:8px;">
-                  <input type="email" id="cfgTestEmailTo" class="tx-setting-input" placeholder="Correo destino de prueba" style="width:240px;margin:0;">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                  <input type="email" id="cfgTestEmailTo" class="tx-setting-input" placeholder="Correo destino de prueba..." style="width:240px;margin:0;">
                   <button type="button" class="tx-btn-outline" id="btnTestEmailChannel">✉️ Enviar prueba</button>
+                  <span id="cfgTestEmailStatus" style="font-size:12px;font-weight:600;display:none;"></span>
                 </div>
-                <button type="button" class="tx-pill-btn-small" id="btnSaveChannels" style="background:var(--tx-navy);">Guardar Pasarela y Canales</button>
+                <button type="button" class="tx-pill-btn-small" id="btnSaveChannels" style="background:var(--tx-navy);">💾 Guardar Pasarela y Canales</button>
               </div>
             </div>
+          </div>
           </div>
 
           <!-- PANE: CANCELAR TRANSFERENCIAS -->
@@ -1274,6 +1327,6 @@
     </div>
   </div>
 
-  <script src="/enviox/enviox.js?v=8.3.3"></script>
+  <script src="/enviox/enviox.js?v=8.3.4"></script>
 </body>
 </html>

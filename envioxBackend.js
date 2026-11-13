@@ -1132,7 +1132,28 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
 
     try {
       const cloud = readCloudStore ? readCloudStore() : {};
-      const activeGw = (cloudGoogle && cloudGoogle.resolveActiveMailGateway) ? cloudGoogle.resolveActiveMailGateway(cloud) : cloud.mailGateway;
+      const prevGw = cloud.mailGateway || {};
+
+      // Si el cliente envía credenciales en el body (ej: prueba rápida sin guardar primero), aplicarlas
+      let activeGw = null;
+      if (b.smtpUser || b.smtpPassword || b.mode) {
+        const rawPass = String(b.smtpPassword || b.password || '').replace(/\s+/g, '').trim();
+        const mode = ['gmail_app_password', 'custom_smtp', 'gmail_oauth2', 'none'].includes(b.mode) ? b.mode : 'gmail_app_password';
+        const port = parseInt(b.smtpPort, 10) || (mode === 'gmail_app_password' ? 465 : 587);
+        activeGw = {
+          mode,
+          host: sanitizeInput(b.smtpHost || (mode === 'gmail_app_password' ? 'smtp.gmail.com' : 'smtp.gmail.com'), 160),
+          port,
+          secure: port === 465,
+          user: sanitizeInput(b.smtpUser || b.user || prevGw.user || '', 160),
+          passSealed: rawPass ? (cloudOneDrive ? cloudOneDrive.sealCloudSecret(rawPass) : rawPass) : (prevGw.passSealed || ''),
+          fromEmail: sanitizeInput(b.fromEmail || b.smtpUser || prevGw.fromEmail || '', 160),
+          fromName: sanitizeInput(b.fromName || prevGw.fromName || 'CYBERPOLIS ENVIOX', 80)
+        };
+      } else {
+        activeGw = (cloudGoogle && cloudGoogle.resolveActiveMailGateway) ? cloudGoogle.resolveActiveMailGateway(cloud) : cloud.mailGateway;
+      }
+
       const tenantCfg = (cloudOneDrive && cloudOneDrive.resolveActiveTenantConfig) ? cloudOneDrive.resolveActiveTenantConfig(cloud) : null;
       
       const resMail = await sendTransferNotificationEmail(
@@ -1153,13 +1174,28 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
             <p style="font-size: 13px; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px; border-radius: 6px; color: #166534;">
               ✔ Envío verificado a: <strong>${toEmail}</strong><br>
               ✔ Modo de pasarela: <strong>${activeGw?.mode || 'gmail_app_password'}</strong><br>
+              ✔ Remitente: <strong>${activeGw?.user || activeGw?.fromEmail || 'CYBERPOLIS ENVIOX'}</strong><br>
               ✔ Fecha y hora: <strong>${new Date().toLocaleString('es-ES')}</strong>
             </p>
           </div>
         </div>`,
         activeGw
       );
-      sendJSON(req, res, 200, { ok: true, success: true, message: `Correo de prueba enviado con éxito a ${toEmail}.`, details: resMail }, {}, { noStore: true });
+
+      if (!resMail || !resMail.sent) {
+        let errDesc = (resMail && resMail.error) || 'No se pudo enviar el correo de prueba.';
+        if (/535|username and password not accepted/i.test(errDesc)) {
+          errDesc = 'Google ha rechazado la autenticación SMTP (Error 535). Recuerda que debes activar la verificación en dos pasos en tu cuenta de Google y generar una "Contraseña de Aplicación" de 16 caracteres en myaccount.google.com/apppasswords (pega las 16 letras sin espacios).';
+        } else if (/falta conectar google oauth2/i.test(errDesc)) {
+          errDesc = 'Modo Gmail API seleccionado pero la cuenta Google no está autorizada. Ve a Ajustes > Configuración de Tenant y pulsa "🔑 Conectar Google 1-Clic", o usa el modo "Gmail + Contraseña de Aplicación".';
+        } else if (/no configurado/i.test(errDesc)) {
+          errDesc = 'Falta indicar tu cuenta de correo y la contraseña de aplicación de Google (16 caracteres).';
+        }
+        sendJSON(req, res, 502, { ok: false, error: errDesc, details: resMail }, {}, { noStore: true });
+        return true;
+      }
+
+      sendJSON(req, res, 200, { ok: true, success: true, message: `Correo de prueba enviado con éxito a ${toEmail}. Revisa tu bandeja de entrada o spam.`, details: resMail }, {}, { noStore: true });
     } catch (err) {
       sendJSON(req, res, 500, { ok: false, error: `Error enviando correo de prueba: ${err.message}` }, {}, { noStore: true });
     }
@@ -1175,20 +1211,38 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
 
     if (method === 'GET') {
       const cloud = readCloudStore ? readCloudStore() : { tenants: [] };
-      const activeTenant = cloudOneDrive ? cloudOneDrive.resolveActiveTenantConfig(cloud) : null;
+      const tenants = Array.isArray(cloud.tenants) ? cloud.tenants : [];
+      const gdTenant = tenants.find(t => t.providerType === 'google-drive') || null;
+      const msTenant = tenants.find(t => t.providerType === 'onedrive') || null;
+      const activeTenant = cloudOneDrive ? cloudOneDrive.resolveActiveTenantConfig(cloud) : (gdTenant || msTenant);
+      
+      const isGdConnected = !!(gdTenant && (gdTenant.serviceAccountJsonSealed || (gdTenant.clientId && gdTenant.refreshTokenSealed)));
+      const isMsConnected = !!(msTenant && msTenant.clientId && (msTenant.clientSecretSealed || msTenant.refreshTokenSealed));
+
       sendJSON(req, res, 200, {
         activeProvider: activeTenant ? activeTenant.providerType : 'google-drive',
         activeTenantName: activeTenant ? activeTenant.name : 'Google Drive 5 TB Vault',
         capacity: '5 TB',
         googleDrive: {
-          clientId: activeTenant?.providerType === 'google-drive' ? (activeTenant.clientId || '') : '',
-          folderId: activeTenant?.driveFolderId || 'ENVIOX_5TB_ROOT',
-          configured: !!activeTenant
+          id: gdTenant?.id || 'enviox-primary-vault',
+          userEmail: gdTenant?.driveUserUpn || '',
+          clientId: gdTenant?.clientId || '',
+          folderId: gdTenant?.baseFolder || gdTenant?.driveFolderId || 'CYBERPOLIS_VAULT',
+          hasClientSecret: !!gdTenant?.clientSecretSealed,
+          hasRefreshToken: !!gdTenant?.refreshTokenSealed,
+          hasServiceAccount: !!gdTenant?.serviceAccountJsonSealed,
+          connected: isGdConnected,
+          lastTestedAt: gdTenant?.lastTestedAt || null,
+          quotaTotalBytes: gdTenant?.quotaTotalBytes || 0,
+          quotaUsedBytes: gdTenant?.quotaUsedBytes || 0
         },
         oneDrive: {
-          tenantId: activeTenant?.providerType === 'onedrive' ? (activeTenant.azureTenantId || '') : '',
-          clientId: activeTenant?.providerType === 'onedrive' ? (activeTenant.clientId || '') : '',
-          configured: activeTenant?.providerType === 'onedrive'
+          id: msTenant?.id || '',
+          tenantId: msTenant?.tenantId || msTenant?.azureTenantId || '',
+          clientId: msTenant?.clientId || '',
+          hasClientSecret: !!msTenant?.clientSecretSealed,
+          hasRefreshToken: !!msTenant?.refreshTokenSealed,
+          connected: isMsConnected
         }
       }, {}, { noStore: true });
       return true;
@@ -1201,58 +1255,70 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
       }
       const b = await getBody();
       const providerType = b.providerType || 'google-drive';
+
       EnvioxState.cloudSettings = {
         providerType,
         tenantId: sanitizeInput(b.tenantId || b.azureTenantId || '', 100),
         clientId: sanitizeInput(b.clientId || b.googleClientId || b.azureClientId || '', 200),
-        folderId: sanitizeInput(b.folderId || b.googleFolderId || 'ENVIOX_5TB_ROOT', 100),
+        folderId: sanitizeInput(b.folderId || b.googleFolderId || 'CYBERPOLIS_VAULT', 100),
         updatedAt: new Date().toISOString()
       };
       db.write('enviox', EnvioxState);
 
-      // Guardar también en cloud.tenants para que el backend resuelva el tenant activo
+      // Guardar en cloud.tenants con compatibilidad total para Google Drive 5TB y Azure M365
       if (readCloudStore && writeCloudStore) {
         const cloud = readCloudStore();
         cloud.tenants = Array.isArray(cloud.tenants) ? cloud.tenants : [];
-        let t = cloud.tenants.find(x => x.id === 'enviox-primary-vault');
+        let t = cloud.tenants.find(x => x.id === (b.id || 'enviox-primary-vault') || x.providerType === providerType);
         if (!t) {
           t = {
-            id: 'enviox-primary-vault',
+            id: providerType === 'google-drive' ? 'gd-enviox-primary' : 'ten-enviox-azure',
             name: providerType === 'onedrive' ? 'Microsoft Azure / OneDrive 5 TB' : 'Google Drive 5 TB Vault',
             providerType,
-            isPrimary: true,
-            enabled: true,
             createdAt: new Date().toISOString()
           };
           cloud.tenants.push(t);
         }
         t.providerType = providerType;
         t.name = providerType === 'onedrive' ? 'Microsoft Azure / OneDrive 5 TB' : 'Google Drive 5 TB Vault';
-        t.isPrimary = true;
-        t.enabled = true;
+        t.isDefaultForBackup = true;
+        t.autoBackupEnabled = true;
+        t.sendMailEnabled = true;
+
         if (providerType === 'onedrive') {
-          t.azureTenantId = sanitizeInput(b.tenantId || b.azureTenantId || '', 120);
+          t.tenantId = sanitizeInput(b.tenantId || b.azureTenantId || 'common', 120);
           t.clientId = sanitizeInput(b.clientId || b.azureClientId || '', 120);
+          t.authMode = 'client_credentials';
           if (b.clientSecret || b.azureClientSecret) {
             t.clientSecretSealed = cloudOneDrive ? cloudOneDrive.sealCloudSecret(b.clientSecret || b.azureClientSecret) : (b.clientSecret || b.azureClientSecret);
           }
         } else {
           t.clientId = sanitizeInput(b.clientId || b.googleClientId || '', 200);
-          t.driveFolderId = sanitizeInput(b.folderId || b.googleFolderId || 'ENVIOX_5TB_ROOT', 100);
+          t.baseFolder = sanitizeInput(b.folderId || b.googleFolderId || 'CYBERPOLIS_VAULT', 100);
+          t.driveUserUpn = sanitizeInput(b.userEmail || b.googleUserEmail || b.driveUserUpn || '', 140);
+          t.authMode = b.serviceAccountJson ? 'service_account' : 'google_oauth2';
           if (b.clientSecret || b.googleClientSecret) {
             t.clientSecretSealed = cloudOneDrive ? cloudOneDrive.sealCloudSecret(b.clientSecret || b.googleClientSecret) : (b.clientSecret || b.googleClientSecret);
           }
+          if (b.serviceAccountJson) {
+            t.serviceAccountJsonSealed = cloudOneDrive ? cloudOneDrive.sealCloudSecret(b.serviceAccountJson) : b.serviceAccountJson;
+          }
         }
         t.updatedAt = new Date().toISOString();
+
+        // Si este es default para backup, desmarcar otros
+        cloud.tenants.forEach(x => {
+          if (x.id !== t.id) x.isDefaultForBackup = false;
+        });
         writeCloudStore(cloud);
       }
 
-      sendJSON(req, res, 200, { ok: true, cloudSettings: EnvioxState.cloudSettings, message: 'Configuración de Tenant y Nube de 5 TB actualizada y vinculada.' }, {}, { noStore: true });
+      sendJSON(req, res, 200, { ok: true, cloudSettings: EnvioxState.cloudSettings, message: 'Configuración de Tenant y Nube de 5 TB guardada correctamente.' }, {}, { noStore: true });
       return true;
     }
   }
 
-  // 13b. POST /api/enviox/cloud-config/test — Probar conexión con la Bóveda 5 TB
+  // 13b. POST /api/enviox/cloud-config/test — Probar conexión real con la Bóveda 5 TB
   if (p === '/api/enviox/cloud-config/test' && method === 'POST') {
     if (!currentUser || currentUser.role !== 'admin') {
       sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
@@ -1261,37 +1327,63 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
     try {
       const cloud = readCloudStore ? readCloudStore() : { tenants: [] };
       const tCfg = cloudOneDrive ? cloudOneDrive.resolveActiveTenantConfig(cloud) : null;
-      if (!tCfg) {
+      if (!tCfg || (!tCfg.clientId && !tCfg.serviceAccountJsonSealed)) {
         sendJSON(req, res, 200, {
           ok: true,
+          connected: false,
           tenantName: 'Bóveda Local Cifrada (Fallback)',
           capacity: '5 TB',
-          message: 'Bóveda local segura con cifrado AES-256-GCM operativa. (Guarda tus credenciales de Google o Azure para sincronización remota).'
+          message: 'Bóveda local segura con cifrado AES-256-GCM operativa. Guarda tus credenciales de Google Drive o Azure y pulsa "🔑 Conectar Google 1-Clic" para sincronizar la nube remota de 5 TB.'
         }, {}, { noStore: true });
         return true;
       }
 
       let info = null;
-      if (tCfg.providerType === 'google-drive' && cloudGoogle && cloudGoogle.testGoogleDriveConnection) {
+      if (tCfg.providerType === 'google-drive') {
+        if (!cloudGoogle || !cloudGoogle.testGoogleDriveConnection) {
+          throw new Error('Módulo de Google Drive no disponible en el servidor.');
+        }
         info = await cloudGoogle.testGoogleDriveConnection(tCfg);
-      } else if (tCfg.providerType === 'onedrive' && cloudOneDrive && cloudOneDrive.testOneDriveConnection) {
+      } else {
+        if (!cloudOneDrive || !cloudOneDrive.testOneDriveConnection) {
+          throw new Error('Módulo de Microsoft OneDrive no disponible en el servidor.');
+        }
         info = await cloudOneDrive.testOneDriveConnection(tCfg);
+      }
+
+      // Guardar cuotas actualizadas en cloud.tenants
+      const idx = cloud.tenants.findIndex(t => t.id === tCfg.id);
+      if (idx >= 0) {
+        cloud.tenants[idx].lastTestedAt = new Date().toISOString();
+        if (info && info.quotaTotalBytes) cloud.tenants[idx].quotaTotalBytes = info.quotaTotalBytes;
+        if (info && info.quotaUsedBytes) cloud.tenants[idx].quotaUsedBytes = info.quotaUsedBytes;
+        if (info && info.ownerEmail && !cloud.tenants[idx].driveUserUpn) {
+          cloud.tenants[idx].driveUserUpn = info.ownerEmail;
+        }
+        writeCloudStore(cloud);
       }
 
       sendJSON(req, res, 200, {
         ok: true,
-        tenantName: tCfg.name || 'Bóveda 5 TB',
-        capacity: '5 TB',
+        connected: true,
+        tenantName: tCfg.name || 'Google Drive 5 TB',
+        ownerDisplayName: info?.ownerDisplayName || info?.ownerEmail || tCfg.driveUserUpn,
+        ownerEmail: info?.ownerEmail || tCfg.driveUserUpn,
         quotaTotalBytes: info?.quotaTotalBytes,
         quotaUsedBytes: info?.quotaUsedBytes,
-        message: 'Conexión con la bóveda de 5 TB verificada con éxito (Cifrado AES-256-GCM y permisos de lectura/escritura confirmados).'
+        quotaRemainingBytes: info?.quotaRemainingBytes,
+        message: `Conexión con la bóveda de 5 TB verificada con éxito (${info?.ownerDisplayName || info?.ownerEmail || 'Google Drive'}). Permisos de lectura/escritura y cifrado AES-256-GCM confirmados.`
       }, {}, { noStore: true });
     } catch (err) {
-      sendJSON(req, res, 200, {
-        ok: true,
-        tenantName: 'Bóveda 5 TB',
-        capacity: '5 TB',
-        message: `Credenciales registradas. Nota del proveedor: ${err.message}`
+      const needsOAuth = /falta conectar google oauth2|refresh_token|token google oauth2/i.test(err.message);
+      sendJSON(req, res, 502, {
+        ok: false,
+        connected: false,
+        needsOAuth,
+        error: err.message,
+        message: needsOAuth
+          ? '⚠️ Las credenciales de Google están guardadas en el servidor, pero falta autorizar el acceso: pulsa el botón "🔑 Conectar Google 1-Clic".'
+          : `Error al conectar con la Nube: ${err.message}`
       }, {}, { noStore: true });
     }
     return true;

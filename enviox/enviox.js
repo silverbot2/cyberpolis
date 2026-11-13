@@ -853,14 +853,30 @@
     }
 
     // 4. Configuración de Tenant Nube 5 TB (Google Drive / Azure OneDrive)
+    const btnSaveGoogleDrive = document.getElementById('btnSaveGoogleDrive');
+    if (btnSaveGoogleDrive) btnSaveGoogleDrive.addEventListener('click', saveGoogleDriveConfig);
+
+    const btnConnectGoogleOAuth = document.getElementById('btnConnectGoogleOAuth');
+    if (btnConnectGoogleOAuth) btnConnectGoogleOAuth.addEventListener('click', connectGoogleOAuth);
+
+    const btnTestGoogleDrive = document.getElementById('btnTestGoogleDrive');
+    if (btnTestGoogleDrive) btnTestGoogleDrive.addEventListener('click', testGoogleDriveConnection);
+
+    const btnSaveAzureTenant = document.getElementById('btnSaveAzureTenant');
+    if (btnSaveAzureTenant) btnSaveAzureTenant.addEventListener('click', saveAzureTenantConfig);
+
+    const btnConnectAzureOAuth = document.getElementById('btnConnectAzureOAuth');
+    if (btnConnectAzureOAuth) btnConnectAzureOAuth.addEventListener('click', connectAzureOAuth);
+
+    const btnTestAzureTenant = document.getElementById('btnTestAzureTenant');
+    if (btnTestAzureTenant) btnTestAzureTenant.addEventListener('click', testAzureTenantConnection);
+
+    // Fallbacks
     const btnSaveCloudTenant = document.getElementById('btnSaveCloudTenant');
-    if (btnSaveCloudTenant) {
-      btnSaveCloudTenant.addEventListener('click', saveCloudTenantConfig);
-    }
+    if (btnSaveCloudTenant) btnSaveCloudTenant.addEventListener('click', saveGoogleDriveConfig);
+
     const btnTestCloudConnection = document.getElementById('btnTestCloudConnection');
-    if (btnTestCloudConnection) {
-      btnTestCloudConnection.addEventListener('click', testCloudConnection);
-    }
+    if (btnTestCloudConnection) btnTestCloudConnection.addEventListener('click', testGoogleDriveConnection);
 
     // 5. Gestión de Usuarios
     const usersSearch = document.getElementById('usersSearch');
@@ -1004,15 +1020,55 @@
   // --- TENANT / NUBE 5 TB ---
   async function loadCloudTenantConfig() {
     try {
-      const res = await fetch('/api/enviox/cloud-config');
+      const res = await fetch('/api/enviox/cloud-config', { credentials: 'same-origin' });
       if (res.ok) {
         const d = await res.json();
-        if (d.googleDrive) {
-          if (d.googleDrive.clientId) setVal('cfgGoogleClientId', d.googleDrive.clientId);
-          if (d.googleDrive.folderId) setVal('cfgGoogleFolderId', d.googleDrive.folderId);
+        const gd = d.googleDrive || {};
+        const ms = d.oneDrive || {};
+
+        if (gd.userEmail) setVal('cfgGoogleUserEmail', gd.userEmail);
+        if (gd.clientId) setVal('cfgGoogleClientId', gd.clientId);
+        if (gd.folderId) setVal('cfgGoogleFolderId', gd.folderId);
+        if (gd.hasClientSecret) {
+          const sEl = document.getElementById('cfgGoogleClientSecret');
+          if (sEl) sEl.placeholder = '•••••••••••••••• (Guardado en el servidor)';
         }
-        if (d.oneDrive) {
-          if (d.oneDrive.tenantId) setVal('cfgAzureTenantId', d.oneDrive.tenantId);
+
+        const gdBadge = document.getElementById('cfgGoogleStatusBadge');
+        if (gdBadge) {
+          if (gd.connected) {
+            const freeGb = gd.quotaRemainingBytes ? ` · ${(gd.quotaRemainingBytes / (1024*1024*1024)).toFixed(1)} GB Libres` : '';
+            gdBadge.style.background = '#dcfce7';
+            gdBadge.style.color = '#166534';
+            gdBadge.textContent = `● Conectado (${gd.userEmail || 'Google Drive'})${freeGb}`;
+          } else if (gd.clientId && !gd.hasRefreshToken) {
+            gdBadge.style.background = '#fef3c7';
+            gdBadge.style.color = '#92400e';
+            gdBadge.textContent = '● Pendiente Autorizar (Pulsa Conectar)';
+          } else {
+            gdBadge.style.background = '#f1f5f9';
+            gdBadge.style.color = '#64748b';
+            gdBadge.textContent = '○ Bóveda local activa (Sin vincular)';
+          }
+        }
+
+        if (ms.tenantId) setVal('cfgAzureTenantId', ms.tenantId);
+        if (ms.clientId) setVal('cfgAzureClientId', ms.clientId);
+        if (ms.hasClientSecret) {
+          const aEl = document.getElementById('cfgAzureClientSecret');
+          if (aEl) aEl.placeholder = '•••••••••••••••• (Guardado en el servidor)';
+        }
+        const msBadge = document.getElementById('cfgAzureStatusBadge');
+        if (msBadge) {
+          if (ms.connected) {
+            msBadge.style.background = '#dcfce7';
+            msBadge.style.color = '#166534';
+            msBadge.textContent = '● Conectado Azure M365';
+          } else {
+            msBadge.style.background = '#f1f5f9';
+            msBadge.style.color = '#64748b';
+            msBadge.textContent = '○ No conectado';
+          }
         }
       }
     } catch (e) {
@@ -1020,15 +1076,90 @@
     }
   }
 
-  async function saveCloudTenantConfig() {
-    const isAzure = !!getVal('cfgAzureTenantId');
+  async function saveGoogleDriveConfig() {
     const payload = {
-      providerType: isAzure ? 'onedrive' : 'google-drive',
-      clientId: isAzure ? getVal('cfgAzureClientId') : getVal('cfgGoogleClientId'),
-      clientSecret: isAzure ? getVal('cfgAzureClientSecret') : getVal('cfgGoogleClientSecret'),
+      providerType: 'google-drive',
+      googleUserEmail: getVal('cfgGoogleUserEmail'),
       googleClientId: getVal('cfgGoogleClientId'),
       googleClientSecret: getVal('cfgGoogleClientSecret'),
-      googleFolderId: getVal('cfgGoogleFolderId'),
+      googleFolderId: getVal('cfgGoogleFolderId') || 'CYBERPOLIS_VAULT'
+    };
+    try {
+      const res = await fetch('/api/enviox/cloud-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload)
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Error guardando credenciales de Google');
+      alert('✅ Credenciales de Google Drive guardadas en el servidor.\n\nAhora pulsa el botón azul "🔑 Conectar Google 1-Clic" para autorizar el acceso en tu cuenta de Google.');
+      loadCloudTenantConfig();
+    } catch (e) {
+      alert('❌ Error: ' + e.message);
+    }
+  }
+
+  async function connectGoogleOAuth() {
+    const clientId = getVal('cfgGoogleClientId');
+    if (!clientId) {
+      alert('Indica primero tu "ID de Cliente OAuth 2.0" y pulsa "Guardar" antes de autorizar.');
+      return;
+    }
+    await fetch('/api/enviox/cloud-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        providerType: 'google-drive',
+        googleUserEmail: getVal('cfgGoogleUserEmail'),
+        googleClientId: clientId,
+        googleClientSecret: getVal('cfgGoogleClientSecret'),
+        googleFolderId: getVal('cfgGoogleFolderId') || 'CYBERPOLIS_VAULT'
+      })
+    }).catch(() => null);
+
+    try {
+      const res = await fetch('/api/cloud/oauth/start?returnTo=/enviox/', { credentials: 'same-origin' });
+      const data = await res.json();
+      if (!res.ok || !data.authorizeUrl) {
+        throw new Error(data.error || 'No se pudo generar la URL de autorización de Google.');
+      }
+      window.open(data.authorizeUrl, '_blank', 'noopener,width=600,height=750');
+    } catch (e) {
+      alert('❌ Error iniciando conexión con Google: ' + e.message);
+    }
+  }
+
+  async function testGoogleDriveConnection() {
+    try {
+      const res = await fetch('/api/enviox/cloud-config/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ providerType: 'google-drive' })
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        if (d.needsOAuth) {
+          if (confirm(d.message + '\n\n¿Quieres abrir la ventana de autorización con Google ahora?')) {
+            connectGoogleOAuth();
+          }
+          return;
+        }
+        throw new Error(d.error || d.message || 'Fallo de conexión');
+      }
+      const quotaStr = d.quotaRemainingBytes ? `\nEspacio libre en nube: ${(d.quotaRemainingBytes / (1024*1024*1024)).toFixed(2)} GB` : '';
+      alert(`✅ ${d.message || 'Conexión verificada con éxito.'}${quotaStr}`);
+      loadCloudTenantConfig();
+    } catch (e) {
+      alert('⚠️ ' + e.message);
+    }
+  }
+
+  async function saveAzureTenantConfig() {
+    const payload = {
+      providerType: 'onedrive',
       azureTenantId: getVal('cfgAzureTenantId'),
       azureClientId: getVal('cfgAzureClientId'),
       azureClientSecret: getVal('cfgAzureClientSecret')
@@ -1037,30 +1168,43 @@
       const res = await fetch('/api/enviox/cloud-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify(payload)
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || 'Error guardando credenciales');
-      alert('✅ ' + (d.message || 'Credenciales de Tenant y Nube de 5 TB actualizadas.'));
+      if (!res.ok) throw new Error(d.error || 'Error guardando credenciales de Azure');
+      alert('✅ Credenciales de Azure M365 guardadas con éxito.');
       loadCloudTenantConfig();
     } catch (e) {
       alert('❌ Error: ' + e.message);
     }
   }
 
-  async function testCloudConnection() {
+  async function connectAzureOAuth() {
     try {
-      const isAzure = !!getVal('cfgAzureTenantId');
+      const res = await fetch('/api/cloud/oauth/start?returnTo=/enviox/', { credentials: 'same-origin' });
+      const data = await res.json();
+      if (!res.ok || !data.authorizeUrl) {
+        throw new Error(data.error || 'No se pudo generar la URL de autorización de Azure.');
+      }
+      window.open(data.authorizeUrl, '_blank', 'noopener,width=600,height=750');
+    } catch (e) {
+      alert('❌ Error iniciando conexión con Microsoft 365: ' + e.message);
+    }
+  }
+
+  async function testAzureTenantConnection() {
+    try {
       const res = await fetch('/api/enviox/cloud-config/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          providerType: isAzure ? 'onedrive' : 'google-drive'
-        })
+        credentials: 'same-origin',
+        body: JSON.stringify({ providerType: 'onedrive' })
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || 'Fallo al verificar la nube');
-      alert(`✅ ${d.message || 'Conexión con la bóveda de 5 TB verificada con éxito.'}\nProveedor: ${d.tenantName || 'Bóveda 5 TB'}\nCapacidad: ${d.capacity || '5 TB'}`);
+      if (!res.ok) throw new Error(d.error || d.message || 'Fallo de conexión con Azure');
+      alert(`✅ ${d.message || 'Conexión con Azure OneDrive verificada.'}`);
+      loadCloudTenantConfig();
     } catch (e) {
       alert('⚠️ ' + e.message);
     }
@@ -1564,7 +1708,7 @@
   // --- CANALES DE NOTIFICACIÓN ---
   async function fetchChannels() {
     try {
-      const res = await fetch('/api/enviox/channels');
+      const res = await fetch('/api/enviox/channels', { credentials: 'same-origin' });
       if (res.ok) {
         const d = await res.json();
         state.channels = d.channels || {};
@@ -1582,17 +1726,48 @@
         setChecked('cfgNotifyOnDownload', ch.notifyOnDownload !== false);
         setChecked('cfgNotifyOnExpiry', ch.notifyOnExpiry !== false);
 
+        // Actualizar badges de estado de pasarela
+        const badge = document.getElementById('cfgMailStatusBadge');
+        if (badge) {
+          if (ch.hasPassword) {
+            badge.style.background = '#dcfce7';
+            badge.style.color = '#166534';
+            badge.textContent = `● Pasarela Activa (${ch.mode === 'gmail_oauth2' ? 'Gmail API OAuth2' : 'Gmail SMTP'})`;
+          } else {
+            badge.style.background = '#fef3c7';
+            badge.style.color = '#92400e';
+            badge.textContent = '● Sin Contraseña Guardada';
+          }
+        }
+
+        const mailStatusEl = document.getElementById('cfgMailStatusText');
+        if (mailStatusEl) {
+          mailStatusEl.textContent = ch.hasPassword ? `Activo (${ch.mode === 'gmail_oauth2' ? 'Gmail API' : 'Gmail SMTP'})` : 'Pendiente de configurar';
+          mailStatusEl.style.color = ch.hasPassword ? '#10b981' : '#f59e0b';
+        }
+
+        const updateHelpBanners = (mode) => {
+          const helpAppPass = document.getElementById('cfgMailHelpAppPass');
+          const helpOAuth = document.getElementById('cfgMailHelpOAuth');
+          if (helpAppPass) helpAppPass.style.display = mode === 'gmail_app_password' ? 'block' : 'none';
+          if (helpOAuth) helpOAuth.style.display = mode === 'gmail_oauth2' ? 'block' : 'none';
+        };
+
         const modeEl = document.getElementById('cfgMailMode');
-        if (modeEl && !modeEl._boundChange) {
-          modeEl._boundChange = true;
-          modeEl.addEventListener('change', () => {
-            if (modeEl.value === 'gmail_app_password') {
-              setVal('cfgSmtpHost', 'smtp.gmail.com');
-              setVal('cfgSmtpPort', 465);
-            } else if (modeEl.value === 'custom_smtp') {
-              setVal('cfgSmtpPort', 587);
-            }
-          });
+        if (modeEl) {
+          updateHelpBanners(modeEl.value);
+          if (!modeEl._boundChange) {
+            modeEl._boundChange = true;
+            modeEl.addEventListener('change', () => {
+              updateHelpBanners(modeEl.value);
+              if (modeEl.value === 'gmail_app_password') {
+                setVal('cfgSmtpHost', 'smtp.gmail.com');
+                setVal('cfgSmtpPort', 465);
+              } else if (modeEl.value === 'custom_smtp') {
+                setVal('cfgSmtpPort', 587);
+              }
+            });
+          }
         }
       }
     } catch (e) {
@@ -1616,6 +1791,7 @@
       const res = await fetch('/api/enviox/channels', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify(payload)
       });
       const d = await res.json();
@@ -1623,7 +1799,7 @@
       alert('✅ ' + (d.message || 'Canales de notificación y pasarela de correo guardados con éxito.'));
       fetchChannels();
     } catch (e) {
-      alert('❌ ' + e.message);
+      alert('❌ Error al guardar pasarela: ' + e.message);
     }
   }
 
@@ -1634,17 +1810,43 @@
       alert('Indica una dirección de correo válida para realizar la prueba.');
       return;
     }
+
+    const statusEl = document.getElementById('cfgTestEmailStatus');
+    if (statusEl) {
+      statusEl.style.display = 'inline';
+      statusEl.style.color = '#2563eb';
+      statusEl.textContent = 'Enviando prueba por pasarela...';
+    }
+
     try {
       const res = await fetch('/api/enviox/channels/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to })
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          to,
+          mode: getVal('cfgMailMode') || 'gmail_app_password',
+          smtpHost: getVal('cfgSmtpHost') || 'smtp.gmail.com',
+          smtpPort: getValNum('cfgSmtpPort', 465),
+          smtpUser: getVal('cfgSmtpUser'),
+          smtpPassword: getVal('cfgSmtpPassword'),
+          fromName: getVal('cfgSmtpFromName') || 'CYBERPOLIS ENVIOX'
+        })
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || 'Fallo al despachar correo de prueba');
+      if (statusEl) {
+        statusEl.style.color = '#16a34a';
+        statusEl.textContent = '✓ Enviado con éxito';
+      }
       alert(`✅ ${d.message || 'Correo de prueba enviado con éxito a ' + to}`);
+      fetchChannels();
     } catch (e) {
-      alert('❌ ' + e.message);
+      if (statusEl) {
+        statusEl.style.color = '#dc2626';
+        statusEl.textContent = '✗ Error en el envío';
+      }
+      alert('❌ Error enviando correo de prueba:\n\n' + e.message);
     }
   }
 
@@ -2192,6 +2394,21 @@
 
     // Cargar datos
     loadInitData();
+
+    // Verificación de retorno de flujo OAuth2
+    if (window.location.search && window.location.search.includes('cloudOAuth=ok')) {
+      setTimeout(() => {
+        switchView('admin');
+        switchAdminPane('ajustes');
+        alert('🎉 ¡Cuenta de Google Cloud vinculada con éxito por OAuth2!\nTu almacenamiento en Google Drive de 5 TB y la pasarela Gmail API están operativos.');
+        if (window.history && window.history.replaceState) {
+          const cleanUrl = window.location.pathname;
+          window.history.replaceState({}, document.title, cleanUrl);
+        }
+        loadCloudTenantConfig();
+        fetchChannels();
+      }, 500);
+    }
   });
 
 })();
