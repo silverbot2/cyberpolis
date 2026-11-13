@@ -938,9 +938,9 @@ input:checked + .tx-slider:before {
 }
 
 /* ==========================================================================
-   Screen: Ajustes (3 Columnas)
+   Screen: Ajustes & Administración Unificada (Sidebar 13 Items + Paneles)
    ========================================================================== */
-.tx-settings-layout {
+.tx-admin-layout, .tx-settings-layout {
   display: grid;
   grid-template-columns: 240px 1fr;
   gap: 24px;
@@ -949,12 +949,59 @@ input:checked + .tx-slider:before {
   border: 1px solid var(--tx-border);
   box-shadow: var(--tx-shadow);
   padding: 24px;
+  min-height: 700px;
+}
+
+.tx-admin-layout .tx-records-sidebar {
+  padding: 0;
+  background: transparent;
+  border-right: 1px solid #e2e8f0;
 }
 
 @media (max-width: 900px) {
-  .tx-settings-layout {
+  .tx-admin-layout, .tx-settings-layout {
     grid-template-columns: 1fr;
   }
+}
+
+.tx-admin-pane {
+  display: none;
+}
+
+.tx-admin-pane.active {
+  display: block;
+}
+
+.tx-admin-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  font-size: 13.5px;
+  color: #334e68;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.tx-admin-nav-item:hover {
+  background: #f1f5f9;
+  color: var(--tx-navy);
+}
+
+.tx-admin-nav-item.active {
+  background: #e2e8f0;
+  color: var(--tx-navy);
+  font-weight: 700;
+  border-left: 4px solid var(--tx-navy);
+}
+
+.tx-admin-nav-item-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .tx-settings-cols {

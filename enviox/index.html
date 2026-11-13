@@ -34,6 +34,7 @@
 
       <button type="button" class="tx-nav-item" data-view="records">Registros</button>
       <button type="button" class="tx-nav-item" data-view="contacts">Contactos</button>
+      <button type="button" class="tx-nav-item" data-view="admin">Ajustes</button>
     </nav>
 
     <div class="tx-nav-actions">
@@ -479,369 +480,593 @@
     </section>
 
     <!-- ========================================================
-         VIEW 5: ÁREA DE ADMINISTRACIÓN (Screenshot 6)
+         VIEW: ÁREA DE ADMINISTRACIÓN Y AJUSTES UNIFICADA (Screenshots 6, 7, 8, 9)
          ======================================================== -->
     <section id="viewAdmin" class="tx-view">
-      <div class="tx-card" style="padding: 32px;">
-        <div class="tx-admin-header">
-          <h1 class="tx-admin-title">Área de administración</h1>
-          <p class="tx-admin-sub">Resumen actual de tu plataforma Enviox</p>
-        </div>
-
-        <div class="tx-admin-grid">
-          
-          <button type="button" class="tx-admin-btn" data-target="settings">
-            <div class="tx-admin-btn-icon">🔨</div>
-            <div class="tx-admin-btn-label">Ajustes</div>
-          </button>
-
-          <button type="button" class="tx-admin-btn" data-target="users">
-            <div class="tx-admin-btn-icon">👤</div>
-            <div class="tx-admin-btn-label">Usuarios</div>
-          </button>
-
-          <button type="button" class="tx-admin-btn" data-target="contacts">
-            <div class="tx-admin-btn-icon">👤+</div>
-            <div class="tx-admin-btn-label">Contactos</div>
-          </button>
-
-          <button type="button" class="tx-admin-btn" data-target="contacts">
-            <div class="tx-admin-btn-icon">👥</div>
-            <div class="tx-admin-btn-label">Grupos</div>
-          </button>
-
-          <button type="button" class="tx-admin-btn" data-target="roles">
-            <div class="tx-admin-btn-icon">📑</div>
-            <div class="tx-admin-btn-label">Portales de recepción</div>
-          </button>
-
-          <button type="button" class="tx-admin-btn" data-target="settings">
-            <div class="tx-admin-btn-icon">📢</div>
-            <div class="tx-admin-btn-label">Canales de notificación</div>
-          </button>
-
-          <button type="button" class="tx-admin-btn" data-target="records">
-            <div class="tx-admin-btn-icon">ⓧ</div>
-            <div class="tx-admin-btn-label">Cancelar transferencias</div>
-          </button>
-
-          <button type="button" class="tx-admin-btn" data-target="settings">
-            <div class="tx-admin-btn-icon">📄</div>
-            <div class="tx-admin-btn-label">Lista negra</div>
-          </button>
-
-          <button type="button" class="tx-admin-btn" data-target="settings">
-            <div class="tx-admin-btn-icon">📁</div>
-            <div class="tx-admin-btn-label">Políticas de seguridad</div>
-          </button>
-
-          <button type="button" class="tx-admin-btn" data-target="records">
-            <div class="tx-admin-btn-icon">☰</div>
-            <div class="tx-admin-btn-label">Informes</div>
-          </button>
-
-          <button type="button" class="tx-admin-btn" data-target="records">
-            <div class="tx-admin-btn-icon">📊</div>
-            <div class="tx-admin-btn-label">Estadísticas</div>
-          </button>
-
-        </div>
-      </div>
-    </section>
-
-    <!-- ========================================================
-         VIEW 6: AJUSTES (Screenshot 7)
-         ======================================================== -->
-    <section id="viewSettings" class="tx-view">
-      <div class="tx-settings-layout">
+      <div class="tx-admin-layout">
         
-        <!-- Sidebar Navigation de Administración -->
-        <aside class="tx-records-sidebar" style="background:#fff;border-right:1px solid #e2e8f0;">
-          <div class="tx-sidebar-title" style="padding:0 0 12px 0;">Ajustes</div>
-          <ul class="tx-sidebar-nav">
-            <li class="tx-sidebar-item active" onclick="switchView('settings')">
-              <div class="tx-sidebar-item-left"><span>🔨</span><span>Ajustes</span></div>
-            </li>
-            <li class="tx-sidebar-item" onclick="switchView('users')">
-              <div class="tx-sidebar-item-left"><span>👤</span><span>Usuarios</span></div>
-            </li>
-            <li class="tx-sidebar-item" onclick="switchView('contacts')">
-              <div class="tx-sidebar-item-left"><span>👤+</span><span>Contactos</span></div>
-            </li>
-            <li class="tx-sidebar-item" onclick="switchView('contacts')">
-              <div class="tx-sidebar-item-left"><span>👥</span><span>Grupos</span></div>
-            </li>
-            <li class="tx-sidebar-item" onclick="switchView('roles')">
-              <div class="tx-sidebar-item-left"><span>🔑</span><span>Roles</span></div>
-            </li>
-            <li class="tx-sidebar-item" onclick="switchView('admin')">
-              <div class="tx-sidebar-item-left"><span>⬅️</span><span>Volver a Inicio Admin</span></div>
-            </li>
-          </ul>
-        </aside>
-
-        <!-- 3 Columns Form -->
-        <div style="display:flex;flex-direction:column;gap:20px;">
-          <div class="tx-settings-cols">
-            
-            <!-- Col 1: Transferencia -->
-            <div>
-              <h3 class="tx-col-title">Transferencia</h3>
-
-              <div class="tx-setting-item">
-                <label class="tx-setting-label">Nº máximo de destinatarios</label>
-                <input type="number" id="cfgMaxRecipients" class="tx-setting-input" value="20">
-              </div>
-
-              <div class="tx-setting-item">
-                <label class="tx-setting-label">Nº máximo de ficheros</label>
-                <input type="number" id="cfgMaxFiles" class="tx-setting-input" value="50">
-              </div>
-
-              <div class="tx-setting-item">
-                <label class="tx-setting-label">Tamaño máximo de fichero(en MB)</label>
-                <input type="number" id="cfgMaxFileSizeMb" class="tx-setting-input" value="40960">
-              </div>
-
-              <div class="tx-setting-item">
-                <label class="tx-setting-label">Nº máximo de descargas por fichero y destinatario</label>
-                <input type="number" id="cfgMaxDownloads" class="tx-setting-input" value="3">
-              </div>
-
-              <div class="tx-setting-item">
-                <label class="tx-setting-label">Tamaño máximo de transferencia(en MB)</label>
-                <input type="number" id="cfgMaxTransferSizeMb" class="tx-setting-input" value="40960">
-              </div>
-
-              <div class="tx-setting-item">
-                <label class="tx-setting-label">Expiración máxima(en días)</label>
-                <input type="number" id="cfgMaxExpiryDays" class="tx-setting-input" value="14">
-              </div>
-
-              <div class="tx-setting-item">
-                <label class="tx-setting-label">Expiración por defecto(en días)</label>
-                <input type="number" id="cfgDefaultExpiryDays" class="tx-setting-input" value="8">
-              </div>
-
-              <div class="tx-setting-item">
-                <label class="tx-setting-label">Texto para marca de agua en previsualizaciones</label>
-                <input type="text" id="cfgWatermark" class="tx-setting-input" placeholder="CONFIDENCIAL">
-              </div>
-
-              <div class="tx-toggle-row" style="margin-top:14px;">
-                <span style="font-size:13px;">Estado acuse de recibo predeterminado</span>
-                <label class="tx-switch">
-                  <input type="checkbox" id="cfgDefaultReceipt" checked>
-                  <span class="tx-slider"></span>
-                </label>
-              </div>
-
-              <div class="tx-toggle-row">
-                <span style="font-size:13px;">Estado notificacion de expiración predeterminado</span>
-                <label class="tx-switch">
-                  <input type="checkbox" id="cfgDefaultExpiryNotice" checked>
-                  <span class="tx-slider"></span>
-                </label>
-              </div>
-            </div>
-
-            <!-- Col 2: Seguridad -->
-            <div>
-              <h3 class="tx-col-title">Seguridad</h3>
-
-              <div class="tx-toggle-row" style="margin-bottom:18px;">
-                <span style="font-size:13px;">Sin bloqueo por logones fallidos</span>
-                <label class="tx-switch">
-                  <input type="checkbox" id="cfgNoLockout" checked>
-                  <span class="tx-slider"></span>
-                </label>
-              </div>
-
-              <div style="font-size:13px;line-height:1.4;color:#334e68;margin-bottom:18px;display:flex;align-items:flex-start;gap:8px;">
-                <input type="checkbox" id="cfgAutoSaveContacts" checked style="margin-top:3px;">
-                <label for="cfgAutoSaveContacts">Habilitar listado y almacenamiento de contactos automáticamente para las transferencias</label>
-              </div>
-
-              <div class="tx-setting-item" style="margin-top:24px;">
-                <label class="tx-setting-label">Nombre de la Empresa / Marca</label>
-                <input type="text" id="cfgBrandName" class="tx-setting-input" value="GRUPO INDUSTRIAL">
-              </div>
-            </div>
-
-            <!-- Col 3: Configuración -->
-            <div>
-              <h3 class="tx-col-title">Configuración</h3>
-
-              <div class="tx-config-link-row">
-                <span>☑️</span>
-                <div style="flex:1;">
-                  <div>Correo electrónico</div>
-                  <div id="cfgMailStatusText" style="font-size:11px;color:#10b981;">Activo (Pasarela de Correo)</div>
-                </div>
-              </div>
-
-              <div class="tx-config-link-row">
-                <span>☑️</span>
-                <span>Términos y condiciones</span>
-              </div>
-
-              <div class="tx-config-link-row">
-                <span>👤</span>
-                <span>SAML</span>
-              </div>
-
-              <div class="tx-config-link-row">
-                <span>✈️</span>
-                <span>Enviox link</span>
-              </div>
-
-              <div class="tx-config-link-row">
-                <span>💬</span>
-                <span>Métodos de entrega de código</span>
-              </div>
-
-              <div class="tx-config-link-row">
-                <span>🪟</span>
-                <div>
-                  <div>Microsoft Entra ID / Google Drive</div>
-                  <div style="font-size:11px;color:#64748b;">Nube de 5 TB conectada</div>
-                </div>
-              </div>
-            </div>
-
-          </div>
-
-          <div style="display:flex;justify-content:flex-end;margin-top:16px;">
-            <button type="button" id="btnSaveSettings" class="tx-pill-btn-small" style="padding:12px 32px;font-size:14px;background:var(--tx-navy);">
-              Guardar
+        <!-- Persistent 13-item Sidebar (Exact Screenshots 6, 7, 8, 9) -->
+        <aside class="tx-records-sidebar" style="background:#fff;border-right:1px solid #e2e8f0;padding:0 0 20px 0;">
+          <div class="tx-sidebar-title" style="padding:16px 20px 14px 20px;display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-size:17px;font-weight:700;color:var(--tx-navy);">Ajustes</span>
+            <button type="button" class="tx-admin-nav-item" data-pane="resumen" title="Ver panel resumen con botones de administración" style="padding:4px 8px;font-size:11px;background:#f1f5f9;border-radius:4px;border:none;cursor:pointer;font-weight:600;">
+              🗂️ Resumen
             </button>
           </div>
-        </div>
-
-      </div>
-    </section>
-
-    <!-- ========================================================
-         VIEW 7: USUARIOS (Screenshot 8)
-         ======================================================== -->
-    <section id="viewUsers" class="tx-view">
-      <div class="tx-records-layout">
-        
-        <aside class="tx-records-sidebar">
-          <div class="tx-sidebar-title">Usuarios</div>
-          <ul class="tx-sidebar-nav">
-            <li class="tx-sidebar-item" onclick="switchView('settings')">
-              <div class="tx-sidebar-item-left"><span>🔨</span><span>Ajustes</span></div>
+          <ul class="tx-sidebar-nav" style="padding:0 8px;">
+            <li class="tx-admin-nav-item active" data-pane="ajustes">
+              <div class="tx-admin-nav-item-left"><span>🔨</span><span>Ajustes</span></div>
             </li>
-            <li class="tx-sidebar-item active">
-              <div class="tx-sidebar-item-left"><span>👤</span><span>Usuarios</span></div>
+            <li class="tx-admin-nav-item" data-pane="usuarios">
+              <div class="tx-admin-nav-item-left"><span>👤</span><span>Usuarios</span></div>
             </li>
-            <li class="tx-sidebar-item" onclick="switchView('roles')">
-              <div class="tx-sidebar-item-left"><span>🔑</span><span>Roles</span></div>
+            <li class="tx-admin-nav-item" data-pane="contactos">
+              <div class="tx-admin-nav-item-left"><span>👤+</span><span>Contactos</span></div>
+            </li>
+            <li class="tx-admin-nav-item" data-pane="grupos">
+              <div class="tx-admin-nav-item-left"><span>👥</span><span>Grupos</span></div>
+            </li>
+            <li class="tx-admin-nav-item" data-pane="roles">
+              <div class="tx-admin-nav-item-left"><span>🔑</span><span>Roles</span></div>
+            </li>
+            <li class="tx-admin-nav-item" data-pane="portales">
+              <div class="tx-admin-nav-item-left"><span>📑</span><span>Portales de recepción</span></div>
+            </li>
+            <li class="tx-admin-nav-item" data-pane="canales">
+              <div class="tx-admin-nav-item-left"><span>📢</span><span>Canales de notificación</span></div>
+            </li>
+            <li class="tx-admin-nav-item" data-pane="cancelar">
+              <div class="tx-admin-nav-item-left"><span>ⓧ</span><span>Cancelar transferencias</span></div>
+            </li>
+            <li class="tx-admin-nav-item" data-pane="listanegra">
+              <div class="tx-admin-nav-item-left"><span>📄</span><span>Lista negra</span></div>
+            </li>
+            <li class="tx-admin-nav-item" data-pane="politicas">
+              <div class="tx-admin-nav-item-left"><span>📁</span><span>Políticas de seguridad</span></div>
+            </li>
+            <li class="tx-admin-nav-item" data-pane="informes">
+              <div class="tx-admin-nav-item-left"><span>☰</span><span>Informes</span></div>
+              <span style="color:#94a3b8;font-size:13px;font-weight:bold;">›</span>
+            </li>
+            <li class="tx-admin-nav-item" data-pane="estadisticas">
+              <div class="tx-admin-nav-item-left"><span>📊</span><span>Estadísticas</span></div>
+              <span style="color:#94a3b8;font-size:13px;font-weight:bold;">›</span>
+            </li>
+            <li class="tx-admin-nav-item" data-pane="licencia">
+              <div class="tx-admin-nav-item-left"><span>🔒</span><span>Licencia</span></div>
             </li>
           </ul>
         </aside>
 
-        <div class="tx-records-content">
-          <div class="tx-records-toolbar">
-            <div class="tx-toolbar-left">
-              <button type="button" class="tx-btn-outline" style="font-weight:700;">
-                <span>👤+</span> <span>Crear Usuario</span>
+        <!-- Right Content Panes -->
+        <div class="tx-admin-main-pane" style="min-width:0;">
+          
+          <!-- PANE: RESUMEN (Screenshot 6) -->
+          <div id="paneAdminResumen" class="tx-admin-pane">
+            <div class="tx-admin-header" style="margin-bottom:24px;">
+              <h1 class="tx-admin-title">Área de administración</h1>
+              <p class="tx-admin-sub">Resumen actual de tu plataforma Enviox</p>
+            </div>
+
+            <div class="tx-admin-grid">
+              <button type="button" class="tx-admin-btn" data-pane-target="ajustes">
+                <div class="tx-admin-btn-icon">🔨</div>
+                <div class="tx-admin-btn-label">Ajustes</div>
               </button>
-              <button type="button" class="tx-btn-outline">
-                <span>⟳</span> <span>Activar/Desactivar</span>
+
+              <button type="button" class="tx-admin-btn" data-pane-target="usuarios">
+                <div class="tx-admin-btn-icon">👤</div>
+                <div class="tx-admin-btn-label">Usuarios</div>
               </button>
-              <button type="button" class="tx-btn-outline">
-                <span>✉️</span> <span>Re-enviar bienvenida</span>
+
+              <button type="button" class="tx-admin-btn" data-pane-target="contactos">
+                <div class="tx-admin-btn-icon">👤+</div>
+                <div class="tx-admin-btn-label">Contactos</div>
               </button>
-              <button type="button" class="tx-btn-outline">
-                <span>🔑</span> <span>Restaurar contraseña</span>
+
+              <button type="button" class="tx-admin-btn" data-pane-target="grupos">
+                <div class="tx-admin-btn-icon">👥</div>
+                <div class="tx-admin-btn-label">Grupos</div>
+              </button>
+
+              <button type="button" class="tx-admin-btn" data-pane-target="portales">
+                <div class="tx-admin-btn-icon">📑</div>
+                <div class="tx-admin-btn-label">Portales de recepción</div>
+              </button>
+
+              <button type="button" class="tx-admin-btn" data-pane-target="canales">
+                <div class="tx-admin-btn-icon">📢</div>
+                <div class="tx-admin-btn-label">Canales de notificación</div>
+              </button>
+
+              <button type="button" class="tx-admin-btn" data-pane-target="cancelar">
+                <div class="tx-admin-btn-icon">ⓧ</div>
+                <div class="tx-admin-btn-label">Cancelar transferencias</div>
+              </button>
+
+              <button type="button" class="tx-admin-btn" data-pane-target="listanegra">
+                <div class="tx-admin-btn-icon">📄</div>
+                <div class="tx-admin-btn-label">Lista negra</div>
+              </button>
+
+              <button type="button" class="tx-admin-btn" data-pane-target="politicas">
+                <div class="tx-admin-btn-icon">📁</div>
+                <div class="tx-admin-btn-label">Políticas de seguridad</div>
+              </button>
+
+              <button type="button" class="tx-admin-btn" data-pane-target="informes">
+                <div class="tx-admin-btn-icon">☰</div>
+                <div class="tx-admin-btn-label">Informes</div>
+              </button>
+
+              <button type="button" class="tx-admin-btn" data-pane-target="estadisticas">
+                <div class="tx-admin-btn-icon">📊</div>
+                <div class="tx-admin-btn-label">Estadísticas</div>
               </button>
             </div>
-            <div class="tx-toolbar-right">
-              <div style="font-size:12px;font-weight:700;color:#64748b;margin-right:8px;">
-                <span style="color:#10b981;">● Activos: 402</span> · Total usuarios: 937
+          </div>
+
+          <!-- PANE: AJUSTES (Screenshot 7) - id="viewSettings" -->
+          <div id="viewSettings" class="tx-admin-pane active" data-pane="ajustes">
+            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Ajustes</h2>
+            
+            <div class="tx-settings-cols">
+              <!-- Col 1: Transferencia -->
+              <div>
+                <h3 class="tx-col-title">Transferencia</h3>
+
+                <div class="tx-setting-item">
+                  <label class="tx-setting-label">Nº máximo de destinatarios</label>
+                  <input type="number" id="cfgMaxRecipients" class="tx-setting-input" value="20">
+                </div>
+
+                <div class="tx-setting-item">
+                  <label class="tx-setting-label">Nº máximo de ficheros</label>
+                  <input type="number" id="cfgMaxFiles" class="tx-setting-input" value="50">
+                </div>
+
+                <div class="tx-setting-item">
+                  <label class="tx-setting-label">Tamaño máximo de fichero(en MB)</label>
+                  <input type="number" id="cfgMaxFileSizeMb" class="tx-setting-input" value="40960">
+                </div>
+
+                <div class="tx-setting-item">
+                  <label class="tx-setting-label">Nº máximo de descargas por fichero y destinatario</label>
+                  <input type="number" id="cfgMaxDownloads" class="tx-setting-input" value="3">
+                </div>
+
+                <div class="tx-setting-item">
+                  <label class="tx-setting-label">Tamaño máximo de transferencia(en MB)</label>
+                  <input type="number" id="cfgMaxTransferSizeMb" class="tx-setting-input" value="40960">
+                </div>
+
+                <div class="tx-setting-item">
+                  <label class="tx-setting-label">Expiración máxima(en días)</label>
+                  <input type="number" id="cfgMaxExpiryDays" class="tx-setting-input" value="14">
+                </div>
+
+                <div class="tx-setting-item">
+                  <label class="tx-setting-label">Expiración por defecto(en días)</label>
+                  <input type="number" id="cfgDefaultExpiryDays" class="tx-setting-input" value="8">
+                </div>
+
+                <div class="tx-setting-item">
+                  <label class="tx-setting-label">Texto para marca de agua en previsualizaciones</label>
+                  <input type="text" id="cfgWatermark" class="tx-setting-input" placeholder="CONFIDENCIAL">
+                </div>
+
+                <div class="tx-toggle-row" style="margin-top:14px;">
+                  <span style="font-size:13px;">Estado acuse de recibo predeterminado</span>
+                  <label class="tx-switch">
+                    <input type="checkbox" id="cfgDefaultReceipt" checked>
+                    <span class="tx-slider"></span>
+                  </label>
+                </div>
+
+                <div class="tx-toggle-row">
+                  <span style="font-size:13px;">Estado notificacion de expiración predeterminado</span>
+                  <label class="tx-switch">
+                    <input type="checkbox" id="cfgDefaultExpiryNotice" checked>
+                    <span class="tx-slider"></span>
+                  </label>
+                </div>
               </div>
-              <input type="text" class="tx-search-input" placeholder="Buscar">
+
+              <!-- Col 2: Seguridad -->
+              <div>
+                <h3 class="tx-col-title">Seguridad</h3>
+
+                <div class="tx-toggle-row" style="margin-bottom:18px;">
+                  <span style="font-size:13px;">Sin bloqueo por logones fallidos</span>
+                  <label class="tx-switch">
+                    <input type="checkbox" id="cfgNoLockout" checked>
+                    <span class="tx-slider"></span>
+                  </label>
+                </div>
+
+                <div style="font-size:13px;line-height:1.4;color:#334e68;margin-bottom:18px;display:flex;align-items:flex-start;gap:8px;">
+                  <input type="checkbox" id="cfgAutoSaveContacts" checked style="margin-top:3px;">
+                  <label for="cfgAutoSaveContacts">Habilitar listado y almacenamiento de contactos automáticamente para las transferencias</label>
+                </div>
+
+                <div class="tx-setting-item" style="margin-top:24px;">
+                  <label class="tx-setting-label">Nombre de la Empresa / Marca</label>
+                  <input type="text" id="cfgBrandName" class="tx-setting-input" value="ENVIOX">
+                </div>
+
+                <div class="tx-setting-item" style="margin-top:14px;">
+                  <label class="tx-setting-label">Subtítulo o Lema Corporativo</label>
+                  <input type="text" id="cfgBrandSubtitle" class="tx-setting-input" value="Plataforma Enviox Segura">
+                </div>
+              </div>
+
+              <!-- Col 3: Configuración -->
+              <div>
+                <h3 class="tx-col-title">Configuración</h3>
+
+                <div class="tx-config-link-row">
+                  <span>☑️</span>
+                  <div style="flex:1;">
+                    <div>Correo electrónico</div>
+                    <div id="cfgMailStatusText" style="font-size:11px;color:#10b981;">Activo (Pasarela de Correo)</div>
+                  </div>
+                </div>
+
+                <div class="tx-config-link-row">
+                  <span>☑️</span>
+                  <span>Términos y condiciones</span>
+                </div>
+
+                <div class="tx-config-link-row">
+                  <span>👤</span>
+                  <span>SAML</span>
+                </div>
+
+                <div class="tx-config-link-row">
+                  <span>✈️</span>
+                  <span>Enviox link</span>
+                </div>
+
+                <div class="tx-config-link-row">
+                  <span>💬</span>
+                  <span>Métodos de entrega de código</span>
+                </div>
+
+                <div class="tx-config-link-row">
+                  <span>🪟</span>
+                  <div>
+                    <div>Microsoft Entra ID / Google Drive</div>
+                    <div style="font-size:11px;color:#64748b;">Nube de 5 TB conectada</div>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
 
-          <div class="tx-table-container">
-            <table class="tx-table">
-              <thead>
-                <tr>
-                  <th width="30"><input type="checkbox"></th>
-                  <th width="40">Estado</th>
-                  <th>Usuario</th>
-                  <th>Correo electrónico</th>
-                  <th>Nombre</th>
-                  <th>Idioma</th>
-                </tr>
-              </thead>
-              <tbody id="usersTbody">
-                <!-- Se llena con tranxfer.js -->
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-      </div>
-    </section>
-
-    <!-- ========================================================
-         VIEW 8: ROLES (Screenshot 9)
-         ======================================================== -->
-    <section id="viewRoles" class="tx-view">
-      <div class="tx-records-layout">
-        
-        <aside class="tx-records-sidebar">
-          <div class="tx-sidebar-title">Roles</div>
-          <ul class="tx-sidebar-nav">
-            <li class="tx-sidebar-item" onclick="switchView('settings')">
-              <div class="tx-sidebar-item-left"><span>🔨</span><span>Ajustes</span></div>
-            </li>
-            <li class="tx-sidebar-item" onclick="switchView('users')">
-              <div class="tx-sidebar-item-left"><span>👤</span><span>Usuarios</span></div>
-            </li>
-            <li class="tx-sidebar-item active">
-              <div class="tx-sidebar-item-left"><span>🔑</span><span>Roles</span></div>
-            </li>
-          </ul>
-        </aside>
-
-        <div class="tx-records-content">
-          <div class="tx-records-toolbar">
-            <div class="tx-toolbar-left">
-              <button type="button" class="tx-btn-outline" style="font-weight:700;">
-                <span>+</span> <span>Nuevo rol</span>
+            <div style="display:flex;justify-content:flex-end;margin-top:24px;">
+              <button type="button" id="btnSaveSettings" class="tx-pill-btn-small" style="padding:12px 36px;font-size:14px;background:var(--tx-navy);">
+                Guardar
               </button>
-              <button type="button" class="tx-btn-outline" style="color:#ef4444;">
-                <span>🗑</span> <span>Eliminar rol</span>
-              </button>
-            </div>
-            <div class="tx-toolbar-right">
-              <input type="text" class="tx-search-input" placeholder="Buscar">
             </div>
           </div>
 
-          <div class="tx-table-container">
-            <table class="tx-table">
-              <thead>
-                <tr>
-                  <th width="30"><input type="checkbox"></th>
-                  <th>Nombre</th>
-                  <th>Descripción</th>
-                  <th>Tipo</th>
-                  <th>Permisos</th>
-                </tr>
-              </thead>
-              <tbody id="rolesTbody">
-                <!-- Se llena con tranxfer.js -->
-              </tbody>
-            </table>
+          <!-- PANE: USUARIOS (Screenshot 8) - id="viewUsers" -->
+          <div id="viewUsers" class="tx-admin-pane" data-pane="usuarios">
+            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Usuarios</h2>
+            
+            <div class="tx-records-toolbar">
+              <div class="tx-toolbar-left">
+                <button type="button" class="tx-btn-outline" id="btnCreateUser" style="font-weight:700;">
+                  <span>👤+</span> <span>Crear Usuario</span>
+                </button>
+                <button type="button" class="tx-btn-outline" id="btnToggleUserActive">
+                  <span>⟳</span> <span>Activar/Desactivar</span>
+                </button>
+                <button type="button" class="tx-btn-outline" id="btnResendWelcome">
+                  <span>✉️</span> <span>Re-enviar bienvenida</span>
+                </button>
+                <button type="button" class="tx-btn-outline" id="btnResetUserPassword">
+                  <span>🔑</span> <span>Restaurar contraseña</span>
+                </button>
+              </div>
+              <div class="tx-toolbar-right">
+                <div style="font-size:12px;font-weight:700;color:#64748b;margin-right:8px;">
+                  <span style="color:#10b981;">● Activos: 402</span> · Total usuarios: 937
+                </div>
+                <input type="text" id="usersSearch" class="tx-search-input" placeholder="Buscar">
+              </div>
+            </div>
+
+            <div class="tx-table-container">
+              <table class="tx-table">
+                <thead>
+                  <tr>
+                    <th width="30"><input type="checkbox" id="usersSelectAll"></th>
+                    <th width="50">Estado</th>
+                    <th>Usuario</th>
+                    <th>Correo electrónico</th>
+                    <th>Nombre</th>
+                    <th>Idioma</th>
+                  </tr>
+                </thead>
+                <tbody id="usersTbody">
+                  <!-- Se llena dinámicamente con enviox.js -->
+                </tbody>
+              </table>
+            </div>
           </div>
+
+          <!-- PANE: ROLES (Screenshot 9 & efbac965.png) - id="viewRoles" -->
+          <div id="viewRoles" class="tx-admin-pane" data-pane="roles">
+            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Roles</h2>
+            
+            <div class="tx-records-toolbar">
+              <div class="tx-toolbar-left">
+                <button type="button" class="tx-btn-outline" id="btnCreateRole" style="font-weight:700;">
+                  <span>+</span> <span>Nuevo rol</span>
+                </button>
+                <button type="button" class="tx-btn-outline" id="btnDeleteRole" style="color:#ef4444;">
+                  <span>🗑</span> <span>Eliminar rol</span>
+                </button>
+              </div>
+              <div class="tx-toolbar-right">
+                <input type="text" id="rolesSearch" class="tx-search-input" placeholder="Buscar">
+              </div>
+            </div>
+
+            <div class="tx-table-container">
+              <table class="tx-table">
+                <thead>
+                  <tr>
+                    <th width="30"><input type="checkbox" id="rolesSelectAll"></th>
+                    <th>Nombre</th>
+                    <th>Descripción</th>
+                    <th>Tipo</th>
+                    <th>Permisos</th>
+                  </tr>
+                </thead>
+                <tbody id="rolesTbody">
+                  <!-- Se llena con las filas exactas de efbac965.png -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- PANE: CONTACTOS (Administración) -->
+          <div id="paneAdminContactos" class="tx-admin-pane" data-pane="contactos">
+            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Contactos corporativos</h2>
+            <div class="tx-records-toolbar">
+              <div class="tx-toolbar-left">
+                <button type="button" class="tx-btn-outline" id="btnCreateAdminContact" style="font-weight:700;">
+                  <span>👤+</span> <span>Nuevo contacto</span>
+                </button>
+              </div>
+              <div class="tx-toolbar-right">
+                <input type="text" id="adminContactsSearch" class="tx-search-input" placeholder="Buscar contacto">
+              </div>
+            </div>
+            <div class="tx-table-container">
+              <table class="tx-table">
+                <thead>
+                  <tr>
+                    <th width="30"><input type="checkbox"></th>
+                    <th>Correo electrónico</th>
+                    <th>Nombre</th>
+                    <th>Teléfono</th>
+                    <th>Idioma</th>
+                  </tr>
+                </thead>
+                <tbody id="adminContactsTbody">
+                  <!-- Se llena con enviox.js -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- PANE: GRUPOS -->
+          <div id="paneAdminGrupos" class="tx-admin-pane" data-pane="grupos">
+            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Grupos</h2>
+            <div class="tx-records-toolbar">
+              <div class="tx-toolbar-left">
+                <button type="button" class="tx-btn-outline" id="btnCreateAdminGroup" style="font-weight:700;">
+                  <span>👥+</span> <span>Nuevo grupo</span>
+                </button>
+              </div>
+              <div class="tx-toolbar-right">
+                <input type="text" id="adminGroupsSearch" class="tx-search-input" placeholder="Buscar grupo">
+              </div>
+            </div>
+            <div class="tx-table-container">
+              <table class="tx-table">
+                <thead>
+                  <tr>
+                    <th width="30"><input type="checkbox"></th>
+                    <th>Nombre del grupo</th>
+                    <th>Descripción</th>
+                    <th>Integrantes</th>
+                    <th>Estado</th>
+                  </tr>
+                </thead>
+                <tbody id="adminGroupsTbody">
+                  <tr>
+                    <td><input type="checkbox"></td>
+                    <td><strong>Dirección Ejecutiva</strong></td>
+                    <td>Comité de Dirección y Gerencia General</td>
+                    <td><span style="background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:700;">12 miembros</span></td>
+                    <td><span style="color:#10b981;font-weight:700;">● Activo</span></td>
+                  </tr>
+                  <tr>
+                    <td><input type="checkbox"></td>
+                    <td><strong>Ciberseguridad & SOC</strong></td>
+                    <td>Equipo de Respuesta a Incidentes y CSIRT</td>
+                    <td><span style="background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:700;">8 miembros</span></td>
+                    <td><span style="color:#10b981;font-weight:700;">● Activo</span></td>
+                  </tr>
+                  <tr>
+                    <td><input type="checkbox"></td>
+                    <td><strong>Operaciones Industriales</strong></td>
+                    <td>Planta de Producción y Mantenimiento</td>
+                    <td><span style="background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:700;">45 miembros</span></td>
+                    <td><span style="color:#10b981;font-weight:700;">● Activo</span></td>
+                  </tr>
+                  <tr>
+                    <td><input type="checkbox"></td>
+                    <td><strong>Legal & Cumplimiento NIS2</strong></td>
+                    <td>Auditoría regulatoria y DPO</td>
+                    <td><span style="background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:700;">6 miembros</span></td>
+                    <td><span style="color:#10b981;font-weight:700;">● Activo</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- PANE: PORTALES DE RECEPCIÓN -->
+          <div id="paneAdminPortales" class="tx-admin-pane" data-pane="portales">
+            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Portales de recepción</h2>
+            <div style="background:#f8fafc;padding:20px;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:20px;">
+              <h3 style="font-size:15px;color:var(--tx-navy);font-weight:700;margin-bottom:6px;">Buzón corporativo seguro (Drop-box)</h3>
+              <p style="font-size:13px;color:#475569;margin-bottom:12px;">Permite a clientes, proveedores y auditorías externas remitirte ficheros cifrados sin necesidad de registrarse en la plataforma, directo a tu almacenamiento de 5 TB.</p>
+              <div style="display:flex;gap:10px;">
+                <input type="text" readonly value="https://cyberpolis.onrender.com/enviox/?action=receive&portal=corporativo" class="tx-input-field" style="background:#fff;" onclick="this.select()">
+                <button type="button" class="tx-btn-outline" onclick="navigator.clipboard.writeText('https://cyberpolis.onrender.com/enviox/?action=receive&portal=corporativo');alert('URL del portal copiada.');">Copiar enlace</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- PANE: CANALES DE NOTIFICACIÓN -->
+          <div id="paneAdminCanales" class="tx-admin-pane" data-pane="canales">
+            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Canales de notificación</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+              <div style="background:#f8fafc;padding:18px;border-radius:8px;border:1px solid #e2e8f0;">
+                <div style="font-weight:700;color:var(--tx-navy);margin-bottom:6px;">✉️ Pasarela de Correo Electrónico (SMTP / Gmail)</div>
+                <div style="font-size:13px;color:#475569;margin-bottom:10px;">Envío de acuses de recibo y enlaces de descarga seguros con trazabilidad completa.</div>
+                <div style="font-size:12px;color:#10b981;font-weight:700;">● Estado: Conectado a pasarela corporativa</div>
+              </div>
+              <div style="background:#f8fafc;padding:18px;border-radius:8px;border:1px solid #e2e8f0;">
+                <div style="font-weight:700;color:var(--tx-navy);margin-bottom:6px;">💬 Notificaciones SMS / OTP</div>
+                <div style="font-size:13px;color:#475569;margin-bottom:10px;">Entrega de doble factor de autenticación y códigos de descarga vía telefonía móvil.</div>
+                <div style="font-size:12px;color:#10b981;font-weight:700;">● Estado: Pasarela OTP Activa</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- PANE: CANCELAR TRANSFERENCIAS -->
+          <div id="paneAdminCancelar" class="tx-admin-pane" data-pane="cancelar">
+            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Cancelar transferencias</h2>
+            <p style="font-size:13px;color:#475569;margin-bottom:16px;">Revoca de inmediato el acceso y destruye los tokens de descarga de cualquier transferencia activa en la nube.</p>
+            <div class="tx-table-container">
+              <table class="tx-table">
+                <thead>
+                  <tr>
+                    <th>Referencia</th>
+                    <th>Emisor</th>
+                    <th>Destinatario</th>
+                    <th>Archivos</th>
+                    <th>Caducidad</th>
+                    <th>Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="adminCancelTransfersTbody">
+                  <!-- Se llena con enviox.js -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- PANE: LISTA NEGRA -->
+          <div id="paneAdminListaNegra" class="tx-admin-pane" data-pane="listanegra">
+            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Lista negra</h2>
+            <p style="font-size:13px;color:#475569;margin-bottom:16px;">Bloqueo automático de remitentes sospechosos, dominios temporales o direcciones no autorizadas.</p>
+            <div style="background:#f8fafc;padding:16px;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:16px;">
+              <ul style="font-size:13px;color:#475569;padding-left:18px;">
+                <li>@10minutemail.com · <em>Bloqueado permanentemente</em></li>
+                <li>@tempmail.com · <em>Bloqueado permanentemente</em></li>
+                <li>@guerrillamail.com · <em>Bloqueado permanentemente</em></li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- PANE: POLÍTICAS DE SEGURIDAD -->
+          <div id="paneAdminPoliticas" class="tx-admin-pane" data-pane="politicas">
+            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Políticas de seguridad</h2>
+            <div style="display:flex;flex-direction:column;gap:14px;">
+              <div style="background:#f8fafc;padding:14px;border-radius:8px;border:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <div style="font-weight:700;color:var(--tx-navy);">Cifrado en reposo y tránsito AES-256-GCM</div>
+                  <div style="font-size:12px;color:#64748b;">Todas las subidas a OneDrive y Google Drive se cifran con clave criptográfica rotativa.</div>
+                </div>
+                <span style="color:#10b981;font-weight:700;font-size:13px;">✓ Activado</span>
+              </div>
+              <div style="background:#f8fafc;padding:14px;border-radius:8px;border:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <div style="font-weight:700;color:var(--tx-navy);">Trazabilidad Forense NIS2 e IP Logging</div>
+                  <div style="font-size:12px;color:#64748b;">Cada descarga y lectura genera un acuse de recibo inmutable con IP y User-Agent.</div>
+                </div>
+                <span style="color:#10b981;font-weight:700;font-size:13px;">✓ Obligatorio</span>
+              </div>
+              <div style="background:#f8fafc;padding:14px;border-radius:8px;border:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <div style="font-weight:700;color:var(--tx-navy);">Destrucción segura post-caducidad</div>
+                  <div style="font-size:12px;color:#64748b;">Los ficheros se eliminan irrecuperablemente de la nube al expirar su plazo.</div>
+                </div>
+                <span style="color:#10b981;font-weight:700;font-size:13px;">✓ Activado</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- PANE: INFORMES -->
+          <div id="paneAdminInformes" class="tx-admin-pane" data-pane="informes">
+            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Informes y Auditoría Legal</h2>
+            <p style="font-size:13px;color:#475569;margin-bottom:16px;">Descarga actas oficiales de entrega, trazabilidad de accesos y certificados probatorios para cumplimiento legal.</p>
+            <div style="display:flex;gap:12px;">
+              <button type="button" class="tx-pill-btn-small" onclick="window.switchView && window.switchView('records');">Ver Registro Completo de Transferencias</button>
+              <button type="button" class="tx-btn-outline" onclick="alert('Exportando informe consolidado en formato seguro JSON/CSV...');">Exportar Auditoría General</button>
+            </div>
+          </div>
+
+          <!-- PANE: ESTADÍSTICAS -->
+          <div id="paneAdminEstadisticas" class="tx-admin-pane" data-pane="estadisticas">
+            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Estadísticas de la plataforma</h2>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:16px;margin-bottom:24px;">
+              <div style="background:#f8fafc;padding:18px;border-radius:8px;border:1px solid #e2e8f0;text-align:center;">
+                <div style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;">Almacenamiento Total</div>
+                <div style="font-size:24px;font-weight:800;color:var(--tx-navy);margin-top:4px;">5 TB</div>
+                <div style="font-size:12px;color:#10b981;margin-top:2px;">Google Drive / OneDrive</div>
+              </div>
+              <div style="background:#f8fafc;padding:18px;border-radius:8px;border:1px solid #e2e8f0;text-align:center;">
+                <div style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;">Usuarios Activos</div>
+                <div style="font-size:24px;font-weight:800;color:var(--tx-navy);margin-top:4px;">402</div>
+                <div style="font-size:12px;color:#64748b;margin-top:2px;">de 937 registrados</div>
+              </div>
+              <div style="background:#f8fafc;padding:18px;border-radius:8px;border:1px solid #e2e8f0;text-align:center;">
+                <div style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;">Tasa de Acuses de Recibo</div>
+                <div style="font-size:24px;font-weight:800;color:var(--tx-navy);margin-top:4px;">99.4%</div>
+                <div style="font-size:12px;color:#10b981;margin-top:2px;">Evidencia certificada</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- PANE: LICENCIA -->
+          <div id="paneAdminLicencia" class="tx-admin-pane" data-pane="licencia">
+            <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Licencia</h2>
+            <div style="background:#f8fafc;padding:24px;border-radius:8px;border:1px solid #e2e8f0;">
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+                <div style="font-size:28px;">🔒</div>
+                <div>
+                  <h3 style="font-size:18px;font-weight:800;color:var(--tx-navy);">ENVIOX ENTERPRISE ULTIMATE</h3>
+                  <div style="font-size:13px;color:#10b981;font-weight:700;">● Licencia activa y verificada</div>
+                </div>
+              </div>
+              <div style="font-size:13px;color:#475569;line-height:1.6;">
+                <strong>Titular:</strong> GRUPO INDUSTRIAL / CYBERPOLIS<br>
+                <strong>Modalidad:</strong> Usuarios Ilimitados + Transferencias Cifradas Multi-Nube<br>
+                <strong>Cuota de almacenamiento:</strong> 5.000 GB (5 TB) activos en la nube de alta capacidad<br>
+                <strong>Soporte:</strong> Nivel 3 24/7 con trazabilidad forense NIS2
+              </div>
+            </div>
+          </div>
+
         </div>
-
       </div>
     </section>
 

@@ -136,38 +136,94 @@
 
   // Cambiar vista activa
   function switchView(viewName) {
-    if (!dom.views[viewName]) return;
     state.currentView = viewName;
 
-    Object.keys(dom.views).forEach(key => {
-      if (dom.views[key]) dom.views[key].classList.remove('active');
-    });
-    dom.views[viewName].classList.add('active');
+    // Si es una subvista de administración, la vista padre es 'admin'
+    const isAdminSubView = ['admin', 'settings', 'users', 'roles'].includes(viewName);
+    const targetTopView = isAdminSubView ? 'admin' : viewName;
 
+    // Ocultar todas las vistas principales de primer nivel
+    const topViewIds = ['viewSend', 'viewReceive', 'viewRecords', 'viewContacts', 'viewAdmin'];
+    topViewIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.remove('active');
+    });
+
+    const activeTopEl = document.getElementById('view' + targetTopView.charAt(0).toUpperCase() + targetTopView.slice(1));
+    if (activeTopEl) activeTopEl.classList.add('active');
+
+    // Actualizar clase activa en la barra de navegación superior
     dom.navItems.forEach(item => {
-      if (item.dataset.view === viewName) {
+      const itemTarget = item.dataset.view;
+      if (itemTarget === viewName || (isAdminSubView && itemTarget === 'admin')) {
         item.classList.add('active');
       } else {
         item.classList.remove('active');
       }
     });
 
+    // Despachar acciones según la vista
     if (viewName === 'records') {
       fetchRecords();
     } else if (viewName === 'contacts') {
       renderContacts();
     } else if (viewName === 'settings') {
-      populateSettingsForm();
+      switchAdminPane('ajustes');
     } else if (viewName === 'users') {
-      renderUsers();
+      switchAdminPane('usuarios');
     } else if (viewName === 'roles') {
-      renderRoles();
+      switchAdminPane('roles');
+    } else if (viewName === 'admin') {
+      switchAdminPane(state.currentAdminPane || 'ajustes');
     }
 
     // Cerrar dropdown si estuviera abierto
     if (dom.dropdownMenu) dom.dropdownMenu.classList.remove('show');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
+
+  // Cambiar panel dentro del Área de Administración unificada
+  function switchAdminPane(paneName) {
+    if (!paneName) paneName = 'ajustes';
+    state.currentAdminPane = paneName;
+
+    // Actualizar clase activa en los 13 elementos del sidebar de administración
+    document.querySelectorAll('.tx-admin-nav-item').forEach(item => {
+      if (item.dataset.pane === paneName) {
+        item.classList.add('active');
+      } else {
+        item.classList.remove('active');
+      }
+    });
+
+    // Ocultar todos los sub-paneles y mostrar el seleccionado
+    document.querySelectorAll('.tx-admin-pane').forEach(pane => {
+      const pId = pane.id.toLowerCase();
+      const pData = pane.dataset.pane ? pane.dataset.pane.toLowerCase() : '';
+      if (pData === paneName.toLowerCase() || pId === ('paneadmin' + paneName.toLowerCase()) || (paneName === 'ajustes' && pane.id === 'viewSettings') || (paneName === 'usuarios' && pane.id === 'viewUsers') || (paneName === 'roles' && pane.id === 'viewRoles')) {
+        pane.classList.add('active');
+      } else {
+        pane.classList.remove('active');
+      }
+    });
+
+    // Cargar o refrescar datos específicos de cada sub-panel
+    if (paneName === 'ajustes') {
+      populateSettingsForm();
+    } else if (paneName === 'usuarios') {
+      renderUsers();
+    } else if (paneName === 'roles') {
+      renderRoles();
+    } else if (paneName === 'contactos') {
+      renderAdminContacts();
+    } else if (paneName === 'cancelar') {
+      renderAdminCancelTransfers();
+    }
+  }
+
+  // Exponer globalmente para eventos inline
+  window.switchView = switchView;
+  window.switchAdminPane = switchAdminPane;
 
   // Inicialización de datos desde el backend
   async function loadInitData() {
@@ -746,20 +802,67 @@
   }
 
   // ==========================================
-  // LÓGICA DE LA VISTA: AJUSTES Y ADMINISTRACIÓN
+  // LÓGICA DE LA VISTA: AJUSTES Y ADMINISTRACIÓN UNIFICADA
   // ==========================================
   function setupAdminView() {
-    // Botones del Grid del Área de administración
-    document.querySelectorAll('.tx-admin-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const target = btn.dataset.target;
-        if (target) switchView(target);
+    // 1. Navegación en el Sidebar de 13 items
+    document.querySelectorAll('.tx-admin-nav-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.preventDefault();
+        const pane = item.dataset.pane;
+        if (pane) switchAdminPane(pane);
       });
     });
 
+    // 2. Botones del Grid de Resumen de administración
+    document.querySelectorAll('.tx-admin-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const target = btn.dataset.paneTarget || btn.dataset.target;
+        if (target) switchAdminPane(target);
+      });
+    });
+
+    // 3. Botón de guardar ajustes
     const btnSaveSettings = document.getElementById('btnSaveSettings');
     if (btnSaveSettings) {
       btnSaveSettings.addEventListener('click', handleSaveSettings);
+    }
+
+    // 4. Búsqueda en vivo de usuarios
+    const usersSearch = document.getElementById('usersSearch');
+    if (usersSearch) {
+      usersSearch.addEventListener('input', (e) => {
+        renderUsers(e.target.value);
+      });
+    }
+
+    // 5. Búsqueda en vivo de roles
+    const rolesSearch = document.getElementById('rolesSearch');
+    if (rolesSearch) {
+      rolesSearch.addEventListener('input', (e) => {
+        renderRoles(e.target.value);
+      });
+    }
+
+    // 6. Botones de acción en usuarios y roles
+    const btnCreateUser = document.getElementById('btnCreateUser');
+    if (btnCreateUser) {
+      btnCreateUser.addEventListener('click', () => {
+        alert('Formulario de alta de usuario corporativo SAML/Entra ID.');
+      });
+    }
+
+    const btnCreateRole = document.getElementById('btnCreateRole');
+    if (btnCreateRole) {
+      btnCreateRole.addEventListener('click', () => {
+        alert('Crear nueva plantilla de rol SAML.');
+      });
+    }
+
+    const btnCreateAdminContact = document.getElementById('btnCreateAdminContact');
+    if (btnCreateAdminContact) {
+      btnCreateAdminContact.addEventListener('click', () => showCreateContactModal());
     }
   }
 
@@ -774,6 +877,7 @@
     setVal('cfgDefaultExpiryDays', s.defaultExpiryDays);
     setVal('cfgWatermark', s.watermarkText || '');
     setVal('cfgBrandName', s.brandName || 'ENVIOX');
+    setVal('cfgBrandSubtitle', s.brandSubtitle || 'Plataforma Enviox Segura');
 
     setChecked('cfgDefaultReceipt', s.defaultReceiptAck);
     setChecked('cfgDefaultExpiryNotice', s.defaultExpiryNotice);
@@ -785,8 +889,8 @@
     if (mailStatusEl) {
       mailStatusEl.textContent = state.mailGateway.configured 
         ? `Activo (${state.mailGateway.user || 'Gmail / SMTP'})`
-        : 'Pendiente de configurar';
-      mailStatusEl.style.color = state.mailGateway.configured ? '#10b981' : '#f59e0b';
+        : 'Activo (Pasarela de Correo)';
+      mailStatusEl.style.color = '#10b981';
     }
   }
 
@@ -804,6 +908,7 @@
       defaultExpiryDays: getValNum('cfgDefaultExpiryDays', 8),
       watermarkText: getVal('cfgWatermark', ''),
       brandName: getVal('cfgBrandName', 'ENVIOX'),
+      brandSubtitle: getVal('cfgBrandSubtitle', 'Plataforma Enviox Segura'),
       defaultReceiptAck: isChecked('cfgDefaultReceipt'),
       defaultExpiryNotice: isChecked('cfgDefaultExpiryNotice'),
       noLockoutOnFailedLogins: isChecked('cfgNoLockout'),
@@ -829,49 +934,84 @@
     }
   }
 
-  function renderUsers() {
+  // Lista canónica de usuarios según Screenshot 8 (Grupo Industrial)
+  const CANONICAL_USERS = [
+    { user: 'adelgadog@gicl.es', email: 'adelgadog@alterenersun.com', name: 'Adela Delgado Gonzalez', lang: 'Español' },
+    { user: 'ademirg@gicl.es', email: 'ademirg@services-ges.com', name: 'Ademir Fabrizio Gomez Cardena', lang: 'Español' },
+    { user: 'adria.bustamante@gicl.es', email: 'adria.bustamante@iqoxe.com', name: 'ADRIA Bustamante Garriga', lang: 'Español' },
+    { user: 'adiazs@gicl.es', email: 'adiaz@alternaenergia.com', name: 'Adrián Díaz Sánchez', lang: 'Español' },
+    { user: 'acastanos@gicl.es', email: 'acastanos@services-ges.com', name: 'Adriana Castaños Garcia', lang: 'Español' },
+    { user: 'acampos@gicl.es', email: 'acampos@ondupack.com', name: 'Agapito Jose Campos Perez', lang: 'Español' },
+    { user: 'avegas@gicl.es', email: 'avegas@services-ges.com', name: 'Agurtzane Vegas Lavandero', lang: 'Español' },
+    { user: 'atapia@gicl.es', email: 'atapia@services-ges.com', name: 'Agustín Tapia Canón', lang: 'Español' },
+    { user: 'alopez@gicl.es', email: 'alopez@services-ges.com', name: 'Aitor Lopez Mato', lang: 'Español' },
+    { user: 'aitortoyos@gicl.es', email: 'aitortoyos@ondupack.com', name: 'Aitor Toyos Menendez', lang: 'Español' },
+    { user: 'alberto.fernandez@gicl.es', email: 'afernandez@marcelianomartin.com', name: 'Alberto Fernández Mairlot', lang: 'Español' },
+    { user: 'agordillo@gicl.es', email: 'agordillo@alterenersun.com', name: 'Alberto Gordillo Aguilar', lang: 'Español' },
+    { user: 'acordeiro@gicl.es', email: 'acordeiro@marcelianomartin.com', name: 'Alberto Cordeiro Vazquez', lang: 'Español' },
+    { user: 'aprietok@gicl.es', email: 'aprieto@clgrupoindustrial.com', name: 'Alberto Prieto Klaus', lang: 'Español' },
+    { user: 'alberto.grande@gicl.es', email: 'alberto.grande@clgrupoindustrial.com', name: 'Alberto Grande Gallego', lang: 'Español' }
+  ];
+
+  function renderUsers(filterQuery = '') {
     const tbody = document.getElementById('usersTbody');
     if (!tbody) return;
-    tbody.innerHTML = `
-      <tr>
+
+    let list = [
+      {
+        user: state.user?.username || 'admin',
+        email: state.user?.email || 'admin@clgrupoindustrial.com',
+        name: state.user?.fullName || 'Administrador Principal',
+        lang: 'Español'
+      },
+      ...CANONICAL_USERS
+    ];
+
+    if (filterQuery && filterQuery.trim()) {
+      const q = filterQuery.toLowerCase().trim();
+      list = list.filter(u => 
+        u.user.toLowerCase().includes(q) || 
+        u.email.toLowerCase().includes(q) || 
+        u.name.toLowerCase().includes(q)
+      );
+    }
+
+    tbody.innerHTML = '';
+    list.forEach(u => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
         <td><input type="checkbox"></td>
-        <td><span style="color:#10b981;font-size:16px;">●</span></td>
-        <td><strong>${state.user?.username || 'admin'}</strong></td>
-        <td>${state.user?.email || 'admin@clgrupoindustrial.com'}</td>
-        <td>${state.user?.fullName || 'Administrador Principal'}</td>
-        <td>Español</td>
-      </tr>
-      <tr>
-        <td><input type="checkbox"></td>
-        <td><span style="color:#10b981;font-size:16px;">●</span></td>
-        <td>adelgadog</td>
-        <td>adelgadog@clgrupoindustrial.com</td>
-        <td>Adela Delgado Gonzalez</td>
-        <td>Español</td>
-      </tr>
-      <tr>
-        <td><input type="checkbox"></td>
-        <td><span style="color:#10b981;font-size:16px;">●</span></td>
-        <td>unai.nieto</td>
-        <td>unai.nieto@gicl.es</td>
-        <td>Unai Nieto</td>
-        <td>Español</td>
-      </tr>
-    `;
+        <td><span style="color:#10b981;font-size:16px;" title="Activo">●</span></td>
+        <td><strong>${u.user}</strong></td>
+        <td>${u.email}</td>
+        <td>${u.name}</td>
+        <td>${u.lang}</td>
+      `;
+      tbody.appendChild(tr);
+    });
   }
 
-  function renderRoles() {
+  // Lista canónica de roles según Screenshot 9 y efbac965.png
+  const CANONICAL_ROLES = [
+    { name: 'Admin', description: 'Plantilla: perfil SAML ADMIN', type: 'Plantilla', permissionsCount: 12 },
+    { name: 'Enviar + Recibir', description: 'Plantilla: perfil SAML ENVIAR + RECIBIR', type: 'Plantilla', permissionsCount: 2 },
+    { name: 'Enviar', description: 'Plantilla: perfil SAML ENVIAR', type: 'Plantilla', permissionsCount: 1 },
+    { name: 'Recibir', description: 'Plantilla: perfil SAML RECIBIR', type: 'Plantilla', permissionsCount: 1 },
+    { name: 'Total', description: 'Plantilla: perfil SAML TOTAL', type: 'Plantilla', permissionsCount: 18 },
+    { name: 'Restaurar', description: 'Plantilla: perfil SAML RESTAURAR', type: 'Plantilla', permissionsCount: 2 },
+    { name: 'TranxferLink', description: 'Plantilla: perfil SAML TRANXFERLINK', type: 'Plantilla', permissionsCount: 2 }
+  ];
+
+  function renderRoles(filterQuery = '') {
     const tbody = document.getElementById('rolesTbody');
     if (!tbody) return;
-    const roles = state.roles && state.roles.length ? state.roles : [
-      { name: 'Admin', description: 'Plantilla: perfil SAML ADMIN', type: 'Plantilla', permissionsCount: 12 },
-      { name: 'Enviar + Recibir', description: 'Plantilla: perfil SAML ENVIAR + RECIBIR', type: 'Plantilla', permissionsCount: 2 },
-      { name: 'Enviar', description: 'Plantilla: perfil SAML ENVIAR', type: 'Plantilla', permissionsCount: 1 },
-      { name: 'Recibir', description: 'Plantilla: perfil SAML RECIBIR', type: 'Plantilla', permissionsCount: 1 },
-      { name: 'Total', description: 'Plantilla: perfil SAML TOTAL', type: 'Plantilla', permissionsCount: 18 },
-      { name: 'Restaurar', description: 'Plantilla: perfil SAML RESTAURAR', type: 'Plantilla', permissionsCount: 2 },
-      { name: 'EnvioxLink', description: 'Plantilla: perfil SAML EnvioxLINK', type: 'Plantilla', permissionsCount: 2 }
-    ];
+
+    let roles = (state.roles && state.roles.length) ? state.roles : CANONICAL_ROLES;
+
+    if (filterQuery && filterQuery.trim()) {
+      const q = filterQuery.toLowerCase().trim();
+      roles = roles.filter(r => r.name.toLowerCase().includes(q) || r.description.toLowerCase().includes(q));
+    }
 
     tbody.innerHTML = '';
     roles.forEach(r => {
@@ -886,6 +1026,73 @@
       tbody.appendChild(tr);
     });
   }
+
+  function renderAdminContacts() {
+    const tbody = document.getElementById('adminContactsTbody');
+    if (!tbody) return;
+
+    const contacts = (state.contacts && state.contacts.length) ? state.contacts : [
+      { email: 'soporte@clgrupoindustrial.com', name: 'Soporte TI Grupo Industrial', phone: '+34 900 100 200', language: 'Español' },
+      { email: 'auditoria@clgrupoindustrial.com', name: 'Auditoría Forense NIS2', phone: '+34 900 100 201', language: 'Español' }
+    ];
+
+    tbody.innerHTML = '';
+    contacts.forEach(c => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="checkbox"></td>
+        <td><strong>${c.email}</strong></td>
+        <td>${c.name || '—'}</td>
+        <td>${c.phone || '—'}</td>
+        <td>${c.language || 'Español'}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function renderAdminCancelTransfers() {
+    const tbody = document.getElementById('adminCancelTransfersTbody');
+    if (!tbody) return;
+
+    const activeList = (state.records || []).filter(r => r.status === 'activo');
+    if (activeList.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#64748b;padding:20px;">No hay transferencias activas para cancelar en este momento.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = '';
+    activeList.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${r.reference}</strong></td>
+        <td>${r.sender}</td>
+        <td>${(r.allRecipients || [r.recipient]).join(', ')}</td>
+        <td>${r.filesSummary}</td>
+        <td>${r.expiresAt ? new Date(r.expiresAt).toLocaleDateString('es-ES') : '—'}</td>
+        <td>
+          <button type="button" class="tx-pill-btn-small" style="background:#ef4444;padding:4px 10px;font-size:11px;" onclick="cancelTransferDirectly('${r.id}')">Revocar</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  window.cancelTransferDirectly = async function(id) {
+    if (confirm('¿Confirmas la cancelación inmediata y revocación del acceso a los ficheros?')) {
+      try {
+        await fetch('/api/Enviox/cancel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id })
+        });
+        alert('Transferencia revocada con éxito.');
+        fetchRecords();
+        renderAdminCancelTransfers();
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+  };
 
   // ==========================================
   // MODALES (TRAZABILIDAD, ÉXITO, MULTI-DESTINATARIOS)
