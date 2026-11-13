@@ -2867,23 +2867,41 @@ async function storeEncryptedTransferFile(blobId, rawBuffer, fileName, mimeType,
   let oneDriveItemId = '';
   let oneDriveError = '';
 
-  if (tenantCfg) {
-    try {
-      const isGoogle = tenantCfg.providerType === 'google-drive';
-      const up = isGoogle
-        ? await cloudGoogle.uploadBufferToGoogleDrive(tenantCfg, `transfers/${blobId}.enc`, encryptedBuf, 'application/octet-stream')
-        : await cloudOneDrive.uploadBufferToOneDrive(tenantCfg, `transfers/${blobId}.enc`, encryptedBuf, 'application/octet-stream');
-      storageLocation = isGoogle ? 'google-drive' : 'onedrive';
-      oneDrivePath = up.remotePath;
-      oneDriveItemId = up.itemId || '';
-    } catch (err) {
-      oneDriveError = err.message;
-    }
-  }
+  // 1. Guardar siempre primero de forma inmediata y resiliente en el almacén local
+  if (!fs.existsSync(VAULT_DIR)) fs.mkdirSync(VAULT_DIR, { recursive: true });
+  fs.writeFileSync(path.join(VAULT_DIR, `${blobId}.enc`), encryptedBuf);
 
-  if (storageLocation !== 'onedrive' && storageLocation !== 'google-drive') {
-    if (!fs.existsSync(VAULT_DIR)) fs.mkdirSync(VAULT_DIR, { recursive: true });
-    fs.writeFileSync(path.join(VAULT_DIR, `${blobId}.enc`), encryptedBuf);
+  // 2. Si hay tenant de nube configurado (Google Drive / Azure OneDrive de 5 TB):
+  if (tenantCfg) {
+    const isGoogle = tenantCfg.providerType === 'google-drive';
+    const remoteRelPath = `transfers/${blobId}.enc`;
+
+    // Si el archivo es moderado (<= 5 MB), sincronizar síncronamente antes de devolver
+    if (encryptedBuf.length <= 5 * 1024 * 1024) {
+      try {
+        const up = isGoogle
+          ? await cloudGoogle.uploadBufferToGoogleDrive(tenantCfg, remoteRelPath, encryptedBuf, 'application/octet-stream')
+          : await cloudOneDrive.uploadBufferToOneDrive(tenantCfg, remoteRelPath, encryptedBuf, 'application/octet-stream');
+        storageLocation = isGoogle ? 'google-drive' : 'onedrive';
+        oneDrivePath = up.remotePath;
+        oneDriveItemId = up.itemId || '';
+      } catch (err) {
+        oneDriveError = err.message;
+      }
+    } else {
+      // Para archivos grandes (> 5 MB), devolver inmediatamente la respuesta y sincronizar en segundo plano
+      storageLocation = 'vault-local';
+      setImmediate(async () => {
+        try {
+          const up = isGoogle
+            ? await cloudGoogle.uploadBufferToGoogleDrive(tenantCfg, remoteRelPath, encryptedBuf, 'application/octet-stream')
+            : await cloudOneDrive.uploadBufferToOneDrive(tenantCfg, remoteRelPath, encryptedBuf, 'application/octet-stream');
+          console.log(`[Enviox Cloud Sync Background OK] ${blobId}.enc subido a ${isGoogle ? 'Google Drive' : 'OneDrive'}: ${up.remotePath}`);
+        } catch (bgErr) {
+          console.warn(`[Enviox Cloud Sync Background Warning] ${blobId}.enc:`, bgErr.message);
+        }
+      });
+    }
   }
 
   return {

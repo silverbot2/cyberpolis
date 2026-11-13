@@ -308,6 +308,52 @@ async function uploadBufferToGoogleDrive(googleCfg, relativePath, buffer, conten
   const existing = await findGoogleDriveFileInFolder(parentId, fileName, accessToken, fetchFn);
 
   const metadata = existing ? { name: fileName } : { name: fileName, parents: [parentId] };
+
+  // Para archivos mayores de 5 MB, usar Google Drive Resumable Upload API
+  if (buffer.length > 5 * 1024 * 1024) {
+    const initUrl = existing
+      ? `${GDRIVE_UPLOAD_API}/files/${encodeURIComponent(existing.id)}?uploadType=resumable&supportsAllDrives=true`
+      : `${GDRIVE_UPLOAD_API}/files?uploadType=resumable&supportsAllDrives=true`;
+
+    const initRes = await fetchFn(initUrl, {
+      method: existing ? 'PATCH' : 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json; charset=UTF-8',
+        'X-Upload-Content-Type': contentType,
+        'X-Upload-Content-Length': String(buffer.length)
+      },
+      body: JSON.stringify(metadata),
+      signal: AbortSignal.timeout(30000)
+    });
+
+    const sessionUri = initRes.headers.get('location');
+    if (!sessionUri) {
+      throw new Error(`Google Drive no devolvió URI de subida reanudable (HTTP ${initRes.status})`);
+    }
+
+    const uploadRes = await fetchFn(sessionUri, {
+      method: 'PUT',
+      headers: {
+        'Content-Length': String(buffer.length),
+        'Content-Type': contentType
+      },
+      body: buffer,
+      signal: AbortSignal.timeout(120000)
+    });
+
+    const data = await uploadRes.json().catch(() => ({}));
+    if (!uploadRes.ok || !data.id) {
+      throw new Error((data.error && data.error.message) || `Google Drive resumable upload HTTP ${uploadRes.status}`);
+    }
+    return {
+      itemId: data.id,
+      remotePath: `/${folderPath}/${fileName}`,
+      size: buffer.length
+    };
+  }
+
+  // Para archivos pequeños (<= 5 MB), usar multipart upload estándar
   const boundary = `cyberpolis_gd_${crypto.randomBytes(8).toString('hex')}`;
   const headPart = Buffer.from(
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +

@@ -88,12 +88,29 @@
         <span>CYBERPOLIS</span>
       </a>
 
-      <div class="tx-user-avatar" id="txUserAvatar" title="Perfil de usuario">
-        U
-        <div class="tx-user-status-dot"></div>
+      <!-- Botón de Iniciar Sesión para visitantes -->
+      <button type="button" class="tx-pill-btn-small" id="btnHeaderLogin" style="display:none;background:var(--tx-navy);font-size:12px;padding:6px 14px;cursor:pointer;">
+        🔑 Iniciar Sesión
+      </button>
+
+      <!-- Avatar de usuario con menú desplegable -->
+      <div class="tx-user-avatar-wrap" style="position:relative;">
+        <div class="tx-user-avatar" id="txUserAvatar" title="Perfil de usuario" style="cursor:pointer;">
+          U
+          <div class="tx-user-status-dot"></div>
+        </div>
+        <div id="txUserMenu" class="tx-dropdown-menu" style="right:0;top:44px;min-width:220px;display:none;z-index:200;">
+          <div style="padding:10px 14px;border-bottom:1px solid #e2e8f0;">
+            <div id="txMenuUserName" style="font-weight:700;font-size:13px;color:var(--tx-navy);">Usuario</div>
+            <div id="txMenuUserEmail" style="font-size:11px;color:#64748b;">correo@cyberpolis.es</div>
+            <div id="txMenuUserRole" style="margin-top:4px;font-size:10px;font-weight:700;display:inline-block;padding:2px 8px;border-radius:10px;background:#e0f2fe;color:#0369a1;">Usuario</div>
+          </div>
+          <a class="tx-dropdown-item" id="txMenuLogout" style="color:#dc2626;cursor:pointer;padding:10px 14px;display:block;">🚪 Cerrar Sesión</a>
+        </div>
       </div>
 
-      <button type="button" class="tx-icon-btn" id="txSettingsBtn" onclick="openAdminSettings(event)" title="Ajustes y Administración (Ruleta de Ajustes)" aria-label="Ajustes" style="cursor:pointer;position:relative;z-index:100;">
+      <!-- Ruleta de Ajustes (⚙️) — Estrictamente solo para Administradores -->
+      <button type="button" class="tx-icon-btn" id="txSettingsBtn" onclick="openAdminSettings(event)" title="Ajustes y Administración (Solo Administradores)" aria-label="Ajustes" style="cursor:pointer;position:relative;z-index:100;display:none;">
         <span style="font-size:20px;pointer-events:none;">⚙️</span>
       </button>
 
@@ -1061,6 +1078,39 @@
               </div>
             </div>
 
+            <!-- Bloque de Gobernanza y Administrador Maestro de ENVIOX -->
+            <div style="margin-top:28px;background:#ffffff;border:1px solid #cbd5e1;border-left:5px solid #0284c7;border-radius:8px;padding:22px;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:10px;">
+                <div>
+                  <h3 style="font-size:17px;font-weight:700;color:var(--tx-navy);margin:0;display:flex;align-items:center;gap:8px;">
+                    <span>👑</span> <span>Gobernanza y Administrador Maestro de ENVIOX</span>
+                  </h3>
+                  <p style="font-size:13px;color:#64748b;margin:4px 0 0 0;">
+                    Supervisión global y administración delegada del portal independiente ENVIOX (Sincronizado con Cyberpolis).
+                  </p>
+                </div>
+                <span style="background:#e0f2fe;color:#0369a1;font-size:12px;font-weight:700;padding:4px 12px;border-radius:12px;">
+                  ● Webmaster / Master Admin: silverbot2
+                </span>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:16px;background:#f8fafc;padding:16px;border-radius:6px;border:1px solid #e2e8f0;margin-top:12px;">
+                <div>
+                  <label class="tx-setting-label">Administrador Maestro Designado</label>
+                  <input type="text" id="cfgMasterAdminUser" class="tx-setting-input" value="silverbot2" readonly style="background:#f1f5f9;font-weight:bold;color:var(--tx-navy);">
+                  <span style="font-size:11px;color:#64748b;margin-top:2px;display:block;">Control maestro irrestricto sobre ajustes, usuarios, tenants 5 TB y auditoría forense.</span>
+                </div>
+                <div>
+                  <label class="tx-setting-label">Correo de Notificación y Alertas Críticas</label>
+                  <input type="email" id="cfgMasterAdminEmail" class="tx-setting-input" value="silverbot2@cyberpolis.local" readonly style="background:#f1f5f9;color:#334155;">
+                  <span style="font-size:11px;color:#64748b;margin-top:2px;display:block;">Canal oficial de recepción de alertas de seguridad y transferencias sensibles.</span>
+                </div>
+              </div>
+              <div style="margin-top:12px;font-size:12px;color:#15803d;display:flex;align-items:center;gap:6px;background:#f0fdf4;padding:8px 12px;border-radius:6px;border:1px solid #bbf7d0;">
+                <span>🛡️</span>
+                <span><strong>Privilegio de Gobernanza Total:</strong> El usuario <code>silverbot2</code> y los administradores de Cyberpolis tienen acceso de auditoría completo según la directiva NIS2 y ENS.</span>
+              </div>
+            </div>
+
             <div style="display:flex;justify-content:flex-end;margin-top:24px;">
               <button type="button" id="btnSaveSettings" class="tx-pill-btn-small" style="padding:12px 36px;font-size:14px;background:var(--tx-navy);">
                 Guardar Ajustes
@@ -1317,7 +1367,6 @@
               </div>
             </div>
           </div>
-          </div>
 
           <!-- PANE: CANCELAR TRANSFERENCIAS -->
           <div id="paneAdminCancelar" class="tx-admin-pane" data-pane="cancelar">
@@ -1551,7 +1600,167 @@
       </div>
     </section>
 
+    <!-- SECCIÓN PROVEEDORES / COLABORADORES EXTERNOS: Depósito de archivos seguro SIN LOGIN (cuando se abre con ?drop=... o ?request=...) -->
+    <section id="viewProviderDrop" class="tx-view" style="max-width:820px;margin:24px auto;padding:0 16px;">
+      <div class="tx-card" style="background:#ffffff;border:1px solid #cbd5e1;border-radius:12px;overflow:hidden;box-shadow:0 10px 30px -5px rgba(0,0,0,0.08);">
+        <!-- Encabezado Corporativo de Depósito -->
+        <div id="dropPortalHeader" style="background:var(--tx-navy);color:#ffffff;padding:26px 24px;text-align:center;">
+          <div id="dropPortalLogoWrap" style="margin-bottom:10px;"></div>
+          <h2 id="dropPortalTitle" style="margin:0;font-size:22px;color:#ffffff;letter-spacing:0.5px;">ENVIOX</h2>
+          <p id="dropPortalSubtitle" style="margin:4px 0 0 0;font-size:13px;color:rgba(255,255,255,0.85);">Portal de Depósito Seguro de Archivos para Colaboradores y Proveedores Externos</p>
+        </div>
+
+        <div style="padding:28px 24px;">
+          <!-- Bloque de Estado de Solicitud -->
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:20px;border-bottom:1px solid #f1f5f9;padding-bottom:16px;">
+            <div>
+              <span style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:700;letter-spacing:0.5px;">Referencia de Solicitud</span>
+              <div id="dropRefCode" style="font-size:20px;font-weight:800;color:var(--tx-navy);">SOL-CARGANDO...</div>
+            </div>
+            <div id="dropStatusBadge" style="font-size:12px;background:#f0fdf4;color:#166534;font-weight:700;padding:6px 14px;border-radius:14px;border:1px solid #bbf7d0;">
+              ● Petición Activa y Autorizada
+            </div>
+          </div>
+
+          <!-- Información del Solicitante y Asunto -->
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:22px;font-size:13.5px;color:#334155;line-height:1.6;">
+            <div>Solicitado por: <strong id="dropRequesterName">Cargando...</strong> (<span id="dropRequesterEmail">...</span>)</div>
+            <div id="dropSubjectWrap" style="margin-top:6px;">Asunto: <strong id="dropSubject">...</strong></div>
+            <div id="dropMessageWrap" style="margin-top:10px;padding-top:10px;border-top:1px dashed #cbd5e1;color:#475569;font-size:13px;">
+              <strong>Instrucciones:</strong>
+              <div id="dropInstructions" style="margin-top:4px;white-space:pre-wrap;">...</div>
+            </div>
+          </div>
+
+          <!-- Dropzone para Subir Archivos -->
+          <div style="margin-bottom:20px;">
+            <label class="tx-card-title" style="font-size:15px;margin-bottom:8px;display:block;">Adjuntar archivos requeridos:</label>
+            <div class="tx-dropzone" id="providerDropzone" style="min-height:140px;background:#f8fafc;border:2px dashed #93c5fd;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;padding:24px;text-align:center;transition:all 0.2s ease;">
+              <span style="font-size:36px;margin-bottom:8px;">📤</span>
+              <div style="font-size:14px;font-weight:600;color:var(--tx-navy);">Arrastra aquí los archivos a depositar o haz clic para buscarlos</div>
+              <div style="font-size:12px;color:#64748b;margin-top:4px;">Cualquier formato permitido · Cifrado automático antes del almacenamiento</div>
+              <input type="file" id="providerFileInput" multiple style="display:none;">
+            </div>
+
+            <div id="providerStagedFiles" class="tx-staged-files" style="margin-top:12px;display:flex;flex-direction:column;gap:8px;"></div>
+          </div>
+
+          <!-- Barra de Progreso en Tiempo Real para Proveedor -->
+          <div id="providerProgressWrapper" style="display:none;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:14px 18px;margin-bottom:20px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <span id="providerProgressFileName" style="font-size:13px;font-weight:600;color:#0369a1;">Subiendo archivo...</span>
+              <span id="providerProgressPercent" style="font-size:13px;font-weight:700;color:#0369a1;">0%</span>
+            </div>
+            <div style="width:100%;height:8px;background:#e0f2fe;border-radius:4px;overflow:hidden;margin-bottom:8px;">
+              <div id="providerProgressBarFill" style="height:100%;width:0%;background:linear-gradient(90deg, #0284c7, #10b981);transition:width 0.15s ease;"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:11.5px;color:#64748b;">
+              <span id="providerProgressSpeed">0 MB/s</span>
+              <span id="providerProgressSize">0 MB / 0 MB</span>
+            </div>
+          </div>
+
+          <!-- Campos Opcionales del Proveedor -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;">
+            <div>
+              <label class="tx-setting-label">Tu Nombre o Razón Social (Opcional)</label>
+              <input type="text" id="dropProviderName" class="tx-setting-input" placeholder="Ej. Juan Pérez / Acero S.A.">
+            </div>
+            <div>
+              <label class="tx-setting-label">Tu Correo de Contacto para el Acuse</label>
+              <input type="email" id="dropProviderEmail" class="tx-setting-input" placeholder="colaborador@empresa.com">
+            </div>
+          </div>
+
+          <div style="margin-bottom:22px;">
+            <label class="tx-setting-label">Notas o Comentarios Adicionales (Opcional)</label>
+            <textarea id="dropProviderNotes" class="tx-textarea" rows="2" style="font-size:13px;height:auto;" placeholder="Indica detalles relevantes sobre los archivos adjuntos..."></textarea>
+          </div>
+
+          <!-- Botón Principal de Envío -->
+          <div style="text-align:center;">
+            <button type="button" id="btnSubmitProviderDrop" class="tx-btn-primary" style="padding:14px 40px;font-size:15px;font-weight:700;border-radius:24px;background:var(--tx-navy);color:#ffffff;cursor:pointer;border:none;box-shadow:0 4px 12px rgba(16,42,67,0.2);">
+              <span>🔒 Depositar archivos confidenciales</span>
+            </button>
+          </div>
+
+          <!-- Caja de Confirmación de Éxito (Oculta por defecto) -->
+          <div id="dropSuccessBox" style="display:none;margin-top:24px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:20px;text-align:center;">
+            <div style="font-size:40px;margin-bottom:6px;">🎉</div>
+            <h3 style="color:#166534;margin:0 0 8px 0;font-size:18px;font-weight:800;">¡Archivos depositados con éxito!</h3>
+            <p style="font-size:14px;color:#15803d;margin:0 0 16px 0;line-height:1.5;">
+              La documentación ha sido cifrada y entregada de forma segura al solicitante. Se ha generado el certificado criptográfico de entrega.
+            </p>
+            <div id="dropReceiptDetails" style="background:#ffffff;border:1px solid #dcfce7;border-radius:6px;padding:12px;margin-bottom:16px;text-align:left;font-size:12.5px;color:#334155;line-height:1.6;">
+            </div>
+            <a href="#" id="dropDownloadReceiptBtn" class="tx-btn-outline" style="background:#16a34a;color:#ffffff;border-color:#16a34a;font-weight:700;text-decoration:none;display:inline-block;padding:10px 24px;border-radius:20px;" download>
+              📥 Descargar Justificante Criptográfico SHA-256 (.sha256)
+            </a>
+          </div>
+
+          <!-- Garantía de Seguridad -->
+          <div style="margin-top:24px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:12px 14px;font-size:12px;color:#1e40af;line-height:1.5;">
+            🛡️ <strong>Acceso seguro sin registro:</strong> Esta sesión de entrega es única y privada para la referencia indicada. Tus archivos son cifrados con AES-256-GCM y verificados con firma SHA-256 al recibirse.
+          </div>
+        </div>
+      </div>
+    </section>
+
   </main>
+
+  <!-- Modal de Autenticación / Login para ENVIOX -->
+  <div id="txAuthModal" class="tx-modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:9999;align-items:center;justify-content:center;">
+    <div class="tx-modal" style="background:#ffffff;border-radius:12px;max-width:440px;width:90%;box-shadow:0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);overflow:hidden;">
+      <div class="tx-modal-header" style="background:var(--tx-navy);color:#ffffff;padding:18px 20px;display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <h3 class="tx-modal-title" style="color:#ffffff;font-size:18px;margin:0;">Iniciar Sesión en ENVIOX</h3>
+          <span style="font-size:12px;color:rgba(255,255,255,0.8);">Acceso seguro a transferencias corporativas</span>
+        </div>
+        <button type="button" id="txAuthModalClose" class="tx-modal-close" style="color:#ffffff;background:none;border:none;font-size:24px;cursor:pointer;">&times;</button>
+      </div>
+
+      <div class="tx-modal-body" style="padding:22px;">
+        <form id="txLoginForm" onsubmit="return false;">
+          <div class="tx-setting-item" style="margin-bottom:14px;">
+            <label class="tx-setting-label">Usuario o Correo Corporativo</label>
+            <input type="text" id="txLoginUsername" class="tx-setting-input" placeholder="ej. silverbot2 o tu correo" required autocomplete="username">
+          </div>
+
+          <div class="tx-setting-item" style="margin-bottom:18px;">
+            <label class="tx-setting-label">Contraseña</label>
+            <input type="password" id="txLoginPassword" class="tx-setting-input" placeholder="••••••••••••" required autocomplete="current-password">
+          </div>
+
+          <div id="txLoginError" style="display:none;color:#dc2626;background:#fef2f2;border:1px solid #fecaca;padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:14px;"></div>
+
+          <button type="submit" id="btnSubmitLogin" class="tx-btn-primary" style="width:100%;padding:12px;font-size:14px;font-weight:700;border-radius:6px;background:var(--tx-navy);color:#ffffff;border:none;cursor:pointer;">
+            🔑 Iniciar Sesión Corporativa
+          </button>
+        </form>
+
+        <div style="display:flex;align-items:center;margin:18px 0;gap:10px;">
+          <div style="flex:1;height:1px;background:#e2e8f0;"></div>
+          <span style="font-size:11px;color:#94a3b8;font-weight:700;">O ACCESO SSO CORPORATIVO</span>
+          <div style="flex:1;height:1px;background:#e2e8f0;"></div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <a href="/api/auth/google" class="tx-btn-outline" style="text-align:center;text-decoration:none;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;padding:9px;border:1px solid #cbd5e1;border-radius:6px;color:#334155;">
+            <span>🌐</span> <span>Continuar con Google Workspace</span>
+          </a>
+          <a href="/api/auth/azure" class="tx-btn-outline" style="text-align:center;text-decoration:none;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;padding:9px;border:1px solid #cbd5e1;border-radius:6px;color:#334155;">
+            <span>🔷</span> <span>Continuar con Microsoft Azure / 365</span>
+          </a>
+        </div>
+
+        <!-- Nota informativa clave para proveedores -->
+        <div style="margin-top:20px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:12px;font-size:11.5px;color:#64748b;line-height:1.5;">
+          <strong>ℹ️ ¿Eres un colaborador o proveedor externo?</strong><br>
+          No necesitas registrarte. Utiliza directamente el enlace seguro contenido en el correo de invitación recibido para depositar tus archivos confidenciales sin coste ni cuenta.
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Global Modal Overlay -->
   <div id="txModalOverlay" class="tx-modal-overlay">
@@ -1565,6 +1774,6 @@
     </div>
   </div>
 
-  <script src="/enviox/enviox.js?v=8.3.5"></script>
+  <script src="/enviox/enviox.js?v=8.3.6"></script>
 </body>
 </html>

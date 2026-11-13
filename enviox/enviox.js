@@ -132,24 +132,43 @@
     dom.contactsSearch = document.getElementById('contactsSearch');
     dom.btnCreateContact = document.getElementById('btnCreateContact');
 
-    // Modales
+    // Modales y Autenticación
     dom.modalOverlay = document.getElementById('txModalOverlay');
     dom.modalTitle = document.getElementById('txModalTitle');
     dom.modalBody = document.getElementById('txModalBody');
     dom.modalFooter = document.getElementById('txModalFooter');
     dom.modalClose = document.getElementById('txModalClose');
+
+    dom.btnHeaderLogin = document.getElementById('btnHeaderLogin');
+    dom.userMenu = document.getElementById('txUserMenu');
+    dom.menuLogout = document.getElementById('txMenuLogout');
+    dom.authModal = document.getElementById('txAuthModal');
+    dom.authModalClose = document.getElementById('txAuthModalClose');
+    dom.loginForm = document.getElementById('txLoginForm');
   }
 
-  // Cambiar vista activa
+  // Cambiar vista activa con control de acceso basado en roles (RBAC)
   function switchView(viewName) {
-    state.currentView = viewName;
-
     // Si es una subvista de administración, la vista padre es 'admin'
     const isAdminSubView = ['admin', 'settings', 'users', 'roles'].includes(viewName);
+
+    // Control estricto de acceso de Administrador
+    if (isAdminSubView) {
+      if (!state.user) {
+        showAuthModal();
+        return;
+      }
+      if (!state.user.isAdmin) {
+        alert('Acceso restringido: Se requieren privilegios de Administrador para gestionar el portal y los ajustes.');
+        return;
+      }
+    }
+
+    state.currentView = viewName;
     const targetTopView = isAdminSubView ? 'admin' : viewName;
 
     // Ocultar todas las vistas principales de primer nivel
-    const topViewIds = ['viewSend', 'viewReceive', 'viewRecords', 'viewContacts', 'viewAdmin'];
+    const topViewIds = ['viewSend', 'viewReceive', 'viewRecords', 'viewContacts', 'viewAdmin', 'viewRecipientDownload', 'viewProviderDrop'];
     topViewIds.forEach(id => {
       const el = document.getElementById(id);
       if (el) el.classList.remove('active');
@@ -281,9 +300,35 @@
       dom.sendCloudIndicator.textContent = `Almacenamiento: ${state.cloudStorage.name} (${state.cloudStorage.capacity})`;
     }
 
-    if (state.user && dom.userAvatar) {
-      dom.userAvatar.textContent = (state.user.fullName || state.user.username || 'U').charAt(0).toUpperCase();
-      dom.userAvatar.title = `${state.user.fullName || state.user.username} (${state.user.email})`;
+    if (state.user) {
+      if (dom.btnHeaderLogin) dom.btnHeaderLogin.style.display = 'none';
+      if (dom.userAvatar) {
+        dom.userAvatar.style.display = 'flex';
+        const initial = (state.user.fullName || state.user.username || 'U').charAt(0).toUpperCase();
+        dom.userAvatar.textContent = initial;
+        dom.userAvatar.title = `${state.user.fullName || state.user.username} (${state.user.isAdmin ? '👑 Administrador' : 'Usuario'})`;
+      }
+
+      // La ruleta de ajustes (⚙️) solo se muestra a Administradores
+      if (dom.settingsBtn) {
+        dom.settingsBtn.style.display = state.user.isAdmin ? 'inline-flex' : 'none';
+      }
+
+      // Actualizar datos del menú desplegable de usuario
+      const nameEl = document.getElementById('txMenuUserName');
+      const emailEl = document.getElementById('txMenuUserEmail');
+      const roleEl = document.getElementById('txMenuUserRole');
+      if (nameEl) nameEl.textContent = state.user.fullName || state.user.username;
+      if (emailEl) emailEl.textContent = state.user.email || '';
+      if (roleEl) {
+        roleEl.textContent = state.user.isMasterAdmin ? '👑 Administrador Maestro' : (state.user.isAdmin ? 'Administrador' : 'Usuario Corporativo');
+        roleEl.style.background = state.user.isAdmin ? '#dcfce7' : '#e0f2fe';
+        roleEl.style.color = state.user.isAdmin ? '#166534' : '#0369a1';
+      }
+    } else {
+      if (dom.btnHeaderLogin) dom.btnHeaderLogin.style.display = 'inline-flex';
+      if (dom.settingsBtn) dom.settingsBtn.style.display = 'none';
+      if (dom.userAvatar) dom.userAvatar.style.display = 'none';
     }
 
     // Configuración de Marca Corporativa y Live Email Preview
@@ -2664,12 +2709,50 @@
         if (e.preventDefault) e.preventDefault();
         if (e.stopPropagation) e.stopPropagation();
       }
+      if (!state.user) {
+        showAuthModal();
+        return false;
+      }
+      if (!state.user.isAdmin) {
+        alert('Acceso restringido: Se requieren privilegios de Administrador para gestionar el portal y los ajustes.');
+        return false;
+      }
       switchView('admin');
       switchAdminPane('ajustes');
       return false;
     };
 
-    // Cargar datos
+    // Listeners de Autenticación y Perfil de Usuario
+    if (dom.btnHeaderLogin) {
+      dom.btnHeaderLogin.addEventListener('click', () => showAuthModal());
+    }
+    if (dom.authModalClose) {
+      dom.authModalClose.addEventListener('click', () => hideAuthModal());
+    }
+    if (dom.authModal) {
+      dom.authModal.addEventListener('click', (e) => {
+        if (e.target === dom.authModal) hideAuthModal();
+      });
+    }
+    if (dom.loginForm) {
+      dom.loginForm.addEventListener('submit', handleLoginSubmit);
+    }
+    if (dom.userAvatar && dom.userMenu) {
+      dom.userAvatar.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dom.userMenu.style.display = dom.userMenu.style.display === 'block' ? 'none' : 'block';
+      });
+      document.addEventListener('click', (e) => {
+        if (!dom.userAvatar.contains(e.target)) {
+          dom.userMenu.style.display = 'none';
+        }
+      });
+    }
+    if (dom.menuLogout) {
+      dom.menuLogout.addEventListener('click', () => handleLogout());
+    }
+
+    // Cargar datos iniciales
     loadInitData();
 
     // Verificación de retorno de flujo OAuth2
@@ -2693,6 +2776,15 @@
       const token = params.get('transfer');
       if (token) {
         initRecipientPortal(token);
+      }
+    }
+
+    // Verificación de acceso proveedor o colaborador externo (?drop=... o ?request=... o ?link=...)
+    if (window.location.search && (window.location.search.includes('drop=') || window.location.search.includes('request=') || window.location.search.includes('link='))) {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('drop') || params.get('request') || params.get('link');
+      if (token) {
+        initProviderDropPortal(token);
       }
     }
   });
@@ -2817,6 +2909,385 @@
 
     } catch (err) {
       console.error('[Recipient Portal Error]', err);
+    }
+  }
+
+  // ==========================================
+  // AUTENTICACIÓN Y CONTROL DE ACCESO (RBAC)
+  // ==========================================
+  function showAuthModal() {
+    if (dom.authModal) {
+      dom.authModal.style.display = 'flex';
+      const uIn = document.getElementById('txLoginUsername');
+      if (uIn) setTimeout(() => uIn.focus(), 100);
+    }
+  }
+
+  function hideAuthModal() {
+    if (dom.authModal) dom.authModal.style.display = 'none';
+    const errEl = document.getElementById('txLoginError');
+    if (errEl) errEl.style.display = 'none';
+  }
+
+  async function handleLoginSubmit(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const uInput = document.getElementById('txLoginUsername');
+    const pInput = document.getElementById('txLoginPassword');
+    const errEl = document.getElementById('txLoginError');
+    const btnSubmit = document.getElementById('btnSubmitLogin');
+
+    const username = uInput ? uInput.value.trim() : '';
+    const password = pInput ? pInput.value : '';
+
+    if (!username || !password) {
+      if (errEl) { errEl.textContent = 'Introduce usuario y contraseña'; errEl.style.display = 'block'; }
+      return false;
+    }
+
+    if (btnSubmit) { btnSubmit.disabled = true; btnSubmit.textContent = 'Verificando credenciales...'; }
+
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Credenciales incorrectas');
+
+      hideAuthModal();
+      await loadInitData();
+      alert(`Sesión iniciada con éxito. Bienvenido/a, ${data.user?.fullName || data.user?.username || username}`);
+    } catch (err) {
+      if (errEl) { errEl.textContent = err.message; errEl.style.display = 'block'; }
+    } finally {
+      if (btnSubmit) { btnSubmit.disabled = false; btnSubmit.textContent = '🔑 Iniciar Sesión Corporativa'; }
+    }
+    return false;
+  }
+
+  async function handleLogout() {
+    try {
+      await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
+    } catch (e) {}
+    window.location.reload();
+  }
+
+  // ==========================================
+  // PORTAL DE DEPÓSITO PARA PROVEEDORES (SIN LOGIN)
+  // ==========================================
+  function uploadFileStreamWithToken(file, token, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const startTime = Date.now();
+      xhr.open('POST', '/api/enviox/upload', true);
+      xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name));
+      xhr.setRequestHeader('X-File-Type', file.type || 'application/octet-stream');
+      xhr.setRequestHeader('X-File-Size', String(file.size));
+      if (token) xhr.setRequestHeader('X-Request-Token', token);
+      if (file._sha256) xhr.setRequestHeader('X-Client-Sha256', file._sha256);
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) {
+          const percent = (e.loaded / e.total) * 100;
+          const elapsedSec = (Date.now() - startTime) / 1000 || 0.1;
+          const speedBytesPerSec = e.loaded / elapsedSec;
+          onProgress({
+            loaded: e.loaded,
+            total: e.total,
+            percent,
+            speedMb: (speedBytesPerSec / (1024 * 1024)).toFixed(1)
+          });
+        }
+      };
+
+      xhr.onload = () => {
+        try {
+          const resp = JSON.parse(xhr.responseText || '{}');
+          if (xhr.status >= 200 && xhr.status < 300 && resp.ok) {
+            resolve(resp.file);
+          } else {
+            reject(new Error(resp.error || `Error ${xhr.status} al subir archivo`));
+          }
+        } catch (e) {
+          reject(new Error('Respuesta inválida del servidor al subir'));
+        }
+      };
+
+      xhr.onerror = () => reject(new Error('Error de conexión durante la subida'));
+      xhr.ontimeout = () => reject(new Error('Tiempo de espera agotado al subir'));
+      xhr.send(file);
+    });
+  }
+
+  async function initProviderDropPortal(token) {
+    try {
+      const res = await fetch(`/api/enviox/requests/${encodeURIComponent(token)}`);
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'No se pudo cargar la solicitud de recepción.');
+        return;
+      }
+
+      const reqInfo = data.request;
+      const b = reqInfo.branding || {};
+
+      // Ocultar navegación superior estándar para el proveedor externo
+      const navEl = document.querySelector('.tx-nav-links');
+      if (navEl) navEl.style.display = 'none';
+      if (dom.settingsBtn) dom.settingsBtn.style.display = 'none';
+
+      // Ocultar todas las demás vistas y activar la vista del proveedor
+      document.querySelectorAll('.tx-view').forEach(v => v.classList.remove('active'));
+      const dropView = document.getElementById('viewProviderDrop');
+      if (dropView) dropView.classList.add('active');
+
+      // Personalización de marca en cabecera
+      const headerEl = document.getElementById('dropPortalHeader');
+      if (headerEl && b.brandPrimaryColor) headerEl.style.backgroundColor = b.brandPrimaryColor;
+
+      const logoWrap = document.getElementById('dropPortalLogoWrap');
+      if (logoWrap && b.brandLogoUrl) {
+        logoWrap.innerHTML = `<img src="${b.brandLogoUrl}" alt="${b.brandName || 'ENVIOX'}" style="max-height:50px;max-width:240px;background:#ffffff;padding:4px 10px;border-radius:6px;display:block;margin:0 auto;" onerror="this.style.display='none'">`;
+      }
+
+      const titleEl = document.getElementById('dropPortalTitle');
+      if (titleEl) titleEl.textContent = b.brandName || 'ENVIOX';
+
+      const subEl = document.getElementById('dropPortalSubtitle');
+      if (subEl) subEl.textContent = b.brandSubtitle || 'Portal de Depósito Seguro para Colaboradores y Proveedores Externos';
+
+      // Datos de la solicitud
+      const refEl = document.getElementById('dropRefCode');
+      if (refEl) refEl.textContent = reqInfo.reference;
+
+      const reqNameEl = document.getElementById('dropRequesterName');
+      if (reqNameEl) reqNameEl.textContent = reqInfo.requesterName || 'Usuario Corporativo';
+
+      const reqEmailEl = document.getElementById('dropRequesterEmail');
+      if (reqEmailEl) reqEmailEl.textContent = reqInfo.requesterEmail || '';
+
+      const subjWrap = document.getElementById('dropSubjectWrap');
+      const subjEl = document.getElementById('dropSubject');
+      if (subjWrap && subjEl) {
+        if (reqInfo.subject) {
+          subjWrap.style.display = 'block';
+          subjEl.textContent = reqInfo.subject;
+        } else {
+          subjWrap.style.display = 'none';
+        }
+      }
+
+      const instEl = document.getElementById('dropInstructions');
+      const msgWrap = document.getElementById('dropMessageWrap');
+      if (msgWrap && instEl) {
+        if (reqInfo.message) {
+          msgWrap.style.display = 'block';
+          instEl.textContent = reqInfo.message;
+        } else {
+          msgWrap.style.display = 'none';
+        }
+      }
+
+      const statusBadge = document.getElementById('dropStatusBadge');
+      if (statusBadge && reqInfo.isExpired) {
+        statusBadge.textContent = '● Solicitud Caducada';
+        statusBadge.style.background = '#fef2f2';
+        statusBadge.style.color = '#991b1b';
+        statusBadge.style.borderColor = '#fecaca';
+        const submitBtn = document.getElementById('btnSubmitProviderDrop');
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.style.opacity = '0.5';
+          submitBtn.style.cursor = 'not-allowed';
+          submitBtn.textContent = 'Solicitud Expirada';
+        }
+      }
+
+      // Zona de arrastre y lista de archivos
+      const providerDropzone = document.getElementById('providerDropzone');
+      const providerFileInput = document.getElementById('providerFileInput');
+      const stagedContainer = document.getElementById('providerStagedFiles');
+      const stagedFiles = [];
+
+      function renderProviderFiles() {
+        if (!stagedContainer) return;
+        stagedContainer.innerHTML = '';
+        stagedFiles.forEach((f, idx) => {
+          const item = document.createElement('div');
+          item.className = 'tx-file-item';
+          let formatted = (f.size / 1024).toFixed(1) + ' kB';
+          if (f.size > 1024 * 1024) formatted = (f.size / (1024 * 1024)).toFixed(2) + ' MB';
+
+          if (!f._sha256 && !f._computingSha) {
+            f._computingSha = true;
+            calculateFileSha256(f).then(h => {
+              f._sha256 = h;
+              renderProviderFiles();
+            });
+          }
+
+          const hashPreview = f._sha256 ? `${f._sha256.slice(0, 16)}...${f._sha256.slice(-6)}` : 'Calculando firma SHA-256...';
+
+          item.innerHTML = `
+            <div class="tx-file-meta" style="flex:1;min-width:0;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span>📄</span>
+                <span class="tx-file-name" title="${f.name}">${f.name}</span>
+                <span class="tx-file-size">(${formatted})</span>
+              </div>
+              <div style="font-size:10.5px;color:#0284c7;font-family:monospace;margin-top:2px;display:flex;align-items:center;gap:4px;">
+                <span>🛡️ SHA-256:</span>
+                <span title="${f._sha256 || ''}">${hashPreview}</span>
+                ${f._sha256 ? '<span style="color:#10b981;font-weight:bold;">✓</span>' : ''}
+              </div>
+            </div>
+            <button type="button" class="tx-chip-remove" style="background:none;border:none;cursor:pointer;font-size:16px;color:#94a3b8;padding:4px 8px;">✕</button>
+          `;
+          item.querySelector('button').addEventListener('click', () => {
+            stagedFiles.splice(idx, 1);
+            renderProviderFiles();
+          });
+          stagedContainer.appendChild(item);
+        });
+      }
+
+      if (providerDropzone && providerFileInput) {
+        providerDropzone.addEventListener('click', () => providerFileInput.click());
+        providerDropzone.addEventListener('dragover', (e) => { e.preventDefault(); providerDropzone.style.borderColor = '#0284c7'; });
+        providerDropzone.addEventListener('dragleave', () => { providerDropzone.style.borderColor = '#93c5fd'; });
+        providerDropzone.addEventListener('drop', (e) => {
+          e.preventDefault();
+          providerDropzone.style.borderColor = '#93c5fd';
+          if (e.dataTransfer && e.dataTransfer.files) {
+            Array.from(e.dataTransfer.files).forEach(f => stagedFiles.push(f));
+            renderProviderFiles();
+          }
+        });
+        providerFileInput.addEventListener('change', () => {
+          if (providerFileInput.files) {
+            Array.from(providerFileInput.files).forEach(f => stagedFiles.push(f));
+            renderProviderFiles();
+            providerFileInput.value = '';
+          }
+        });
+      }
+
+      // Envío del depósito confidencial
+      const btnSubmit = document.getElementById('btnSubmitProviderDrop');
+      if (btnSubmit) {
+        btnSubmit.onclick = async () => {
+          if (!stagedFiles.length) {
+            alert('Debes adjuntar al menos un archivo para completar el depósito.');
+            return;
+          }
+
+          btnSubmit.disabled = true;
+          btnSubmit.innerHTML = '<span>⏳ Cifrando y subiendo archivos a la nube segura...</span>';
+
+          const progWrap = document.getElementById('providerProgressWrapper');
+          const progFill = document.getElementById('providerProgressBarFill');
+          const progPercent = document.getElementById('providerProgressPercent');
+          const progSpeed = document.getElementById('providerProgressSpeed');
+          const progSize = document.getElementById('providerProgressSize');
+          const progFileName = document.getElementById('providerProgressFileName');
+
+          if (progWrap) progWrap.style.display = 'block';
+
+          try {
+            const uploadedMetas = [];
+            for (let i = 0; i < stagedFiles.length; i++) {
+              const file = stagedFiles[i];
+              if (progFileName) progFileName.textContent = `(${i + 1}/${stagedFiles.length}) Subiendo: ${file.name}`;
+
+              const meta = await uploadFileStreamWithToken(file, token, (p) => {
+                if (progFill) progFill.style.width = `${Math.min(100, Math.round(p.percent))}%`;
+                if (progPercent) progPercent.textContent = `${Math.min(100, Math.round(p.percent))}%`;
+                if (progSize) {
+                  const loadedMb = (p.loaded / (1024 * 1024)).toFixed(1);
+                  const totalMb = (p.total / (1024 * 1024)).toFixed(1);
+                  progSize.textContent = `${loadedMb} MB / ${totalMb} MB`;
+                }
+                if (progSpeed) progSpeed.textContent = `${p.speedMb} MB/s`;
+              });
+              uploadedMetas.push(meta);
+            }
+
+            btnSubmit.innerHTML = '<span>🔒 Notificando y registrando depósito...</span>';
+
+            const providerName = (document.getElementById('dropProviderName')?.value || '').trim();
+            const providerEmail = (document.getElementById('dropProviderEmail')?.value || '').trim();
+            const providerNotes = (document.getElementById('dropProviderNotes')?.value || '').trim();
+
+            const submitRes = await fetch(`/api/enviox/requests/${encodeURIComponent(token)}/submit`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                files: uploadedMetas,
+                providerName,
+                providerEmail,
+                notes: providerNotes
+              })
+            });
+
+            const submitData = await submitRes.json();
+            if (!submitRes.ok) throw new Error(submitData.error || 'Error al completar el depósito.');
+
+            if (progWrap) progWrap.style.display = 'none';
+            btnSubmit.style.display = 'none';
+            if (providerDropzone) providerDropzone.style.display = 'none';
+            if (stagedContainer) stagedContainer.style.display = 'none';
+
+            const successBox = document.getElementById('dropSuccessBox');
+            if (successBox) successBox.style.display = 'block';
+
+            const detailsEl = document.getElementById('dropReceiptDetails');
+            if (detailsEl) {
+              const fileRows = uploadedMetas.map(f => `
+                <div style="display:flex;justify-content:space-between;border-bottom:1px solid #f1f5f9;padding:6px 0;font-size:12px;">
+                  <span><strong>${f.fileName}</strong> (${(f.size / (1024 * 1024)).toFixed(2)} MB)</span>
+                  <span style="font-family:monospace;color:#0284c7;">SHA-256: ${f.sha256 ? f.sha256.slice(0, 16) + '...' : 'OK'}</span>
+                </div>
+              `).join('');
+
+              detailsEl.innerHTML = `
+                <div><strong>Referencia:</strong> ${submitData.reference}</div>
+                <div><strong>Fecha y Hora de Recepción:</strong> ${new Date(submitData.submittedAt).toLocaleString('es-ES')}</div>
+                <div><strong>Archivos Entregados (${uploadedMetas.length}):</strong></div>
+                <div style="margin-top:6px;">${fileRows}</div>
+              `;
+            }
+
+            const shaBtn = document.getElementById('dropDownloadReceiptBtn');
+            if (shaBtn) {
+              const receiptContent = [
+                `# JUSTIFICANTE CRIPTOGRÁFICO DE DEPÓSITO DE ARCHIVOS - ENVIOX`,
+                `# Referencia: ${submitData.reference}`,
+                `# Fecha de entrega: ${new Date(submitData.submittedAt).toISOString()}`,
+                `# Proveedor/Colaborador: ${providerName || providerEmail || 'Externo'}`,
+                `# Receptor: ${reqInfo.requesterName} (${reqInfo.requesterEmail})`,
+                `# Algoritmo de integridad: SHA-256 (FIPS 180-4)`,
+                ``,
+                ...uploadedMetas.map(f => `${f.sha256}  ${f.fileName}`)
+              ].join('\r\n');
+
+              const blob = new Blob([receiptContent], { type: 'text/plain;charset=utf-8' });
+              shaBtn.href = URL.createObjectURL(blob);
+              shaBtn.download = `deposito_${submitData.reference}.sha256`;
+            }
+
+          } catch (err) {
+            if (progWrap) progWrap.style.display = 'none';
+            alert('Error al depositar los archivos: ' + err.message);
+            btnSubmit.disabled = false;
+            btnSubmit.innerHTML = '<span>🔒 Depositar archivos confidenciales</span>';
+          }
+        };
+      }
+
+    } catch (e) {
+      alert('Error cargando la solicitud: ' + e.message);
     }
   }
 

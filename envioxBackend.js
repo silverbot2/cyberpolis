@@ -333,6 +333,13 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
   const currentUser = getSessionUser ? getSessionUser(req) : null;
   const ip = getClientIp ? getClientIp(req) : (req.socket?.remoteAddress || '127.0.0.1');
 
+  const isMasterAdmin = (u) => {
+    if (!u) return false;
+    const name = String(u.username || '').toLowerCase();
+    const role = String(u.role || '').toLowerCase();
+    return name === 'silverbot2' || role === 'admin' || u.isAdmin === true;
+  };
+
   // 1. GET /api/enviox/init — Datos de arranque de la plataforma Enviox
   if (p === '/api/enviox/init' && method === 'GET') {
     const cloud = readCloudStore ? readCloudStore() : { tenants: [] };
@@ -346,7 +353,8 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
         email: currentUser.email || `${currentUser.username}@cyberpolis.es`,
         fullName: currentUser.fullName || currentUser.username,
         role: currentUser.role || 'user',
-        isAdmin: currentUser.role === 'admin'
+        isAdmin: isMasterAdmin(currentUser),
+        isMasterAdmin: String(currentUser.username || '').toLowerCase() === 'silverbot2'
       } : null,
       settings: EnvioxState.settings,
       contacts: EnvioxState.contacts || [],
@@ -375,7 +383,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
     }
 
     const allTransfers = db.read('transfers', []);
-    const isAdmin = currentUser.role === 'admin';
+    const isAdmin = isMasterAdmin(currentUser);
     
     // Filtrar por usuario a menos que sea admin
     const userEmail = (currentUser.email || '').toLowerCase();
@@ -409,8 +417,17 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
 
   // 2.1 POST /api/enviox/upload — Streaming binario de archivos pesados con cálculo SHA-256 en tiempo real
   if (p === '/api/enviox/upload' && method === 'POST') {
-    if (!currentUser) {
-      sendJSON(req, res, 401, { error: 'Debes iniciar sesión para subir archivos.' }, {}, { noStore: true });
+    const reqToken = String(req.headers['x-request-token'] || req.headers['x-share-token'] || '').trim();
+    let isAuthorizedDrop = false;
+    let dropTransfer = null;
+    if (reqToken) {
+      const transfers = db.read('transfers', []);
+      dropTransfer = transfers.find(t => t.shareToken === reqToken && (t.mode === 'in_request' || t.mode === 'in_response') && (!t.expiresAt || new Date(t.expiresAt).getTime() > Date.now()));
+      if (dropTransfer) isAuthorizedDrop = true;
+    }
+
+    if (!currentUser && !isAuthorizedDrop) {
+      sendJSON(req, res, 401, { error: 'Debes iniciar sesión o acceder mediante un enlace de solicitud válido para subir archivos.' }, {}, { noStore: true });
       return true;
     }
 
@@ -424,27 +441,35 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
     const mimeType = sanitizeInput(req.headers['x-file-type'] || 'application/octet-stream', 80);
     const clientSha = String(req.headers['x-client-sha256'] || '').toLowerCase().trim();
 
-    const chunks = [];
+    const VAULT_DIR = path.join(__dirname, 'vault');
+    if (!fs.existsSync(VAULT_DIR)) fs.mkdirSync(VAULT_DIR, { recursive: true });
+
+    const tmpFilePath = path.join(VAULT_DIR, `${blobId}.tmp`);
+    const fileOut = fs.createWriteStream(tmpFilePath);
     let totalBytes = 0;
     const hash = crypto.createHash('sha256');
 
     req.on('data', chunk => {
-      chunks.push(chunk);
       totalBytes += chunk.length;
       hash.update(chunk);
+      fileOut.write(chunk);
     });
 
     req.on('end', async () => {
+      fileOut.end();
       try {
-        const rawBuffer = Buffer.concat(chunks, totalBytes);
         const serverSha = hash.digest('hex');
 
         if (clientSha && clientSha !== serverSha) {
+          try { fs.unlinkSync(tmpFilePath); } catch (e) {}
           sendJSON(req, res, 400, {
             error: `Discrepancia en la suma SHA-256 (Cliente: ${clientSha}, Servidor: ${serverSha}). El archivo pudo alterarse durante la transferencia.`
           }, {}, { noStore: true });
           return;
         }
+
+        const rawBuffer = fs.readFileSync(tmpFilePath);
+        try { fs.unlinkSync(tmpFilePath); } catch (e) {}
 
         const meta = await storeEncryptedTransferFile(
           blobId,
@@ -457,7 +482,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
 
         meta.sha256 = serverSha;
         meta.keySalt = keySalt;
-        meta.size = rawBuffer.length;
+        meta.size = totalBytes;
         meta.verifiedIntegrity = true;
 
         sendJSON(req, res, 200, {
@@ -465,12 +490,14 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
           file: meta
         }, {}, { noStore: true });
       } catch (uploadErr) {
+        try { fs.unlinkSync(tmpFilePath); } catch (e) {}
         console.error('[Enviox Upload Error]', uploadErr);
         sendJSON(req, res, 500, { error: 'Error al procesar la subida del archivo: ' + uploadErr.message }, {}, { noStore: true });
       }
     });
 
     req.on('error', (err) => {
+      try { fs.unlinkSync(tmpFilePath); } catch (e) {}
       console.error('[Enviox Upload Stream Error]', err);
       sendJSON(req, res, 500, { error: 'Error en la conexión durante la subida: ' + err.message }, {}, { noStore: true });
     });
@@ -771,6 +798,133 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
     return true;
   }
 
+  // 3.2b GET /api/enviox/requests/:token — Consulta de datos de solicitud de recepción para proveedores externos (SIN LOGIN)
+  if (p.startsWith('/api/enviox/requests/') && method === 'GET' && !p.endsWith('/submit')) {
+    const token = p.replace('/api/enviox/requests/', '').split('/')[0].trim();
+    const transfers = db.read('transfers', []);
+    const t = transfers.find(x => x.shareToken === token && (x.mode === 'in_request' || x.mode === 'in_response'));
+    if (!t) {
+      sendJSON(req, res, 404, { error: 'Solicitud de recepción no encontrada o cancelada.' }, {}, { noStore: true });
+      return true;
+    }
+
+    const isExpired = t.expiresAt && new Date(t.expiresAt).getTime() < Date.now();
+    sendJSON(req, res, 200, {
+      ok: true,
+      request: {
+        id: t.id,
+        reference: t.reference,
+        requesterName: t.senderName || t.senderUsername,
+        requesterEmail: t.senderEmail,
+        recipient: t.recipient,
+        subject: t.subject,
+        message: t.message,
+        expiresAt: t.expiresAt,
+        isExpired,
+        status: t.status,
+        branding: {
+          brandName: EnvioxState.settings.brandName || 'ENVIOX',
+          brandSubtitle: EnvioxState.settings.brandSubtitle || 'Plataforma Enviox Segura',
+          brandLogoUrl: EnvioxState.settings.brandLogoUrl || '',
+          brandPrimaryColor: EnvioxState.settings.brandPrimaryColor || '#102a43'
+        }
+      }
+    }, {}, { noStore: true });
+    return true;
+  }
+
+  // 3.2c POST /api/enviox/requests/:token/submit — Proveedor externo deposita archivos solicitados (SIN LOGIN)
+  if (p.startsWith('/api/enviox/requests/') && p.endsWith('/submit') && method === 'POST') {
+    const token = p.replace('/api/enviox/requests/', '').replace('/submit', '').split('/')[0].trim();
+    const transfers = db.read('transfers', []);
+    const idx = transfers.findIndex(x => x.shareToken === token && (x.mode === 'in_request' || x.mode === 'in_response'));
+    if (idx === -1) {
+      sendJSON(req, res, 404, { error: 'Solicitud de recepción no encontrada.' }, {}, { noStore: true });
+      return true;
+    }
+
+    const t = transfers[idx];
+    if (t.expiresAt && new Date(t.expiresAt).getTime() < Date.now()) {
+      sendJSON(req, res, 410, { error: 'Esta solicitud de recepción ha expirado.' }, {}, { noStore: true });
+      return true;
+    }
+
+    const body = await getBody();
+    const submittedFiles = Array.isArray(body.files) ? body.files : [];
+    const providerName = sanitizeInput(body.providerName || '', 80);
+    const providerEmail = sanitizeInput(body.providerEmail || t.recipient || '', 120);
+    const providerNotes = sanitizeInput(body.notes || '', 1000);
+
+    if (!submittedFiles.length) {
+      sendJSON(req, res, 400, { error: 'Debes adjuntar al menos un archivo para completar el depósito.' }, {}, { noStore: true });
+      return true;
+    }
+
+    t.files = [...(t.files || []), ...submittedFiles];
+    t.mode = 'in_response';
+    t.status = 'active';
+    t.providerName = providerName;
+    t.providerEmail = providerEmail;
+    t.providerNotes = providerNotes;
+    t.submittedAt = new Date().toISOString();
+
+    t.legalAudit = t.legalAudit || [];
+    t.legalAudit.push({
+      timestamp: t.submittedAt,
+      ip,
+      userAgent: req.headers['user-agent'] || '',
+      event: 'provider_deposit',
+      details: `Depósito confidencial realizado por ${providerName || providerEmail} con ${submittedFiles.length} archivo(s).`
+    });
+
+    transfers[idx] = t;
+    db.write('transfers', transfers);
+
+    // Notificar por correo al solicitante interno (senderEmail)
+    const requesterEmail = t.senderEmail;
+    if (requesterEmail && sendTransferNotificationEmail) {
+      const proto = isSecureRequest(req) ? 'https' : 'http';
+      const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'cyberpolis.onrender.com').split(',')[0].trim();
+      const notifHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+          <div style="background: #102a43; color: #ffffff; padding: 20px; text-align: center;">
+            <h2 style="margin: 0; font-size: 20px;">${EnvioxState.settings.brandName || 'ENVIOX'}</h2>
+            <p style="margin: 4px 0 0 0; font-size: 13px; color: #9fb3c8;">Notificación de Archivos Recibidos</p>
+          </div>
+          <div style="padding: 24px; color: #334e68; background: #ffffff;">
+            <p style="font-size: 15px; margin-top: 0;">Hola <strong>${t.senderName || t.senderUsername}</strong>,</p>
+            <p style="font-size: 14px; line-height: 1.6;">
+              El proveedor/colaborador <strong>${providerName || providerEmail}</strong> ha depositado satisfactoriamente <strong>${submittedFiles.length} archivo(s)</strong> para tu solicitud con referencia <strong>${t.reference}</strong>.
+            </p>
+            ${providerNotes ? `<p style="font-size: 13px; background: #f0f4f8; padding: 12px; border-left: 4px solid #102a43; border-radius: 4px;"><strong>Notas del colaborador:</strong> ${providerNotes}</p>` : ''}
+            <ul style="font-size: 13px; color: #334e68; background: #f8fafc; padding: 12px 24px; border-radius: 6px;">
+              ${submittedFiles.map(f => `<li><strong>${f.fileName || 'archivo'}</strong> (${(f.size / (1024 * 1024)).toFixed(2)} MB) - SHA-256: <code>${(f.sha256 || '').slice(0, 16)}...</code></li>`).join('')}
+            </ul>
+            <p style="font-size: 13px; color: #64748b;">
+              Puedes acceder a tus <a href="${proto}://${host}/enviox/#viewRecords" style="color: #0284c7; font-weight: bold;">Registros en ENVIOX</a> para descargar los archivos de manera segura.
+            </p>
+          </div>
+        </div>
+      `;
+      sendTransferNotificationEmail(
+        null,
+        requesterEmail,
+        `[ENVIOX] Archivos depositados por ${providerName || providerEmail} (Ref: ${t.reference})`,
+        `El colaborador ha depositado ${submittedFiles.length} archivo(s) para tu solicitud ${t.reference}.`,
+        notifHtml
+      ).catch(e => console.warn('[Enviox Provider Notif Email Error]', e.message));
+    }
+
+    sendJSON(req, res, 200, {
+      ok: true,
+      reference: t.reference,
+      filesCount: submittedFiles.length,
+      files: submittedFiles,
+      submittedAt: t.submittedAt
+    }, {}, { noStore: true });
+    return true;
+  }
+
   // 3.3 GET /api/enviox/download/:blobId o /api/enviox/transfers/:id/download/:blobId — Descarga y descifrado al vuelo
   if ((p.startsWith('/api/enviox/download/') || p.includes('/download/')) && method === 'GET') {
     const parts = p.split('/download/');
@@ -987,7 +1141,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
     }
 
     const t = transfers[idx];
-    if (currentUser.role !== 'admin' && t.senderUserId !== currentUser.id && t.senderUsername !== currentUser.username) {
+    if (!isMasterAdmin(currentUser) && t.senderUserId !== currentUser.id && t.senderUsername !== currentUser.username) {
       sendJSON(req, res, 403, { error: 'No tienes permiso para cancelar esta transferencia.' }, {}, { noStore: true });
       return true;
     }
@@ -1011,7 +1165,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
 
   // 6. POST /api/enviox/settings — Guardar ajustes de Enviox (Admin)
   if (p === '/api/enviox/settings' && method === 'POST') {
-    if (!currentUser || currentUser.role !== 'admin') {
+    if (!currentUser || !isMasterAdmin(currentUser)) {
       sendJSON(req, res, 403, { error: 'Acceso denegado: solo administradores pueden modificar los Ajustes de Enviox.' }, {}, { noStore: true });
       return true;
     }
@@ -1140,7 +1294,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
     }
 
     if (method === 'POST') {
-      if (currentUser.role !== 'admin') {
+      if (!isMasterAdmin(currentUser)) {
         sendJSON(req, res, 403, { error: 'Solo administradores pueden crear o editar usuarios.' }, {}, { noStore: true });
         return true;
       }
@@ -1191,7 +1345,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
   }
 
   if (p === '/api/enviox/users/toggle' && method === 'POST') {
-    if (!currentUser || currentUser.role !== 'admin') {
+    if (!currentUser || !isMasterAdmin(currentUser)) {
       sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
       return true;
     }
@@ -1209,7 +1363,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
   }
 
   if (p === '/api/enviox/users/reset-password' && method === 'POST') {
-    if (!currentUser || currentUser.role !== 'admin') {
+    if (!currentUser || !isMasterAdmin(currentUser)) {
       sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
       return true;
     }
@@ -1220,7 +1374,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
   }
 
   if (p.startsWith('/api/enviox/users/') && method === 'DELETE') {
-    if (!currentUser || currentUser.role !== 'admin') {
+    if (!currentUser || !isMasterAdmin(currentUser)) {
       sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
       return true;
     }
@@ -1261,7 +1415,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
     }
 
     if (method === 'POST') {
-      if (currentUser.role !== 'admin') {
+      if (!isMasterAdmin(currentUser)) {
         sendJSON(req, res, 403, { error: 'Solo administradores pueden crear o modificar grupos.' }, {}, { noStore: true });
         return true;
       }
@@ -1298,7 +1452,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
   }
 
   if (p === '/api/enviox/groups/assign' && method === 'POST') {
-    if (!currentUser || currentUser.role !== 'admin') {
+    if (!currentUser || !isMasterAdmin(currentUser)) {
       sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
       return true;
     }
@@ -1322,7 +1476,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
   }
 
   if (p.startsWith('/api/enviox/groups/') && method === 'DELETE') {
-    if (!currentUser || currentUser.role !== 'admin') {
+    if (!currentUser || !isMasterAdmin(currentUser)) {
       sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
       return true;
     }
@@ -1350,7 +1504,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
     }
 
     if (method === 'POST') {
-      if (currentUser.role !== 'admin') {
+      if (!isMasterAdmin(currentUser)) {
         sendJSON(req, res, 403, { error: 'Solo administradores pueden modificar la Lista Negra.' }, {}, { noStore: true });
         return true;
       }
@@ -1386,7 +1540,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
   }
 
   if (p.startsWith('/api/enviox/blacklist/') && method === 'DELETE') {
-    if (!currentUser || currentUser.role !== 'admin') {
+    if (!currentUser || !isMasterAdmin(currentUser)) {
       sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
       return true;
     }
@@ -1427,7 +1581,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
     }
 
     if (method === 'POST') {
-      if (currentUser.role !== 'admin') {
+      if (!isMasterAdmin(currentUser)) {
         sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
         return true;
       }
@@ -1610,7 +1764,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
     }
 
     if (method === 'POST') {
-      if (currentUser.role !== 'admin') {
+      if (!isMasterAdmin(currentUser)) {
         sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
         return true;
       }
@@ -1681,7 +1835,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
 
   // 13b. POST /api/enviox/cloud-config/test — Probar conexión real con la Bóveda 5 TB
   if (p === '/api/enviox/cloud-config/test' && method === 'POST') {
-    if (!currentUser || currentUser.role !== 'admin') {
+    if (!currentUser || !isMasterAdmin(currentUser)) {
       sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
       return true;
     }
@@ -1757,7 +1911,19 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
       return true;
     }
 
-    const transfers = db.read('transfers', []);
+    const allTransfers = db.read('transfers', []);
+    const isAdmin = isMasterAdmin(currentUser);
+    const userEmail = (currentUser.email || '').toLowerCase();
+    const userName = (currentUser.username || '').toLowerCase();
+
+    const transfers = isAdmin
+      ? allTransfers
+      : allTransfers.filter(t => {
+          const sEmail = (t.senderEmail || '').toLowerCase();
+          const sUser = (t.senderUsername || '').toLowerCase();
+          const sId = String(t.senderUserId || '');
+          return sEmail === userEmail || sUser === userName || sId === String(currentUser.id);
+        });
     const reports = transfers.map(t => {
       const isDownloaded = (t.downloadsCount || 0) > 0;
       const primaryRecipient = (t.recipients && t.recipients.length) ? t.recipients[0] : (t.recipient || '—');
