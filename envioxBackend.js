@@ -118,6 +118,9 @@ function mapToEnvioxRecord(t) {
     shareUrl: t.shareUrl || '',
     shareToken: t.shareToken || '',
     storageProvider: t.storageProvider || 'Google Drive / OneDrive 5 TB',
+    driveFolderLink: t.file?.driveFolderLink || (t.files && t.files[0]?.driveFolderLink) || '',
+    driveWebViewLink: t.file?.driveWebViewLink || (t.files && t.files[0]?.driveWebViewLink) || '',
+    driveFolderId: t.file?.driveFolderId || (t.files && t.files[0]?.driveFolderId) || '',
     legalAudit: t.legalAudit || []
   };
 }
@@ -457,6 +460,9 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
 
     req.on('end', async () => {
       fileOut.end();
+      await new Promise((resolve) => fileOut.on('finish', resolve));
+
+      const encFilePath = path.join(VAULT_DIR, `${blobId}.enc`);
       try {
         const serverSha = hash.digest('hex');
 
@@ -468,16 +474,18 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
           return;
         }
 
-        const rawBuffer = fs.readFileSync(tmpFilePath);
+        // Cifrar directamente de disco a disco mediante streaming (0 MB en memoria heap)
+        await cloudOneDrive.encryptFileStream(tmpFilePath, encFilePath, keySalt);
         try { fs.unlinkSync(tmpFilePath); } catch (e) {}
 
         const meta = await storeEncryptedTransferFile(
           blobId,
-          rawBuffer,
+          null,
           cleanFileName,
           mimeType,
           tenantCfg,
-          keySalt
+          keySalt,
+          { encFilePath, sha256: serverSha, size: totalBytes }
         );
 
         meta.sha256 = serverSha;
@@ -491,6 +499,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
         }, {}, { noStore: true });
       } catch (uploadErr) {
         try { fs.unlinkSync(tmpFilePath); } catch (e) {}
+        try { fs.unlinkSync(encFilePath); } catch (e) {}
         console.error('[Enviox Upload Error]', uploadErr);
         sendJSON(req, res, 500, { error: 'Error al procesar la subida del archivo: ' + uploadErr.message }, {}, { noStore: true });
       }
@@ -498,6 +507,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
 
     req.on('error', (err) => {
       try { fs.unlinkSync(tmpFilePath); } catch (e) {}
+      try { fs.unlinkSync(path.join(VAULT_DIR, `${blobId}.enc`)); } catch (e) {}
       console.error('[Enviox Upload Stream Error]', err);
       sendJSON(req, res, 500, { error: 'Error en la conexión durante la subida: ' + err.message }, {}, { noStore: true });
     });
@@ -1743,6 +1753,7 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
           userEmail: gdTenant?.driveUserUpn || '',
           clientId: gdTenant?.clientId || '',
           folderId: gdTenant?.baseFolder || gdTenant?.driveFolderId || 'CYBERPOLIS_VAULT',
+          folderUrl: gdTenant?.driveId ? `https://drive.google.com/drive/folders/${gdTenant.driveId}` : null,
           hasClientSecret: !!gdTenant?.clientSecretSealed,
           hasRefreshToken: !!gdTenant?.refreshTokenSealed,
           hasServiceAccount: !!gdTenant?.serviceAccountJsonSealed,
@@ -1902,6 +1913,84 @@ async function handleEnvioxApi(req, res, pathname, method, ctx) {
       }, {}, { noStore: true });
     }
     return true;
+  }
+
+  // 13c. POST /api/enviox/cloud-config/test-upload — Prueba real de subida de archivo a Google Drive / Azure
+  if (p === '/api/enviox/cloud-config/test-upload' && method === 'POST') {
+    if (!currentUser || !isMasterAdmin(currentUser)) {
+      sendJSON(req, res, 403, { error: 'Acceso denegado.' }, {}, { noStore: true });
+      return true;
+    }
+    try {
+      const cloud = readCloudStore ? readCloudStore() : { tenants: [] };
+      const tCfg = cloudOneDrive ? cloudOneDrive.resolveActiveTenantConfig(cloud) : null;
+      if (!tCfg || (!tCfg.clientId && !tCfg.serviceAccountJsonSealed)) {
+        sendJSON(req, res, 400, { error: 'Configura y autoriza primero las credenciales de Google Drive antes de probar la subida.' }, {}, { noStore: true });
+        return true;
+      }
+
+      if (tCfg.providerType === 'google-drive') {
+        if (!cloudGoogle || !cloudGoogle.uploadBufferToGoogleDrive) {
+          throw new Error('Módulo de Google Drive no disponible.');
+        }
+
+        const testContent = Buffer.from(
+          `CYBERPOLIS · ENVIOX - PRUEBA DE BÓVEDA EN GOOGLE DRIVE 5 TB\n` +
+          `Fecha y hora: ${new Date().toISOString()}\n` +
+          `Servidor: cyberpolis.onrender.com\n` +
+          `Cifrado: AES-256-GCM + Firma SHA-256\n` +
+          `Estado: OK - Conexión y permisos verificados exitosamente.\n`,
+          'utf8'
+        );
+        const testSalt = crypto.randomBytes(16).toString('hex');
+        const encTestBuf = cloudOneDrive.encryptBinaryBuffer(testContent, testSalt);
+        const testRelPath = 'transfers/prueba_verificacion_enviox.enc';
+
+        const up = await cloudGoogle.uploadBufferToGoogleDrive(tCfg, testRelPath, encTestBuf, 'application/octet-stream');
+
+        // Actualizar datos del tenant con el folderId verificado
+        const idx = cloud.tenants.findIndex(t => t.id === tCfg.id);
+        if (idx >= 0 && up.folderId) {
+          cloud.tenants[idx].driveId = up.folderId;
+          cloud.tenants[idx].lastTestedAt = new Date().toISOString();
+          writeCloudStore(cloud);
+        }
+
+        sendJSON(req, res, 200, {
+          ok: true,
+          message: '¡Prueba de subida completada con éxito en Google Drive!',
+          remotePath: up.remotePath,
+          folderId: up.folderId,
+          folderUrl: up.folderUrl || (up.folderId ? `https://drive.google.com/drive/folders/${up.folderId}` : ''),
+          itemId: up.itemId,
+          fileUrl: up.webViewLink || (up.itemId ? `https://drive.google.com/file/d/${up.itemId}/view` : ''),
+          accountEmail: tCfg.driveUserUpn || 'Google Drive Autorizado',
+          sizeBytes: encTestBuf.length
+        }, {}, { noStore: true });
+        return true;
+      } else {
+        // Microsoft OneDrive / Azure
+        const testContent = Buffer.from(`CYBERPOLIS ENVIOX TEST - Azure OneDrive\nFecha: ${new Date().toISOString()}`, 'utf8');
+        const testSalt = crypto.randomBytes(16).toString('hex');
+        const encTestBuf = cloudOneDrive.encryptBinaryBuffer(testContent, testSalt);
+        const up = await cloudOneDrive.uploadBufferToOneDrive(tCfg, 'transfers/prueba_verificacion_enviox.enc', encTestBuf, 'application/octet-stream');
+        sendJSON(req, res, 200, {
+          ok: true,
+          message: '¡Prueba de subida completada con éxito en Microsoft OneDrive!',
+          remotePath: up.remotePath,
+          itemId: up.itemId,
+          webUrl: up.webUrl
+        }, {}, { noStore: true });
+        return true;
+      }
+    } catch (err) {
+      console.error('[Enviox Test Upload Error]', err);
+      sendJSON(req, res, 500, {
+        ok: false,
+        error: `Error en la prueba de subida: ${err.message}`
+      }, {}, { noStore: true });
+      return true;
+    }
   }
 
   // 14. INFORMES Y TRAZABILIDAD (/api/enviox/reports) — Auditoría legal completa

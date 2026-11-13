@@ -1041,10 +1041,17 @@
                     </div>
                   </div>
 
-                  <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;border-top:1px solid #f1f5f9;padding-top:12px;">
+                  <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;border-top:1px solid #f1f5f9;padding-top:12px;align-items:center;">
                     <button type="button" class="tx-pill-btn-small" id="btnSaveGoogleDrive" style="background:var(--tx-navy);">💾 Guardar</button>
                     <button type="button" class="tx-btn-outline" id="btnConnectGoogleOAuth" style="background:#2563eb;color:#ffffff;border-color:#2563eb;font-weight:700;">🔑 Conectar Google 1-Clic</button>
                     <button type="button" class="tx-btn-outline" id="btnTestGoogleDrive">🔌 Probar Conexión</button>
+                    <button type="button" class="tx-btn-outline" id="btnTestUploadGoogleDrive" style="background:#059669;color:#ffffff;border-color:#059669;font-weight:700;">🧪 Probar Subida Real a Drive</button>
+                  </div>
+                  <div id="boxGoogleDriveResult" style="display:none;margin-top:12px;padding:12px;border-radius:6px;font-size:12px;line-height:1.5;"></div>
+                  <div id="boxGoogleDriveFolderLink" style="display:none;margin-top:8px;">
+                    <a id="linkOpenGoogleDriveFolder" href="#" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#2563eb;font-weight:700;text-decoration:underline;">
+                      <span>📂 Abrir Carpeta Raíz en Google Drive ↗</span>
+                    </a>
                   </div>
                 </div>
 

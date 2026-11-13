@@ -1145,6 +1145,9 @@
     const btnTestGoogleDrive = document.getElementById('btnTestGoogleDrive');
     if (btnTestGoogleDrive) btnTestGoogleDrive.addEventListener('click', testGoogleDriveConnection);
 
+    const btnTestUploadGoogleDrive = document.getElementById('btnTestUploadGoogleDrive');
+    if (btnTestUploadGoogleDrive) btnTestUploadGoogleDrive.addEventListener('click', testUploadGoogleDrive);
+
     const btnSaveAzureTenant = document.getElementById('btnSaveAzureTenant');
     if (btnSaveAzureTenant) btnSaveAzureTenant.addEventListener('click', saveAzureTenantConfig);
 
@@ -1381,6 +1384,17 @@
           }
         }
 
+        const gdFolderLinkBox = document.getElementById('boxGoogleDriveFolderLink');
+        const gdFolderLink = document.getElementById('linkOpenGoogleDriveFolder');
+        if (gdFolderLinkBox && gdFolderLink) {
+          if (gd.connected && (gd.folderUrl || gd.folderId)) {
+            gdFolderLinkBox.style.display = 'block';
+            gdFolderLink.href = gd.folderUrl || `https://drive.google.com/drive/folders/${gd.folderId}`;
+          } else {
+            gdFolderLinkBox.style.display = 'none';
+          }
+        }
+
         if (ms.tenantId) setVal('cfgAzureTenantId', ms.tenantId);
         if (ms.clientId) setVal('cfgAzureClientId', ms.clientId);
         if (ms.hasClientSecret) {
@@ -1483,6 +1497,65 @@
       loadCloudTenantConfig();
     } catch (e) {
       alert('⚠️ ' + e.message);
+    }
+  }
+
+  async function testUploadGoogleDrive() {
+    const btn = document.getElementById('btnTestUploadGoogleDrive');
+    const resBox = document.getElementById('boxGoogleDriveResult');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ Cifrando y subiendo prueba a Drive...';
+    }
+    if (resBox) {
+      resBox.style.display = 'block';
+      resBox.style.background = '#eff6ff';
+      resBox.style.border = '1px solid #bfdbfe';
+      resBox.style.color = '#1e40af';
+      resBox.innerHTML = '⏳ Conectando con Google Drive, creando carpeta y verificando subida de archivo cifrado...';
+    }
+
+    try {
+      const res = await fetch('/api/enviox/cloud-config/test-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ providerType: 'google-drive' })
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        throw new Error(d.error || 'Fallo en la prueba de subida.');
+      }
+
+      if (resBox) {
+        resBox.style.background = '#f0fdf4';
+        resBox.style.border = '1px solid #86efac';
+        resBox.style.color = '#166534';
+        resBox.innerHTML = `
+          <div style="font-weight:700;margin-bottom:6px;font-size:13px;">✅ ¡Prueba de subida en Google Drive completada con éxito!</div>
+          <div style="margin-bottom:3px;">📁 <strong>Carpeta verificada:</strong> <code>${d.remotePath.split('/')[1] || d.remotePath}</code> (ID: <code>${d.folderId}</code>)</div>
+          <div style="margin-bottom:3px;">📄 <strong>Archivo cifrado:</strong> <code>prueba_verificacion_enviox.enc</code> (${d.sizeBytes} bytes cifrados AES-256)</div>
+          <div style="margin-bottom:8px;">👤 <strong>Cuenta Google:</strong> ${d.accountEmail}</div>
+          <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap;">
+            <a href="${d.folderUrl}" target="_blank" rel="noopener" style="background:#16a34a;color:#fff;padding:6px 12px;border-radius:4px;font-weight:700;text-decoration:none;display:inline-block;font-size:12px;">📂 Abrir Carpeta en Google Drive ↗</a>
+            <a href="${d.fileUrl}" target="_blank" rel="noopener" style="background:#0284c7;color:#fff;padding:6px 12px;border-radius:4px;font-weight:700;text-decoration:none;display:inline-block;font-size:12px;">📄 Abrir Archivo en Google Drive ↗</a>
+          </div>
+        `;
+      }
+      loadCloudTenantConfig();
+    } catch (e) {
+      if (resBox) {
+        resBox.style.background = '#fef2f2';
+        resBox.style.border = '1px solid #fca5a5';
+        resBox.style.color = '#991b1b';
+        resBox.innerHTML = `❌ <strong>Error en la prueba de subida:</strong> ${e.message}`;
+      }
+      alert('Error en prueba de subida a Google Drive: ' + e.message);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '🧪 Probar Subida Real a Drive';
+      }
     }
   }
 
@@ -2440,6 +2513,15 @@
         <div style="background:#f0fdf4;border:1px solid #bbf7d0;padding:10px 14px;border-radius:6px;margin-bottom:16px;">
           <div style="font-size:12px;font-weight:700;color:#166534;margin-bottom:4px;">Enlace seguro:</div>
           <input type="text" readonly value="${record.shareUrl}" style="width:100%;font-size:12px;padding:6px;border:1px solid #cbd5e1;border-radius:4px;" onclick="this.select()">
+        </div>
+      ` : ''}
+      ${record.driveFolderLink || record.driveWebViewLink ? `
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;padding:10px 14px;border-radius:6px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <div style="font-size:12px;color:#1e40af;font-weight:700;">Almacenamiento Cloud Verificado:</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            ${record.driveFolderLink ? `<a href="${record.driveFolderLink}" target="_blank" rel="noopener" style="background:#16a34a;color:#fff;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:700;text-decoration:none;">📁 Carpeta en Google Drive ↗</a>` : ''}
+            ${record.driveWebViewLink ? `<a href="${record.driveWebViewLink}" target="_blank" rel="noopener" style="background:#0284c7;color:#fff;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:700;text-decoration:none;">📄 Archivo en Google Drive ↗</a>` : ''}
+          </div>
         </div>
       ` : ''}
       <h4 style="font-size:14px;color:var(--tx-navy);margin-bottom:8px;">Trazabilidad de Accesos y Acuse de Recibo</h4>

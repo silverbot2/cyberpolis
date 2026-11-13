@@ -211,13 +211,42 @@ function escapeDriveQueryValue(val) {
   return String(val || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
+async function getDriveItemById(id, accessToken, fetchFn = fetch) {
+  if (!id || id === 'root') return null;
+  if (/[\s\/\\:*?"<>|]/.test(id)) return null;
+  try {
+    const res = await fetchFn(`${GDRIVE_API}/files/${encodeURIComponent(id)}?fields=id,name,mimeType,trashed,webViewLink&supportsAllDrives=true`, {
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    if (data && data.id && data.trashed !== true) return data;
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
 async function ensureGoogleDriveFolderPath(googleCfg, folderPath, accessToken, fetchFn = fetch) {
   const parts = String(folderPath || 'CYBERPOLIS_VAULT').replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
   let parentId = String(googleCfg.driveId || 'root').trim() || 'root';
 
+  // Si googleCfg.folderId o googleCfg.baseFolder es un ID de carpeta existente en Drive, usarlo directamente
+  const candidateId = String(googleCfg.folderId || googleCfg.baseFolder || '').trim();
+  if (candidateId && candidateId !== 'root') {
+    const existingFolder = await getDriveItemById(candidateId, accessToken, fetchFn);
+    if (existingFolder && existingFolder.mimeType === 'application/vnd.google-apps.folder') {
+      parentId = candidateId;
+      if (parts.length > 0 && (parts[0] === candidateId || parts[0] === existingFolder.name)) {
+        parts.shift();
+      }
+    }
+  }
+
   for (const part of parts) {
     const q = `name = '${escapeDriveQueryValue(part)}' and mimeType = 'application/vnd.google-apps.folder' and '${escapeDriveQueryValue(parentId)}' in parents and trashed = false`;
-    const searchUrl = `${GDRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
+    const searchUrl = `${GDRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id,name,webViewLink)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
     const searchRes = await fetchFn(searchUrl, {
       headers: { 'Authorization': `Bearer ${accessToken}` },
       signal: AbortSignal.timeout(12000)
@@ -257,7 +286,7 @@ async function ensureGoogleDriveFolderPath(googleCfg, folderPath, accessToken, f
 
 async function findGoogleDriveFileInFolder(parentId, fileName, accessToken, fetchFn = fetch) {
   const q = `name = '${escapeDriveQueryValue(fileName)}' and '${escapeDriveQueryValue(parentId)}' in parents and trashed = false`;
-  const url = `${GDRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id,name,size)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
+  const url = `${GDRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id,name,size,webViewLink)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
   const res = await fetchFn(url, {
     headers: { 'Authorization': `Bearer ${accessToken}` },
     signal: AbortSignal.timeout(12000)
@@ -278,7 +307,7 @@ async function testGoogleDriveConnection(googleCfg, fetchFn = fetch) {
     throw new Error((data.error && data.error.message) || `Google Drive /about HTTP ${res.status}`);
   }
 
-  const baseFolder = String(googleCfg.baseFolder || 'CYBERPOLIS_VAULT').replace(/^\/+|\/+$/g, '') || 'CYBERPOLIS_VAULT';
+  const baseFolder = String(googleCfg.baseFolder || googleCfg.folderId || 'CYBERPOLIS_VAULT').replace(/^\/+|\/+$/g, '') || 'CYBERPOLIS_VAULT';
   const rootFolderId = await ensureGoogleDriveFolderPath(googleCfg, baseFolder, accessToken, fetchFn);
 
   const quota = data.storageQuota || {};
@@ -293,99 +322,144 @@ async function testGoogleDriveConnection(googleCfg, fetchFn = fetch) {
     ownerEmail: (data.user && data.user.emailAddress) || googleCfg.driveUserUpn || '',
     quotaTotalBytes: totalBytes,
     quotaUsedBytes: usedBytes,
-    quotaRemainingBytes: totalBytes > 0 ? Math.max(0, totalBytes - usedBytes) : 0
+    quotaRemainingBytes: totalBytes > 0 ? Math.max(0, totalBytes - usedBytes) : 0,
+    folderId: rootFolderId,
+    folderUrl: `https://drive.google.com/drive/folders/${rootFolderId}`
   };
 }
 
-async function uploadBufferToGoogleDrive(googleCfg, relativePath, buffer, contentType = 'application/octet-stream', fetchFn = fetch) {
+async function uploadToGoogleDriveCore({ googleCfg, relativePath, buffer, filePath, contentType = 'application/octet-stream', fetchFn = fetch }) {
   const { accessToken } = await getGoogleAccessToken(googleCfg, fetchFn);
-  const baseFolder = String(googleCfg.baseFolder || 'CYBERPOLIS_VAULT').replace(/^\/+|\/+$/g, '') || 'CYBERPOLIS_VAULT';
+  const baseFolder = String(googleCfg.baseFolder || googleCfg.folderId || 'CYBERPOLIS_VAULT').replace(/^\/+|\/+$/g, '') || 'CYBERPOLIS_VAULT';
   const relClean = String(relativePath || 'archivo.bin').replace(/^\/+/, '');
   const parts = relClean.split('/').filter(Boolean);
   const fileName = parts.pop() || 'archivo.bin';
   const folderPath = [baseFolder, ...parts].join('/');
+
   const parentId = await ensureGoogleDriveFolderPath(googleCfg, folderPath, accessToken, fetchFn);
   const existing = await findGoogleDriveFileInFolder(parentId, fileName, accessToken, fetchFn);
 
-  const metadata = existing ? { name: fileName } : { name: fileName, parents: [parentId] };
-
-  // Para archivos mayores de 5 MB, usar Google Drive Resumable Upload API
-  if (buffer.length > 5 * 1024 * 1024) {
-    const initUrl = existing
-      ? `${GDRIVE_UPLOAD_API}/files/${encodeURIComponent(existing.id)}?uploadType=resumable&supportsAllDrives=true`
-      : `${GDRIVE_UPLOAD_API}/files?uploadType=resumable&supportsAllDrives=true`;
-
-    const initRes = await fetchFn(initUrl, {
-      method: existing ? 'PATCH' : 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json; charset=UTF-8',
-        'X-Upload-Content-Type': contentType,
-        'X-Upload-Content-Length': String(buffer.length)
-      },
-      body: JSON.stringify(metadata),
-      signal: AbortSignal.timeout(30000)
-    });
-
-    const sessionUri = initRes.headers.get('location');
-    if (!sessionUri) {
-      throw new Error(`Google Drive no devolvió URI de subida reanudable (HTTP ${initRes.status})`);
-    }
-
-    const uploadRes = await fetchFn(sessionUri, {
-      method: 'PUT',
-      headers: {
-        'Content-Length': String(buffer.length),
-        'Content-Type': contentType
-      },
-      body: buffer,
-      signal: AbortSignal.timeout(120000)
-    });
-
-    const data = await uploadRes.json().catch(() => ({}));
-    if (!uploadRes.ok || !data.id) {
-      throw new Error((data.error && data.error.message) || `Google Drive resumable upload HTTP ${uploadRes.status}`);
-    }
-    return {
-      itemId: data.id,
-      remotePath: `/${folderPath}/${fileName}`,
-      size: buffer.length
-    };
+  let totalSize = 0;
+  if (Buffer.isBuffer(buffer)) {
+    totalSize = buffer.length;
+  } else if (filePath && fs.existsSync(filePath)) {
+    totalSize = fs.statSync(filePath).size;
+  } else {
+    throw new Error('No se proporcionó buffer ni archivo válido para subir a Google Drive.');
   }
 
-  // Para archivos pequeños (<= 5 MB), usar multipart upload estándar
-  const boundary = `cyberpolis_gd_${crypto.randomBytes(8).toString('hex')}`;
-  const headPart = Buffer.from(
-    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
-    `--${boundary}\r\nContent-Type: ${contentType}\r\n\r\n`,
-    'utf8'
-  );
-  const tailPart = Buffer.from(`\r\n--${boundary}--`, 'utf8');
-  const multipartBody = Buffer.concat([headPart, buffer, tailPart]);
+  // Google Drive Resumable Upload con chunks estándar de 8 MB (múltiplo de 256 KB)
+  const initUrl = existing
+    ? `${GDRIVE_UPLOAD_API}/files/${encodeURIComponent(existing.id)}?uploadType=resumable&supportsAllDrives=true`
+    : `${GDRIVE_UPLOAD_API}/files?uploadType=resumable&supportsAllDrives=true`;
 
-  const uploadUrl = existing
-    ? `${GDRIVE_UPLOAD_API}/files/${encodeURIComponent(existing.id)}?uploadType=multipart&supportsAllDrives=true`
-    : `${GDRIVE_UPLOAD_API}/files?uploadType=multipart&supportsAllDrives=true`;
+  const metadata = existing
+    ? { name: fileName }
+    : { name: fileName, parents: parentId === 'root' ? ['root'] : [parentId] };
 
-  const res = await fetchFn(uploadUrl, {
+  const initRes = await fetchFn(initUrl, {
     method: existing ? 'PATCH' : 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': `multipart/related; boundary=${boundary}`
+      'Content-Type': 'application/json; charset=UTF-8',
+      'X-Upload-Content-Type': contentType,
+      'X-Upload-Content-Length': String(totalSize)
     },
-    body: multipartBody,
-    signal: AbortSignal.timeout(45000)
+    body: JSON.stringify(metadata),
+    signal: AbortSignal.timeout(30000)
   });
 
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.id) {
-    throw new Error((data.error && data.error.message) || `Google Drive upload HTTP ${res.status}`);
+  if (!initRes.ok) {
+    const errText = await initRes.text().catch(() => '');
+    throw new Error(`Google Drive Resumable Init HTTP ${initRes.status}: ${errText.slice(0, 200)}`);
   }
+
+  const sessionUri = initRes.headers.get('location');
+  if (!sessionUri) {
+    throw new Error(`Google Drive no devolvió URI de sesión reanudable (HTTP ${initRes.status})`);
+  }
+
+  const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB
+  let start = 0;
+  let finalFileObj = null;
+
+  while (start < totalSize || (totalSize === 0 && start === 0)) {
+    const end = Math.min(start + CHUNK_SIZE, totalSize);
+    const chunkLength = end - start;
+    let chunkBuffer;
+
+    if (Buffer.isBuffer(buffer)) {
+      chunkBuffer = buffer.subarray(start, end);
+    } else {
+      chunkBuffer = Buffer.alloc(chunkLength);
+      const fd = fs.openSync(filePath, 'r');
+      fs.readSync(fd, chunkBuffer, 0, chunkLength, start);
+      fs.closeSync(fd);
+    }
+
+    let chunkSuccess = false;
+    let lastErr = null;
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const rangeHeader = totalSize === 0 ? 'bytes */0' : `bytes ${start}-${end - 1}/${totalSize}`;
+        const chunkRes = await fetchFn(sessionUri, {
+          method: 'PUT',
+          headers: {
+            'Content-Length': String(chunkLength),
+            'Content-Range': rangeHeader,
+            'Content-Type': contentType
+          },
+          body: chunkBuffer,
+          signal: AbortSignal.timeout(90000)
+        });
+
+        if (chunkRes.status === 308) {
+          // Chunk intermedio recibido correctamente por Google Drive
+          chunkSuccess = true;
+          break;
+        } else if (chunkRes.status === 200 || chunkRes.status === 201) {
+          // Último chunk completado, archivo finalizado
+          finalFileObj = await chunkRes.json().catch(() => ({}));
+          chunkSuccess = true;
+          break;
+        } else {
+          const txt = await chunkRes.text().catch(() => '');
+          throw new Error(`HTTP ${chunkRes.status}: ${txt.slice(0, 160)}`);
+        }
+      } catch (err) {
+        lastErr = err;
+        if (attempt < 3) {
+          await new Promise(r => setTimeout(r, 1500 * attempt));
+        }
+      }
+    }
+
+    if (!chunkSuccess) {
+      throw new Error(`Error subiendo chunk (${start}-${end}/${totalSize}) a Google Drive: ${lastErr?.message || 'Error de red'}`);
+    }
+
+    start = end;
+    if (totalSize === 0) break;
+  }
+
+  const finalId = finalFileObj?.id || (existing?.id || '');
   return {
-    itemId: data.id,
+    itemId: finalId,
     remotePath: `/${folderPath}/${fileName}`,
-    size: buffer.length
+    folderId: parentId,
+    size: totalSize,
+    webViewLink: finalFileObj?.webViewLink || `https://drive.google.com/file/d/${finalId}/view`,
+    folderUrl: `https://drive.google.com/drive/folders/${parentId}`
   };
+}
+
+async function uploadBufferToGoogleDrive(googleCfg, relativePath, buffer, contentType = 'application/octet-stream', fetchFn = fetch) {
+  return uploadToGoogleDriveCore({ googleCfg, relativePath, buffer, contentType, fetchFn });
+}
+
+async function uploadFileToGoogleDrive(googleCfg, relativePath, filePath, contentType = 'application/octet-stream', fetchFn = fetch) {
+  return uploadToGoogleDriveCore({ googleCfg, relativePath, filePath, contentType, fetchFn });
 }
 
 async function downloadBufferFromGoogleDrive(googleCfg, relativePath, fetchFn = fetch) {
@@ -515,6 +589,7 @@ module.exports = {
   getGoogleAccessToken,
   testGoogleDriveConnection,
   uploadBufferToGoogleDrive,
+  uploadFileToGoogleDrive,
   downloadBufferFromGoogleDrive,
   deleteItemFromGoogleDrive,
   sendGmailApiMail,

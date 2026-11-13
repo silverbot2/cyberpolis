@@ -58,6 +58,31 @@ function encryptBinaryBuffer(plainBuf, transferSecret) {
   return Buffer.concat([Buffer.from('CPV8', 'ascii'), iv, tag, enc]);
 }
 
+async function encryptFileStream(inputPath, outputPath, transferSecret) {
+  const key = crypto.createHash('sha256')
+    .update(Buffer.concat([getMasterSecretKey(), Buffer.from(':' + String(transferSecret || 'default'))]))
+    .digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+
+  const encOut = fs.createWriteStream(outputPath);
+  // Cabecera CPV8 (4 bytes) + IV (12 bytes) + 16 bytes provisionales para auth tag
+  encOut.write(Buffer.concat([Buffer.from('CPV8', 'ascii'), iv, Buffer.alloc(16, 0)]));
+
+  const readIn = fs.createReadStream(inputPath);
+  await new Promise((resolve, reject) => {
+    readIn.pipe(cipher).pipe(encOut);
+    encOut.on('finish', resolve);
+    encOut.on('error', reject);
+    readIn.on('error', reject);
+  });
+
+  const authTag = cipher.getAuthTag();
+  const fd = fs.openSync(outputPath, 'r+');
+  fs.writeSync(fd, authTag, 0, 16, 16);
+  fs.closeSync(fd);
+}
+
 function decryptBinaryBuffer(cipherBuf, transferSecret) {
   if (!Buffer.isBuffer(cipherBuf) || cipherBuf.length < 32) {
     throw new Error('Contenedor cifrado inválido.');
@@ -560,10 +585,12 @@ async function sendTransferNotificationEmail(tenantCfg, { to, subject, htmlBody,
 }
 
 module.exports = {
+  getMasterSecretKey,
   sealCloudSecret,
   unsealCloudSecret,
   encryptBinaryBuffer,
   decryptBinaryBuffer,
+  encryptFileStream,
   resolveEnvPrimaryTenant,
   resolveActiveTenantConfig,
   getMicrosoftAccessToken,

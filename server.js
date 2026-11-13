@@ -2856,20 +2856,31 @@ function sanitizeTransferForViewer(t, includeSecretLink = true) {
   };
 }
 
-async function storeEncryptedTransferFile(blobId, rawBuffer, fileName, mimeType, tenantCfg, keySalt) {
-  const sha256 = crypto.createHash('sha256').update(rawBuffer).digest('hex');
-  const encryptedBuf = cloudOneDrive.encryptBinaryBuffer(rawBuffer, keySalt);
+async function storeEncryptedTransferFile(blobId, rawBuffer, fileName, mimeType, tenantCfg, keySalt, options = {}) {
   const cleanName = sanitizeInput(String(fileName || 'archivo.bin').replace(/[/\\:*?"<>|]+/g, '_'), 120) || 'archivo.bin';
   const safeMime = sanitizeInput(String(mimeType || 'application/octet-stream'), 100) || 'application/octet-stream';
+  if (!fs.existsSync(VAULT_DIR)) fs.mkdirSync(VAULT_DIR, { recursive: true });
+
+  let encPath = options.encFilePath || path.join(VAULT_DIR, `${blobId}.enc`);
+  let sha256 = options.sha256 || '';
+  let fileSize = typeof options.size === 'number' ? options.size : 0;
+
+  if (rawBuffer && Buffer.isBuffer(rawBuffer)) {
+    sha256 = crypto.createHash('sha256').update(rawBuffer).digest('hex');
+    const encryptedBuf = cloudOneDrive.encryptBinaryBuffer(rawBuffer, keySalt);
+    fs.writeFileSync(encPath, encryptedBuf);
+    fileSize = rawBuffer.length;
+  } else if (!fileSize && fs.existsSync(encPath)) {
+    fileSize = fs.statSync(encPath).size;
+  }
 
   let storageLocation = 'vault-local';
   let oneDrivePath = '';
   let oneDriveItemId = '';
+  let driveWebViewLink = '';
+  let driveFolderId = '';
+  let driveFolderLink = '';
   let oneDriveError = '';
-
-  // 1. Guardar siempre primero de forma inmediata y resiliente en el almacén local
-  if (!fs.existsSync(VAULT_DIR)) fs.mkdirSync(VAULT_DIR, { recursive: true });
-  fs.writeFileSync(path.join(VAULT_DIR, `${blobId}.enc`), encryptedBuf);
 
   // 2. Si hay tenant de nube configurado (Google Drive / Azure OneDrive de 5 TB):
   if (tenantCfg) {
@@ -2877,28 +2888,85 @@ async function storeEncryptedTransferFile(blobId, rawBuffer, fileName, mimeType,
     const remoteRelPath = `transfers/${blobId}.enc`;
 
     // Si el archivo es moderado (<= 5 MB), sincronizar síncronamente antes de devolver
-    if (encryptedBuf.length <= 5 * 1024 * 1024) {
+    if (fileSize <= 5 * 1024 * 1024) {
       try {
         const up = isGoogle
-          ? await cloudGoogle.uploadBufferToGoogleDrive(tenantCfg, remoteRelPath, encryptedBuf, 'application/octet-stream')
-          : await cloudOneDrive.uploadBufferToOneDrive(tenantCfg, remoteRelPath, encryptedBuf, 'application/octet-stream');
+          ? await cloudGoogle.uploadFileToGoogleDrive(tenantCfg, remoteRelPath, encPath, 'application/octet-stream')
+          : await cloudOneDrive.uploadBufferToOneDrive(tenantCfg, remoteRelPath, fs.readFileSync(encPath), 'application/octet-stream');
         storageLocation = isGoogle ? 'google-drive' : 'onedrive';
         oneDrivePath = up.remotePath;
         oneDriveItemId = up.itemId || '';
+        driveWebViewLink = up.webViewLink || '';
+        driveFolderId = up.folderId || '';
+        driveFolderLink = up.folderUrl || '';
       } catch (err) {
         oneDriveError = err.message;
       }
     } else {
-      // Para archivos grandes (> 5 MB), devolver inmediatamente la respuesta y sincronizar en segundo plano
+      // Para archivos grandes (> 5 MB), responder de inmediato y sincronizar en segundo plano
       storageLocation = 'vault-local';
       setImmediate(async () => {
         try {
+          console.log(`[Enviox Cloud Sync] Subiendo ${cleanName} (${(fileSize / (1024 * 1024)).toFixed(1)} MB) a ${isGoogle ? 'Google Drive' : 'OneDrive'}...`);
           const up = isGoogle
-            ? await cloudGoogle.uploadBufferToGoogleDrive(tenantCfg, remoteRelPath, encryptedBuf, 'application/octet-stream')
-            : await cloudOneDrive.uploadBufferToOneDrive(tenantCfg, remoteRelPath, encryptedBuf, 'application/octet-stream');
+            ? await cloudGoogle.uploadFileToGoogleDrive(tenantCfg, remoteRelPath, encPath, 'application/octet-stream')
+            : await cloudOneDrive.uploadBufferToOneDrive(tenantCfg, remoteRelPath, fs.readFileSync(encPath), 'application/octet-stream');
           console.log(`[Enviox Cloud Sync Background OK] ${blobId}.enc subido a ${isGoogle ? 'Google Drive' : 'OneDrive'}: ${up.remotePath}`);
+
+          // Persistir actualización en transfers.json y en el store en memoria
+          const allTransfers = readJSON(TRANSFERS_FILE, []);
+          let changed = false;
+          for (const t of allTransfers) {
+            const fileList = Array.isArray(t.files) ? t.files : (t.file ? [t.file] : []);
+            const fMatch = fileList.find(f => f.blobId === blobId);
+            if (fMatch) {
+              fMatch.storageLocation = isGoogle ? 'google-drive' : 'onedrive';
+              fMatch.oneDrivePath = up.remotePath;
+              fMatch.oneDriveItemId = up.itemId || '';
+              fMatch.driveWebViewLink = up.webViewLink || `https://drive.google.com/file/d/${up.itemId}/view`;
+              fMatch.driveFolderId = up.folderId || '';
+              fMatch.driveFolderLink = up.folderUrl || (up.folderId ? `https://drive.google.com/drive/folders/${up.folderId}` : '');
+              delete fMatch.cloudSyncError;
+
+              t.legalAudit = Array.isArray(t.legalAudit) ? t.legalAudit : [];
+              t.legalAudit.push({
+                timestamp: new Date().toISOString(),
+                ip: '127.0.0.1',
+                userAgent: 'Enviox-Cloud-Daemon/8.4',
+                event: 'cloud_sync_completed',
+                details: `Archivo cifrado subido y verificado en ${isGoogle ? 'Google Drive' : 'OneDrive'}: ${up.remotePath} (ID: ${up.itemId || 'OK'})`
+              });
+              changed = true;
+            }
+          }
+          if (changed) {
+            writeJSON(TRANSFERS_FILE, allTransfers, { critical: true });
+            if (store) store.write('transfers', allTransfers);
+          }
         } catch (bgErr) {
           console.warn(`[Enviox Cloud Sync Background Warning] ${blobId}.enc:`, bgErr.message);
+          const allTransfers = readJSON(TRANSFERS_FILE, []);
+          let changed = false;
+          for (const t of allTransfers) {
+            const fileList = Array.isArray(t.files) ? t.files : (t.file ? [t.file] : []);
+            const fMatch = fileList.find(f => f.blobId === blobId);
+            if (fMatch) {
+              fMatch.cloudSyncError = bgErr.message;
+              t.legalAudit = Array.isArray(t.legalAudit) ? t.legalAudit : [];
+              t.legalAudit.push({
+                timestamp: new Date().toISOString(),
+                ip: '127.0.0.1',
+                userAgent: 'Enviox-Cloud-Daemon/8.4',
+                event: 'cloud_sync_failed',
+                details: `Error al sincronizar archivo con ${isGoogle ? 'Google Drive' : 'OneDrive'}: ${bgErr.message}`
+              });
+              changed = true;
+            }
+          }
+          if (changed) {
+            writeJSON(TRANSFERS_FILE, allTransfers, { critical: true });
+            if (store) store.write('transfers', allTransfers);
+          }
         }
       });
     }
@@ -2908,11 +2976,14 @@ async function storeEncryptedTransferFile(blobId, rawBuffer, fileName, mimeType,
     blobId,
     fileName: cleanName,
     mimeType: safeMime,
-    size: rawBuffer.length,
+    size: fileSize,
     sha256,
     storageLocation,
     oneDrivePath,
     oneDriveItemId,
+    driveWebViewLink,
+    driveFolderId,
+    driveFolderLink,
     oneDriveError: oneDriveError || undefined
   };
 }
