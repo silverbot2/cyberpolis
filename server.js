@@ -6432,12 +6432,14 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (pathname.startsWith('/api/enviox') || pathname.startsWith('/api/tranxfer')) {
+    const lowerPath = pathname.toLowerCase();
+    if (lowerPath.startsWith('/api/enviox') || lowerPath.startsWith('/api/tranxfer')) {
       const handled = await (envioxBackend.handleEnvioxApi || envioxBackend.handleTranxferApi)(req, res, pathname, method, {
         getSessionUser,
         parseBody,
         getDbStore: () => store,
         readCloudStore,
+        writeCloudStore,
         cloudOneDrive,
         cloudGoogle,
         storeEncryptedTransferFile,
@@ -6448,7 +6450,7 @@ const server = http.createServer(async (req, res) => {
             subject,
             textBody,
             htmlBody,
-            mailGateway
+            mailGateway: mailGateway || cloudGoogle.resolveActiveMailGateway(readCloudStore())
           });
         },
         sendJSON,

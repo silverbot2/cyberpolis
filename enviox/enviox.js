@@ -236,7 +236,7 @@
   // Inicialización de datos desde el backend
   async function loadInitData() {
     try {
-      const res = await fetch('/api/Enviox/init');
+      const res = await fetch('/api/enviox/init');
       if (res.ok) {
         const data = await res.json();
         if (data.settings) state.settings = Object.assign(state.settings, data.settings);
@@ -485,7 +485,7 @@
         files: encodedFiles
       };
 
-      const res = await fetch('/api/Enviox/send', {
+      const res = await fetch('/api/enviox/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -562,7 +562,7 @@
         tags: dom.receiveTags ? dom.receiveTags.value.trim() : ''
       };
 
-      const res = await fetch('/api/Enviox/receive-request', {
+      const res = await fetch('/api/enviox/receive-request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -593,7 +593,7 @@
   // ==========================================
   async function fetchRecords() {
     try {
-      const res = await fetch('/api/Enviox/records');
+      const res = await fetch('/api/enviox/records');
       if (res.ok) {
         const data = await res.json();
         state.records = data.records || [];
@@ -760,7 +760,7 @@
 
     for (const id of checked) {
       try {
-        await fetch('/api/Enviox/cancel', {
+        await fetch('/api/enviox/cancel', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id })
@@ -983,7 +983,7 @@
     };
 
     try {
-      const res = await fetch('/api/Enviox/settings', {
+      const res = await fetch('/api/enviox/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -1021,12 +1021,17 @@
   }
 
   async function saveCloudTenantConfig() {
+    const isAzure = !!getVal('cfgAzureTenantId');
     const payload = {
-      providerType: 'google-drive',
-      clientId: getVal('cfgGoogleClientId'),
-      folderId: getVal('cfgGoogleFolderId'),
+      providerType: isAzure ? 'onedrive' : 'google-drive',
+      clientId: isAzure ? getVal('cfgAzureClientId') : getVal('cfgGoogleClientId'),
+      clientSecret: isAzure ? getVal('cfgAzureClientSecret') : getVal('cfgGoogleClientSecret'),
+      googleClientId: getVal('cfgGoogleClientId'),
+      googleClientSecret: getVal('cfgGoogleClientSecret'),
+      googleFolderId: getVal('cfgGoogleFolderId'),
       azureTenantId: getVal('cfgAzureTenantId'),
-      azureClientId: getVal('cfgAzureClientId')
+      azureClientId: getVal('cfgAzureClientId'),
+      azureClientSecret: getVal('cfgAzureClientSecret')
     };
     try {
       const res = await fetch('/api/enviox/cloud-config', {
@@ -1036,15 +1041,29 @@
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || 'Error guardando credenciales');
-      alert(d.message || 'Credenciales de Tenant y Nube de 5 TB actualizadas.');
+      alert('✅ ' + (d.message || 'Credenciales de Tenant y Nube de 5 TB actualizadas.'));
       loadCloudTenantConfig();
     } catch (e) {
-      alert('Error: ' + e.message);
+      alert('❌ Error: ' + e.message);
     }
   }
 
-  function testCloudConnection() {
-    alert('Conexión con la bóveda de 5 TB verificada con éxito (Cifrado AES-256-GCM y permisos de lectura/escritura confirmados).');
+  async function testCloudConnection() {
+    try {
+      const isAzure = !!getVal('cfgAzureTenantId');
+      const res = await fetch('/api/enviox/cloud-config/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          providerType: isAzure ? 'onedrive' : 'google-drive'
+        })
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Fallo al verificar la nube');
+      alert(`✅ ${d.message || 'Conexión con la bóveda de 5 TB verificada con éxito.'}\nProveedor: ${d.tenantName || 'Bóveda 5 TB'}\nCapacidad: ${d.capacity || '5 TB'}`);
+    } catch (e) {
+      alert('⚠️ ' + e.message);
+    }
   }
 
   // --- GESTIÓN DE USUARIOS (CRUD REAL) ---
@@ -1550,13 +1569,31 @@
         const d = await res.json();
         state.channels = d.channels || {};
         const ch = state.channels;
+        setVal('cfgMailMode', ch.mode || 'gmail_app_password');
         setVal('cfgSmtpHost', ch.smtpHost || 'smtp.gmail.com');
-        setVal('cfgSmtpPort', ch.smtpPort || 587);
+        setVal('cfgSmtpPort', ch.smtpPort || 465);
         setVal('cfgSmtpUser', ch.smtpUser || '');
-        setVal('cfgSmtpFromName', ch.fromName || 'ENVIOX Notificaciones');
+        if (ch.hasPassword) {
+          const pEl = document.getElementById('cfgSmtpPassword');
+          if (pEl) pEl.placeholder = '•••••••••••••••• (Guardada en el servidor)';
+        }
+        setVal('cfgSmtpFromName', ch.fromName || 'CYBERPOLIS ENVIOX');
         setChecked('cfgNotifyOnSend', ch.notifyOnSend !== false);
         setChecked('cfgNotifyOnDownload', ch.notifyOnDownload !== false);
         setChecked('cfgNotifyOnExpiry', ch.notifyOnExpiry !== false);
+
+        const modeEl = document.getElementById('cfgMailMode');
+        if (modeEl && !modeEl._boundChange) {
+          modeEl._boundChange = true;
+          modeEl.addEventListener('change', () => {
+            if (modeEl.value === 'gmail_app_password') {
+              setVal('cfgSmtpHost', 'smtp.gmail.com');
+              setVal('cfgSmtpPort', 465);
+            } else if (modeEl.value === 'custom_smtp') {
+              setVal('cfgSmtpPort', 587);
+            }
+          });
+        }
       }
     } catch (e) {
       console.warn('Error cargando canales:', e.message);
@@ -1565,10 +1602,12 @@
 
   async function saveChannels() {
     const payload = {
-      smtpHost: getVal('cfgSmtpHost'),
-      smtpPort: getValNum('cfgSmtpPort', 587),
+      mode: getVal('cfgMailMode') || 'gmail_app_password',
+      smtpHost: getVal('cfgSmtpHost') || 'smtp.gmail.com',
+      smtpPort: getValNum('cfgSmtpPort', 465),
       smtpUser: getVal('cfgSmtpUser'),
-      fromName: getVal('cfgSmtpFromName'),
+      smtpPassword: getVal('cfgSmtpPassword'),
+      fromName: getVal('cfgSmtpFromName') || 'CYBERPOLIS ENVIOX',
       notifyOnSend: isChecked('cfgNotifyOnSend'),
       notifyOnDownload: isChecked('cfgNotifyOnDownload'),
       notifyOnExpiry: isChecked('cfgNotifyOnExpiry')
@@ -1581,14 +1620,32 @@
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || 'Error guardando canales');
-      alert('Configuración de canales de notificación y pasarela de correo guardada.');
+      alert('✅ ' + (d.message || 'Canales de notificación y pasarela de correo guardados con éxito.'));
+      fetchChannels();
     } catch (e) {
-      alert(e.message);
+      alert('❌ ' + e.message);
     }
   }
 
-  function testEmailChannel() {
-    alert('Correo de prueba de notificación despachado a través de la pasarela SMTP corporativa.');
+  async function testEmailChannel() {
+    const defaultTo = getVal('cfgTestEmailTo') || getVal('cfgSmtpUser') || '';
+    const to = getVal('cfgTestEmailTo') || prompt('Introduce el correo destino para la prueba:', defaultTo);
+    if (!to || !to.includes('@')) {
+      alert('Indica una dirección de correo válida para realizar la prueba.');
+      return;
+    }
+    try {
+      const res = await fetch('/api/enviox/channels/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to })
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Fallo al despachar correo de prueba');
+      alert(`✅ ${d.message || 'Correo de prueba enviado con éxito a ' + to}`);
+    } catch (e) {
+      alert('❌ ' + e.message);
+    }
   }
 
   // --- INFORMES Y AUDITORÍA FORENSE ---
@@ -1798,7 +1855,7 @@
   window.cancelTransferDirectly = async function(id) {
     if (confirm('¿Confirmas la cancelación inmediata y revocación del acceso a los ficheros?')) {
       try {
-        await fetch('/api/Enviox/cancel', {
+        await fetch('/api/enviox/cancel', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id })
@@ -1872,7 +1929,7 @@
     if (cancelBtn) {
       cancelBtn.addEventListener('click', async () => {
         if (confirm(`¿Revocar acceso al enlace ${record.reference}?`)) {
-          await fetch('/api/Enviox/cancel', {
+          await fetch('/api/enviox/cancel', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id: record.id })
@@ -1996,7 +2053,7 @@
       }
 
       try {
-        const res = await fetch('/api/Enviox/contacts', {
+        const res = await fetch('/api/enviox/contacts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, name, phone, language })

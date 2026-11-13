@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ENVIOX — Envío y Recepción Segura de Archivos (5 TB)</title>
-  <link rel="stylesheet" href="/enviox/enviox.css?v=8.3.2">
+  <link rel="stylesheet" href="/enviox/enviox.css?v=8.3.3">
   <script>
     // Acceso directo e infalible a Ajustes y Administración desde el engranaje ⚙️
     function openAdminSettings(e) {
@@ -1016,27 +1016,56 @@
             <h2 style="font-size:22px;color:var(--tx-navy);font-weight:700;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Canales de notificación y Pasarela de Correo</h2>
             
             <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin-bottom:20px;">
-              <h3 style="font-size:15px;color:var(--tx-navy);font-weight:700;margin-top:0;margin-bottom:12px;">✉️ Configuración de Pasarela SMTP / Correo Saliente</h3>
+              <h3 style="font-size:15px;color:var(--tx-navy);font-weight:700;margin-top:0;margin-bottom:8px;">✉️ Pasarela de Correo Electrónico (Tu Gmail / Contraseña de Aplicación / SMTP)</h3>
+              <p style="font-size:13px;color:#475569;margin-top:0;margin-bottom:16px;line-height:1.5;">
+                Configura aquí la cuenta con la que CYBERPOLIS ENVIOX enviará los avisos automáticos a los usuarios (archivos recibidos, acuses de recibo y caducidades). Si usas tu cuenta de Gmail o Google One 5 TB, introduce tu correo y tu <strong>Contraseña de Aplicación de Google (16 caracteres)</strong>.
+              </p>
+
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                <div class="tx-setting-item" style="grid-column: 1 / -1;">
+                  <label class="tx-setting-label">Método de Envío / Tipo de Pasarela</label>
+                  <select id="cfgMailMode" class="tx-setting-input">
+                    <option value="gmail_app_password" selected>⭐ Gmail + Contraseña de Aplicación (smtp.gmail.com:465) — Recomendado</option>
+                    <option value="gmail_oauth2">🔑 Gmail API (Google OAuth2 vinculado con Google Drive)</option>
+                    <option value="custom_smtp">🏢 SMTP Personalizado / Servidor Corporativo</option>
+                  </select>
+                </div>
+
+                <div class="tx-setting-item">
+                  <label class="tx-setting-label">Tu Correo Electrónico (Gmail / Cuenta Saliente) *</label>
+                  <input type="email" id="cfgSmtpUser" class="tx-setting-input" placeholder="tu_correo@gmail.com">
+                </div>
+
+                <div class="tx-setting-item">
+                  <label class="tx-setting-label">Contraseña de Aplicación de Google (16 caracteres) *</label>
+                  <input type="password" id="cfgSmtpPassword" class="tx-setting-input" placeholder="16 letras Google App Password (ej: abcd efgh ijkl mnop)" autocomplete="new-password">
+                </div>
+
+                <div class="tx-setting-item">
+                  <label class="tx-setting-label">Nombre del Remitente en los Correos</label>
+                  <input type="text" id="cfgSmtpFromName" class="tx-setting-input" value="CYBERPOLIS ENVIOX">
+                </div>
+
                 <div class="tx-setting-item">
                   <label class="tx-setting-label">Servidor SMTP</label>
                   <input type="text" id="cfgSmtpHost" class="tx-setting-input" value="smtp.gmail.com">
                 </div>
+
                 <div class="tx-setting-item">
                   <label class="tx-setting-label">Puerto SMTP</label>
-                  <input type="number" id="cfgSmtpPort" class="tx-setting-input" value="587">
-                </div>
-                <div class="tx-setting-item">
-                  <label class="tx-setting-label">Usuario / Correo remitente</label>
-                  <input type="email" id="cfgSmtpUser" class="tx-setting-input" placeholder="notificaciones@cyberpolis.es">
-                </div>
-                <div class="tx-setting-item">
-                  <label class="tx-setting-label">Nombre para mostrar</label>
-                  <input type="text" id="cfgSmtpFromName" class="tx-setting-input" value="ENVIOX Notificaciones">
+                  <input type="number" id="cfgSmtpPort" class="tx-setting-input" value="465">
                 </div>
               </div>
 
-              <h4 style="font-size:14px;color:var(--tx-navy);font-weight:700;margin-top:18px;margin-bottom:8px;">Eventos con aviso automático:</h4>
+              <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:12px;margin-top:14px;font-size:12.5px;color:#1e40af;line-height:1.5;">
+                💡 <strong>¿Cómo obtener tu Contraseña de Aplicación en Google?</strong><br>
+                1. Ve a tu cuenta de Google (<a href="https://myaccount.google.com/security" target="_blank" style="color:#1d4ed8;font-weight:bold;text-decoration:underline;">myaccount.google.com/security</a>).<br>
+                2. En la sección <em>Seguridad</em>, asegúrate de tener activada la <strong>Verificación en dos pasos</strong>.<br>
+                3. Haz clic en <strong>Contraseñas de aplicaciones</strong>, escribe de nombre <code>Cyberpolis Enviox</code> y pulsa <em>Crear</em>.<br>
+                4. Copia las 16 letras que genera Google y pégalas en el campo de arriba. ¡Listo!
+              </div>
+
+              <h4 style="font-size:14px;color:var(--tx-navy);font-weight:700;margin-top:20px;margin-bottom:8px;">Eventos con aviso automático por correo:</h4>
               <div style="display:flex;flex-direction:column;gap:8px;">
                 <label style="font-size:13px;display:flex;align-items:center;gap:8px;color:#334e68;">
                   <input type="checkbox" id="cfgNotifyOnSend" checked> Notificar al destinatario con enlace seguro al realizar un envío
@@ -1049,9 +1078,12 @@
                 </label>
               </div>
 
-              <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:20px;">
-                <button type="button" class="tx-btn-outline" id="btnTestEmailChannel">✉️ Enviar correo de prueba</button>
-                <button type="button" class="tx-pill-btn-small" id="btnSaveChannels" style="background:var(--tx-navy);">Guardar Canales de Notificación</button>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:24px;flex-wrap:wrap;gap:12px;border-top:1px solid #e2e8f0;padding-top:18px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <input type="email" id="cfgTestEmailTo" class="tx-setting-input" placeholder="Correo destino de prueba" style="width:240px;margin:0;">
+                  <button type="button" class="tx-btn-outline" id="btnTestEmailChannel">✉️ Enviar prueba</button>
+                </div>
+                <button type="button" class="tx-pill-btn-small" id="btnSaveChannels" style="background:var(--tx-navy);">Guardar Pasarela y Canales</button>
               </div>
             </div>
           </div>
@@ -1242,6 +1274,6 @@
     </div>
   </div>
 
-  <script src="/enviox/enviox.js?v=8.3.2"></script>
+  <script src="/enviox/enviox.js?v=8.3.3"></script>
 </body>
 </html>
